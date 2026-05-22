@@ -1,0 +1,17 @@
+# Arduino build output
+build/
+*.elf
+*.hex
+*.bin
+*.map
+
+# Arduino IDE temp files
+*.bak
+*.tmp
+
+# Test logs
+*.log
+
+# Windows
+Thumbs.db
+desktop.ini

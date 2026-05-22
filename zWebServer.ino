@@ -1,0 +1,1514 @@
+// ── Web server – port 80 ───────────────────────────────────────────────────────
+// Non-blocking: handleWebClient() is called every loop() iteration.
+// When no browser is connected the call returns in < 1 µs.
+
+#include <stdarg.h>
+
+EthernetServer webServer(80);
+
+static bool          pendingRestart = false;
+static elapsedMillis restartDelay   = 0;
+
+// ── Serial-to-web log ring buffer ─────────────────────────────────────────────
+#define LOG_BUF_SIZE 4096
+static char     logBuf[LOG_BUF_SIZE];
+static uint16_t logWrite   = 0;
+static bool     logWrapped = false;
+
+// ── GPS raw ring buffer (UM98x config tab) ────────────────────────────────────
+#define GPS_RAW_BUF_SIZE 4096
+static char     gpsRawBuf[GPS_RAW_BUF_SIZE];
+static uint16_t gpsRawWrite   = 0;
+static bool     gpsRawWrapped = false;
+
+void gpsRawByte(uint8_t c)
+{
+    gpsRawBuf[gpsRawWrite] = (char)c;
+    if (++gpsRawWrite >= GPS_RAW_BUF_SIZE) { gpsRawWrite = 0; gpsRawWrapped = true; }
+}
+
+void webLog(const char* msg)
+{
+    if (!msg) return;
+    while (*msg) {
+        logBuf[logWrite] = *msg++;
+        if (++logWrite >= LOG_BUF_SIZE) { logWrite = 0; logWrapped = true; }
+    }
+    logBuf[logWrite] = '\n';
+    if (++logWrite >= LOG_BUF_SIZE) { logWrite = 0; logWrapped = true; }
+}
+
+void webLogf(const char* fmt, ...)
+{
+    char tmp[128];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(tmp, sizeof(tmp), fmt, ap);
+    va_end(ap);
+    webLog(tmp);
+}
+
+// ── HTML page stored in flash ──────────────────────────────────────────────────
+static const char HTML_PAGE[] = R"AIOHTML(<!DOCTYPE html>
+<html lang="hr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AIO v4 Config</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:monospace;background:#0f172a;color:#e2e8f0;padding:12px;font-size:15px}
+h1{color:#38bdf8;margin-bottom:12px;font-size:1.1em;letter-spacing:1px}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tab{padding:6px 16px;background:#1e293b;border:1px solid #334155;color:#94a3b8;cursor:pointer;border-radius:4px;font-family:monospace;font-size:14px}
+.tab.active{border-color:#38bdf8;color:#38bdf8;background:#0c1a2e}
+.panel{display:none}.panel.active{display:block}
+.card{background:#1e293b;border:1px solid #334155;border-radius:6px;padding:12px;margin-bottom:10px}
+.card h2{color:#38bdf8;font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #334155;display:flex;align-items:center;gap:8px;font-weight:bold}
+.row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #1e293b}
+.row:last-child{border-bottom:none}
+.lbl{color:#cbd5e1;font-size:15px;font-weight:500}
+.val{color:#e2e8f0;text-align:right}
+.badge{padding:1px 8px;border-radius:3px;font-size:13px;font-weight:bold;min-width:50px;text-align:center;display:inline-block}
+.ok{background:#052e16;color:#4ade80}
+.fail{background:#1c0505;color:#f87171}
+select{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:4px 6px;border-radius:3px;font-family:monospace;font-size:14px;min-width:200px}
+.btn{padding:7px 18px;background:#0284c7;color:#fff;border:none;border-radius:4px;cursor:pointer;font-family:monospace;font-size:14px;margin-top:10px}
+.btn:hover{background:#0369a1}
+.btn.green{background:#15803d}.btn.green:hover{background:#166534}
+.btn.sm{padding:3px 10px;font-size:13px;margin-top:0;margin-left:auto}
+.chk-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:15px;color:#e2e8f0}
+input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:#38bdf8}
+#sb{font-size:13px;color:#64748b;margin-top:8px;padding-top:6px;border-top:1px solid #1e293b}
+.section-row{display:flex;gap:10px;flex-wrap:wrap}
+.section-row .card{flex:1;min-width:280px}
+#log,#gpsraw{background:#050d1a;border:1px solid #1e3a5f;border-radius:3px;padding:8px;height:320px;overflow-y:scroll;font-size:13px;color:#7dd3fc;white-space:pre-wrap;word-break:break-all;margin-top:8px}
+textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334155;color:#7dd3fc;font-family:monospace;font-size:14px;padding:6px;border-radius:3px;resize:vertical}
+.btn.red{background:#7f1d1d}.btn.red:hover{background:#991b1b}
+.ninput{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:4px 6px;border-radius:3px;font-family:monospace;font-size:14px;width:80px;text-align:right}
+</style>
+</head>
+<body>
+<h1>&#9881; AIO v4 | Web Config</h1>
+<div class="tabs">
+<button class="tab active" onclick="showTab('config',this)">Config</button>
+<button class="tab" onclick="showTab('keya',this)">Keya</button>
+<button class="tab" onclick="showTab('cansteer',this)">CAN Steer</button>
+<button class="tab" onclick="showTab('debug',this)">Debug</button>
+<button class="tab" onclick="showTab('um98x',this)">UM98x Config</button>
+</div>
+
+<!-- CONFIG TAB -->
+<div id="config" class="panel active">
+
+<div class="section-row">
+<div class="card">
+<h2>Auto-detected devices</h2>
+<div class="row"><span class="lbl">GPS (main receiver)</span><span id="d5" class="badge fail">?</span></div>
+<div class="row"><span class="lbl">BNO085 I2C</span><span id="d1" class="badge fail">?</span></div>
+<div class="row"><span class="lbl">TM171 IMU (Serial2)</span><span id="d2" class="badge fail">?</span></div>
+<div class="row"><span class="lbl">Keya motor</span><span id="d3" class="badge fail">?</span></div>
+<div class="row"><span class="lbl">WAS</span><span id="d4" class="badge fail">?</span></div>
+<p style="color:#64748b;font-size:12px;margin-top:8px;line-height:1.4">WAS shows active source: ADS1115 / Keya encoder / CAN valve — whichever has highest priority.</p>
+</div>
+
+<div class="card">
+<h2>CAN port assignment <span style="color:#64748b;font-weight:normal;font-size:11px">— restart required on change</span></h2>
+<p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">Map each physical CAN port to its function and baud rate.</p>
+<div class="row"><span class="lbl">CAN1</span>
+<select id="can1Mode" style="flex:2">
+<option value="0">Off</option>
+<option value="1">Keya motor</option>
+<option value="2">IMU as WAS</option>
+<option value="3">V_Bus (steer valve)</option>
+<option value="4">K_Bus (Fendt engage)</option>
+<option value="5">ISO_Bus (engage/hitch)</option>
+<option value="6">J1939/NMEA broadcast</option>
+<option value="7">CANtest (loopback)</option>
+<option value="8">Custom</option>
+</select>
+<select id="can1Baud" style="flex:1;margin-left:6px">
+<option value="125000">125k</option>
+<option value="250000">250k</option>
+<option value="500000">500k</option>
+<option value="1000000">1M</option>
+</select></div>
+<div class="row"><span class="lbl">CAN2</span>
+<select id="can2Mode" style="flex:2">
+<option value="0">Off</option>
+<option value="1">Keya motor</option>
+<option value="2">IMU as WAS</option>
+<option value="3">V_Bus (steer valve)</option>
+<option value="4">K_Bus (Fendt engage)</option>
+<option value="5">ISO_Bus (engage/hitch)</option>
+<option value="6">J1939/NMEA broadcast</option>
+<option value="7">CANtest (loopback)</option>
+<option value="8">Custom</option>
+</select>
+<select id="can2Baud" style="flex:1;margin-left:6px">
+<option value="125000">125k</option>
+<option value="250000">250k</option>
+<option value="500000">500k</option>
+<option value="1000000">1M</option>
+</select></div>
+<div class="row"><span class="lbl">CAN3</span>
+<select id="can3Mode" style="flex:2">
+<option value="0">Off</option>
+<option value="1">Keya motor</option>
+<option value="2">IMU as WAS</option>
+<option value="3">V_Bus (steer valve)</option>
+<option value="4">K_Bus (Fendt engage)</option>
+<option value="5">ISO_Bus (engage/hitch)</option>
+<option value="6">J1939/NMEA broadcast</option>
+<option value="7">CANtest (loopback)</option>
+<option value="8">Custom</option>
+</select>
+<select id="can3Baud" style="flex:1;margin-left:6px">
+<option value="125000">125k</option>
+<option value="250000">250k</option>
+<option value="500000">500k</option>
+<option value="1000000">1M</option>
+</select></div>
+<button class="btn green" onclick="saveCanModes()" style="margin-top:8px">Save CAN assignment (restart)</button>
+</div>
+
+<div class="card">
+<h2>WAS source</h2>
+<p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">Select which sensor provides the wheel angle. The corresponding CAN port must also be configured above.</p>
+<div class="row"><span class="lbl">WAS sensor</span>
+<select id="wasSource">
+<option value="0">ADS1115 (analog sensor)</option>
+<option value="1">Keya encoder</option>
+<option value="2">IMU via CAN</option>
+<option value="3">CAN valve (V_Bus)</option>
+</select></div>
+<button class="btn green" onclick="saveWasSource()" style="margin-top:8px">Save WAS source</button>
+</div>
+
+<div class="card">
+<h2>Live data</h2>
+<div class="row"><span class="lbl">Steer angle actual</span><span class="val" id="l0">-</span></div>
+<div class="row"><span class="lbl">Steer setpoint</span><span class="val" id="l1">-</span></div>
+<div class="row"><span class="lbl">GPS speed</span><span class="val" id="l2">-</span></div>
+<div class="row"><span class="lbl">Autosteer</span><span id="l3" class="badge fail">OFF</span></div>
+</div>
+</div>
+
+<div class="card">
+<h2>Settings received from AgIO (read-only)</h2>
+<div class="section-row" style="gap:0">
+<div style="flex:1;min-width:200px">
+<div class="row"><span class="lbl">Kp</span><span class="val" id="u0">-</span></div>
+<div class="row"><span class="lbl">High PWM</span><span class="val" id="u1">-</span></div>
+<div class="row"><span class="lbl">Low PWM</span><span class="val" id="u2">-</span></div>
+<div class="row"><span class="lbl">Min PWM</span><span class="val" id="u3">-</span></div>
+<div class="row"><span class="lbl">Sensor counts/deg</span><span class="val" id="u4">-</span></div>
+<div class="row"><span class="lbl">WAS offset</span><span class="val" id="u5">-</span></div>
+</div>
+<div style="flex:1;min-width:200px;padding-left:10px">
+<div class="row"><span class="lbl">Invert WAS</span><span class="val" id="u6">-</span></div>
+<div class="row"><span class="lbl">Cytron driver</span><span class="val" id="u7">-</span></div>
+<div class="row"><span class="lbl">Shaft encoder</span><span class="val" id="u8">-</span></div>
+<div class="row"><span class="lbl">Pressure sensor</span><span class="val" id="u9">-</span></div>
+<div class="row"><span class="lbl">Current sensor</span><span class="val" id="u10">-</span></div>
+<div class="row"><span class="lbl">Danfoss</span><span class="val" id="u11">-</span></div>
+</div>
+</div>
+</div>
+
+
+<div class="card">
+<h2>Motor (PWM) speed-direction disengage</h2>
+<p style="color:#f59e0b;font-size:13px;margin-bottom:8px">&#9888; Current Sensor must be enabled in AOG</p>
+<div class="row"><span class="lbl">Enable</span>
+<input type="checkbox" id="md0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div class="row"><span class="lbl">Angle error min (deg)</span>
+<input type="number" id="md1" min="0" max="30" step="1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Minimum steer angle error (degrees) before motor movement is considered a hand override. Higher = less sensitive.</p>
+<div class="row"><span class="lbl">SpeedDiff timeout (ms)</span>
+<input type="number" id="md2" min="0" max="5000" step="10" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How long the motor must run in the wrong direction before autosteer is cut. Shorter = more sensitive to hand override.</p>
+<button class="btn green" onclick="saveMotor()" style="margin-top:8px">Save Motor params</button>
+</div>
+
+<div class="card">
+<h2>IMU as WAS</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Wheel-mounted IMU sends yaw over CAN1 (ID 0x300, 250 kbps). Set WAS = IMUasWAS and CAN1 = IMUasWAS above. Requires chassis IMU active.</p>
+<div class="row"><span class="lbl">Invert direction <small style="color:#64748b">(def OFF)</small></span>
+<input type="checkbox" id="iw0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Flip the sign of the measured wheel angle. Enable if turning right shows a negative angle.</p>
+<div class="row"><span class="lbl">Sensitivity scale <small style="color:#64748b">(def 1.0)</small></span>
+<input type="number" id="iw1" min="0.5" max="2.0" step="0.01" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Scales the raw angle delta between wheel and chassis IMU. Increase if steering angle reads too small, decrease if too large.</p>
+<button class="btn" onclick="setImuWasZero()" style="margin-top:6px">Set Zero Now</button>
+<p style="color:#94a3b8;font-size:10px;margin:3px 0 5px;line-height:1.3">Resets integrators so the current wheel position reads 0°. Use with wheels pointing straight ahead.</p>
+<div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
+<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Auto-zero — GPS drift correction</div>
+<div class="row"><span class="lbl">Enable <small style="color:#64748b">(def ON)</small></span>
+<input type="checkbox" id="iw2" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Automatically corrects slow IMU drift by comparing measured angle to GPS-computed wheel angle while driving straight.</p>
+<div class="row"><span class="lbl">Beta / correction fraction <small style="color:#64748b">(def 0.05)</small></span>
+<input type="number" id="iw3" min="0.001" max="1" step="0.001" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How aggressively auto-zero corrects drift each cycle. 0.05 = slow and stable, 0.3 = fast but may hunt.</p>
+<div class="row"><span class="lbl">Min GPS speed km/h <small style="color:#64748b">(def 1.0)</small></span>
+<input type="number" id="iw4" min="0" max="25" step="0.5" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Auto-zero only runs above this speed. Prevents false corrections when stationary or moving very slowly.</p>
+<div class="row"><span class="lbl">Max chassis yaw rate deg/s <small style="color:#64748b">(def 0.8)</small></span>
+<input type="number" id="iw5" min="0.1" max="10" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Maximum chassis rotation rate to consider the vehicle driving straight. Lower = stricter straight detection, fewer false corrections.</p>
+<button class="btn green" onclick="saveImuWas()" style="margin-top:8px">Save IMU WAS params</button>
+</div>
+
+</div><!-- /config -->
+
+<!-- KEYA TAB -->
+<div id="keya" class="panel">
+
+<div class="card">
+<h2>Keya status</h2>
+<div class="row"><span class="lbl">Detected</span><span id="k_det" class="badge fail">--</span></div>
+<div class="row"><span class="lbl">Actual motor speed</span><span class="val" id="k_act">-</span></div>
+<div class="row"><span class="lbl">Set motor speed</span><span class="val" id="k_set">-</span></div>
+</div>
+
+<div class="card">
+<h2>Keya encoder as WAS — parameters</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Activate by setting WAS source to "Keya encoder" above. ADS1115 settings in AgIO have no effect when Keya encoder is selected.</p>
+<div class="row"><span class="lbl">Ticks per degree <small style="color:#64748b">(def 24)</small></span>
+<input type="number" id="kw1" min="1" max="500" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Encoder resolution — how many encoder ticks equal one degree of wheel angle. Measure by turning wheel a known angle and counting ticks.</p>
+<div class="row"><span class="lbl">Invert encoder <small style="color:#64748b">(def OFF)</small></span>
+<input type="checkbox" id="kw2" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Flip encoder direction. Enable if turning right shows a negative angle.</p>
+<div class="row"><span class="lbl">EMA filter alpha <small style="color:#64748b">(def 0.0 = off, 0.3 = medium)</small></span>
+<input type="number" id="kwema" min="0" max="0.99" step="0.01" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Smoothing filter on WAS output. 0 = off, 0.3 = medium, 0.8 = heavy. Higher values reduce noise but add lag.</p>
+<div class="row"><span class="lbl">Zero offset (ticks)</span><span class="val" id="kw3">-</span></div>
+<button class="btn" onclick="setKeyaZero()" style="margin-top:6px">Set Zero Now</button>
+<p style="color:#94a3b8;font-size:10px;margin:3px 0 5px;line-height:1.3">Saves current encoder position as the straight-ahead zero point. Use with wheels pointing straight ahead.</p>
+<div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
+<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Auto-zero — GPS drift correction</div>
+<div class="row"><span class="lbl">Enable <small style="color:#64748b">(def ON)</small></span>
+<input type="checkbox" id="kw4" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Automatically corrects slow encoder drift by comparing to GPS-computed wheel angle while driving straight.</p>
+<div class="row"><span class="lbl">Beta / correction fraction <small style="color:#64748b">(def 0.05)</small></span>
+<input type="number" id="kw5" min="0.001" max="1" step="0.001" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How aggressively auto-zero corrects encoder drift each cycle. 0.05 = slow and stable, 0.3 = fast but may hunt.</p>
+<div class="row"><span class="lbl">Min speed km/h <small style="color:#64748b">(def 1)</small></span>
+<input type="number" id="kw6" min="0" max="25" step="0.5" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Auto-zero only runs above this speed. Prevents false corrections when stationary or moving very slowly.</p>
+<div class="row"><span class="lbl">Max yaw rate deg/s <small style="color:#64748b">(def 1.0)</small></span>
+<input type="number" id="kw7" min="0.1" max="10" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Maximum chassis yaw rate to consider the vehicle driving straight. Lower = stricter, higher = more permissive.</p>
+<div class="row"><span class="lbl">Speed slow threshold km/h <small style="color:#64748b">(def 3)</small></span>
+<input type="number" id="kw8" min="0" max="25" step="1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed the longer straight time applies. Reduces false corrections at low speed turns and headland manoeuvres.</p>
+<div class="row"><span class="lbl">Straight time at slow speed ms <small style="color:#64748b">(def 500)</small></span>
+<input type="number" id="kw10" min="100" max="2000" step="50" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Time vehicle must drive straight below the slow threshold before auto-zero applies a correction.</p>
+<div class="row"><span class="lbl">Straight time at fast speed ms <small style="color:#64748b">(def 200)</small></span>
+<input type="number" id="kw11" min="50" max="1000" step="50" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Time vehicle must drive straight above the slow threshold before auto-zero applies a correction.</p>
+<button class="btn green" onclick="saveKeyaWas()" style="margin-top:8px">Save WAS params</button>
+</div>
+
+<div class="card">
+<h2>Keya speed-direction disengage</h2>
+<p style="color:#f59e0b;font-size:13px;margin-bottom:8px">&#9888; Current Sensor must be enabled in AOG</p>
+<div class="row"><span class="lbl">Enable <small style="color:#64748b">(def OFF)</small></span>
+<input type="checkbox" id="kd0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Cuts autosteer if the motor runs in the opposite direction to the command — indicates hand override on the wheel.</p>
+<div class="row"><span class="lbl">Set speed min threshold <small style="color:#64748b">(def 10)</small></span>
+<input type="number" id="kd1" min="0" max="200" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Minimum commanded motor speed (absolute value) to activate detection. Ignores very small commands near centre.</p>
+<div class="row"><span class="lbl">Act speed min threshold <small style="color:#64748b">(def 5)</small></span>
+<input type="number" id="kd2" min="0" max="200" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Minimum actual motor speed (absolute value) to activate detection. Ignores motor noise when nearly stationary.</p>
+<div class="row"><span class="lbl">SpeedDiff timeout (ms) <small style="color:#64748b">(def 250)</small></span>
+<input type="number" id="kd3" min="0" max="5000" step="10" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How long set and actual motor speed must disagree in direction before autosteer is cut. Shorter = more sensitive.</p>
+<button class="btn green" onclick="saveKeya()" style="margin-top:8px">Save Keya params</button>
+</div>
+
+</div><!-- /keya -->
+
+<!-- CAN STEER TAB -->
+<div id="cansteer" class="panel">
+
+<div class="card">
+<h2>Tractor brand</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:10px">Brand determines CAN IDs and message format for V_Bus and ISO_Bus. CAN port assignment is set in the Config tab. Restart required.</p>
+<div class="row"><span class="lbl">Brand</span>
+<select id="csBrand">
+<option value="0">Claas</option>
+<option value="1">Valtra / Massey / McCormick / MF</option>
+<option value="2">Case IH / New Holland</option>
+<option value="3">Fendt</option>
+<option value="4">JCB</option>
+<option value="5">FendtOne</option>
+<option value="6">Lindner</option>
+<option value="7">AgOpenGPS</option>
+<option value="8">Cat / Challenger MT (Late)</option>
+<option value="9">Cat / Challenger MT (Early)</option>
+</select></div>
+<button class="btn green" onclick="saveCanBrand()" style="margin-top:8px">Save brand (restart)</button>
+</div>
+
+<div class="card">
+<h2>Live status</h2>
+<div class="row"><span class="lbl">Valve ready state</span><span class="val" id="cs0">—</span></div>
+<div class="row"><span class="lbl">estCurve (valve angle)</span><span class="val" id="cs1">—</span></div>
+<div class="row"><span class="lbl">setCurve (command)</span><span class="val" id="cs2">—</span></div>
+<div class="row"><span class="lbl">Rear hitch</span><span class="val" id="cs3">—</span></div>
+<div class="row"><span class="lbl">Steering intend</span><span id="cs4" class="badge fail">OFF</span></div>
+</div>
+
+<div class="card">
+<h2>CAN Scan <span style="color:#64748b;font-weight:normal;font-size:11px">— detect connected tractor</span></h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Listens on all active CAN ports for 5 s and identifies known tractor message IDs. CAN ports must be configured and connected.</p>
+<button class="btn" id="scanBtn" onclick="startCanScan()">Start 5s scan</button>
+<span id="scanTimer" style="margin-left:12px;font-size:13px;color:#64748b"></span>
+<div id="scanResults" style="margin-top:10px"></div>
+</div>
+
+<div class="card">
+<h2>CAN plot</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Captures raw CAN frames on V_Bus (valve), ISO_Bus (engage/hitch) and K_Bus (Fendt). Toggle logging, then scroll below.</p>
+<button class="btn" id="canPlotBtn" onclick="toggleCanPlot()">Enable CAN log</button>
+<button class="btn" onclick="clearCanRaw()" style="margin-left:8px">Clear</button>
+<pre id="canraw" style="background:#0f172a;color:#86efac;font-size:12px;height:180px;overflow-y:auto;padding:6px;margin-top:8px;border:1px solid #334155;white-space:pre-wrap;word-break:break-all">(CAN log empty — enable logging above)</pre>
+</div>
+
+<div class="card" id="pvedCard">
+<h2>PVED tool <span style="color:#64748b;font-weight:normal;font-size:11px">(Danfoss PVED-CL/CLS — Claas / Valtra / CaseIH / JCB / Lindner)</span></h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Reads/writes Danfoss PVED valve parameters via ISO_Bus. Responses appear in CAN plot above (enable logging first).</p>
+<button class="btn" onclick="pvedCmd('readall')">Read all params</button>
+<button class="btn" onclick="pvedCmd('read64007')" style="margin-left:8px">Read param 64007</button>
+<button class="btn" id="pvedWriteBtn" onclick="pvedCmd('write')" style="display:none;margin-left:8px">Write param 64007 (set controller addr)</button>
+<button class="btn" onclick="pvedCmd('commit')" style="margin-left:8px">Save changes</button>
+<div id="pvedInfo" style="display:none;margin-top:10px;padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;font-size:13px;color:#94a3b8;line-height:1.7"></div>
+<button class="btn" id="pvedRestoreBtn" onclick="pvedCmd('restore')" style="display:none;margin-top:8px;background:#7f1d1d;border-color:#991b1b">Restore factory value</button>
+</div>
+
+
+<div class="card">
+<h2>J1939 / NMEA 2000 GPS broadcast</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Set a CAN port to "J1939/NMEA broadcast" in the Config tab to enable. Broadcasts GPS position received from AgIO onto that port.</p>
+<div class="row"><span class="lbl">Source address <small style="color:#64748b">(hex, def 0x1E=30)</small></span>
+<input type="number" id="j19Addr" min="0" max="254" class="ninput"></div>
+<div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
+<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">PGN 65267 / 65256 — position + direction (J1939)</div>
+<div class="row"><span class="lbl">Enable <small style="color:#64748b">(def ON)</small></span>
+<input type="checkbox" id="j19En65267" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div class="row"><span class="lbl">Send interval ms <small style="color:#64748b">(def 200 = 5 Hz)</small></span>
+<input type="number" id="j19R65267" min="50" max="2000" step="50" class="ninput"></div>
+<div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
+<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">PGN 129029 — NMEA 2000 fast-packet (7 CAN frames)</div>
+<div class="row"><span class="lbl">Enable <small style="color:#64748b">(def OFF)</small></span>
+<input type="checkbox" id="j19En129029" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div class="row"><span class="lbl">Send interval ms <small style="color:#64748b">(def 1000 = 1 Hz)</small></span>
+<input type="number" id="j19R129029" min="100" max="5000" step="100" class="ninput"></div>
+<div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
+<div class="row"><span class="lbl">Last GPS: fix</span><span class="val" id="j19Fix">—</span></div>
+<div class="row"><span class="lbl">Lat / Lon</span><span class="val" id="j19LatLon">—</span></div>
+<button class="btn green" onclick="saveJ1939()" style="margin-top:8px">Save J1939 params</button>
+</div>
+
+</div><!-- /cansteer -->
+
+<!-- DEBUG TAB -->
+<div id="debug" class="panel">
+<div class="card">
+<h2>Debug flags</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:10px">Prints to USB Serial and the log below. No restart needed.</p>
+<div class="chk-row"><input type="checkbox" id="dbg0"><label for="dbg0">GPS</label></div>
+<div class="chk-row"><input type="checkbox" id="dbg1"><label for="dbg1">IMU (roll / pitch / heading)</label></div>
+<div class="chk-row"><input type="checkbox" id="dbg2"><label for="dbg2">WAS / steer angle</label></div>
+<div class="chk-row"><input type="checkbox" id="dbg3"><label for="dbg3">Autosteer / PID</label></div>
+<div class="chk-row"><input type="checkbox" id="dbg4"><label for="dbg4">CAN bus (Keya)</label></div>
+<div class="chk-row"><input type="checkbox" id="dbg5"><label for="dbg5">Keya speedDiff disengage (ActSped / Curset / timeout — 500ms)</label></div>
+<div class="chk-row"><input type="checkbox" id="dbg6"><label for="dbg6">Motor speedDiff disengage (ActSped / AngleErr / timeout — 500ms)</label></div>
+<button class="btn green" onclick="saveDbg()">&#10003; Apply debug flags</button>
+</div>
+<div class="card">
+<h2>Serial log <button class="btn sm" onclick="clearLog()">&#128465; Clear</button></h2>
+<pre id="log">Waiting for log data...</pre>
+</div>
+</div><!-- /debug -->
+
+<!-- UM98x CONFIG TAB -->
+<div id="um98x" class="panel">
+<div class="card">
+<h2>GPS serial baud rate</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">UM98x def baud rate 115200. Match MCU baud to GPS config. Saved to EEPROM, applied immediately (no restart).</p>
+<div class="row"><span class="lbl">Baud rate</span>
+<select id="gpsBaud">
+<option value="9600">9600</option>
+<option value="19200">19200</option>
+<option value="38400">38400</option>
+<option value="57600">57600</option>
+<option value="115200">115200</option>
+<option value="230400">230400</option>
+<option value="460800">460800</option>
+<option value="921600">921600</option>
+</select></div>
+<button class="btn green" onclick="applyGpsBaud()" style="margin-top:8px">Apply baud rate</button>
+</div>
+<div class="card">
+<h2>Send GPS commands</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Paste config lines (one per line). Upload sends each with 1 s delay. Responses appear in the raw log below.</p>
+<textarea class="gps-ta" id="gpsLines" placeholder="e.g. CONFIG HEADING FIXINTERVAL 0.1"></textarea>
+<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+<button class="btn green" onclick="uploadLines()">&#8679; Upload</button>
+<button class="btn" onclick="gpsCmd('CONFIG')">&#128196; Get Config</button>
+<button class="btn" onclick="gpsCmd('VERSION')">&#128196; Get Version</button>
+<button class="btn" onclick="gpsCmd('SAVECONFIG')">&#128190; Save Config</button>
+<button class="btn red" onclick="doFactoryReset()">&#9888; Factory Reset</button>
+<span id="gpsStatus" style="color:#94a3b8;font-size:11px;margin-left:4px"></span>
+</div>
+</div>
+<div class="card">
+<h2>GPS raw serial <button class="btn sm" onclick="clearGpsRaw()">&#128465; Clear</button></h2>
+<pre id="gpsraw">Waiting for GPS data...</pre>
+</div>
+</div><!-- /um98x -->
+
+<div id="sb">Connecting to Teensy...</div>
+
+<script>
+var loaded = false;
+var activeTab = 'config';
+var logFetching = false;
+
+function showTab(t, el) {
+  activeTab = t;
+  document.querySelectorAll('.tab').forEach(function(e) { e.classList.remove('active'); });
+  document.querySelectorAll('.panel').forEach(function(e) { e.classList.remove('active'); });
+  document.getElementById(t).classList.add('active');
+  el.classList.add('active');
+  if (t === 'debug') pollLog();
+  if (t === 'um98x') pollGpsRaw();
+}
+
+function badge(id, ok) {
+  var el = document.getElementById(id);
+  el.className = 'badge ' + (ok ? 'ok' : 'fail');
+  el.textContent = ok ? 'OK' : '--';
+}
+
+function yn(v) { return v ? 'YES' : 'NO'; }
+
+function upd(d) {
+  badge('k_det', d.detected.keya);
+  document.getElementById('k_act').textContent = d.live.keyaActSpeed;
+  document.getElementById('k_set').textContent = d.live.keyaSetSpeed;
+  document.getElementById('kw3').textContent   = d.keya_was.zeroTicks + ' ticks';
+
+  badge('d5', d.detected.gps);
+  badge('d1', d.detected.bno_i2c);
+  badge('d2', d.detected.tm171);
+  badge('d3', d.detected.keya);
+  // d4: active WAS source badge — reflects configured source
+  var ws = d.cfg.wasSource || 0;
+  var wasOk = ws === 3 ? d.cfg.hasVbus
+            : ws === 2 ? d.detected.imuWas
+            : ws === 1 ? d.detected.keya
+            : d.detected.ads1115;
+  badge('d4', wasOk);
+
+  if (d.can_steer) {
+    document.getElementById('cs0').textContent = d.can_steer.valveReady === 16 ? 'READY (16)' : (d.can_steer.valveReady || 0);
+    document.getElementById('cs1').textContent = d.can_steer.estCurve + ' (' + (d.can_steer.estCurve - 32128) + ')';
+    document.getElementById('cs2').textContent = d.can_steer.setCurve + ' (' + (d.can_steer.setCurve - 32128) + ')';
+    document.getElementById('cs3').textContent = Math.round(d.can_steer.hitch / 2.5) + ' %';
+    var ci = document.getElementById('cs4');
+    ci.className = 'badge ' + (d.can_steer.intend ? 'ok' : 'fail');
+    ci.textContent = d.can_steer.intend ? 'STEERING' : 'IDLE';
+    var pvedBrands = [0,1,2,4,6];
+    var pc = document.getElementById('pvedCard');
+    if (pc) pc.style.display = (pvedBrands.indexOf(d.cfg.steerBrand) >= 0) ? '' : 'none';
+    if (d.pved) {
+      var pi = document.getElementById('pvedInfo');
+      var rb = document.getElementById('pvedRestoreBtn');
+      if (pi) {
+        var det = d.pved.detected;
+        var last = d.pved.last64007;
+        var fac = d.pved.factory64007;
+        var toHex = function(v) { return '0x' + v.toString(16).toUpperCase().padStart(2,'0'); };
+        var html = 'Valve: <b style="color:' + (det ? '#4ade80' : '#f87171') + '">' + (det ? 'detected' : 'not detected') + '</b>';
+        if (last !== 65535) html += '&nbsp;&nbsp;&nbsp;Param 64007 (current): <b style="color:#e2e8f0">' + toHex(last) + '</b>';
+        if (fac !== 65535) html += '&nbsp;&nbsp;&nbsp;Factory value (saved): <b style="color:#fbbf24">' + toHex(fac) + '</b>';
+        pi.innerHTML = html;
+        pi.style.display = (det || fac !== 65535) ? '' : 'none';
+        var wb = document.getElementById('pvedWriteBtn');
+        if (wb) wb.style.display = (fac !== 65535) ? '' : 'none';
+        if (rb) rb.style.display = (fac !== 65535 && fac !== 30) ? '' : 'none';
+      }
+    }
+    var pb = document.getElementById('canPlotBtn');
+    if (pb && d.can_steer.showData) pb.textContent = 'Disable CAN log';
+  }
+
+  document.getElementById('u0').textContent  = d.udp.kp;
+  document.getElementById('u1').textContent  = d.udp.highPWM;
+  document.getElementById('u2').textContent  = d.udp.lowPWM;
+  document.getElementById('u3').textContent  = d.udp.minPWM;
+  document.getElementById('u4').textContent  = d.udp.counts;
+  document.getElementById('u5').textContent  = d.udp.wasOffset;
+  document.getElementById('u6').textContent  = yn(d.udp.invertWAS);
+  document.getElementById('u7').textContent  = yn(d.udp.cytron);
+  document.getElementById('u8').textContent  = yn(d.udp.shaftEncoder);
+  document.getElementById('u9').textContent  = yn(d.udp.pressureSensor);
+  document.getElementById('u10').textContent = yn(d.udp.currentSensor);
+  document.getElementById('u11').textContent = yn(d.udp.danfoss);
+
+  document.getElementById('l0').textContent = d.live.actualAngle.toFixed(2) + ' deg';
+  document.getElementById('l1').textContent = d.live.setpoint.toFixed(2)    + ' deg';
+  document.getElementById('l2').textContent = d.live.gpsSpeed.toFixed(1)    + ' km/h';
+  var la = document.getElementById('l3');
+  la.className  = 'badge ' + (d.live.active ? 'ok' : 'fail');
+  la.textContent = d.live.active ? 'ACTIVE' : 'OFF';
+
+  if (!loaded) {
+    loaded = true;
+    var f = d.cfg.debugFlags;
+    document.getElementById('dbg0').checked = !!(f & 1);
+    document.getElementById('dbg1').checked = !!(f & 2);
+    document.getElementById('dbg2').checked = !!(f & 4);
+    document.getElementById('dbg3').checked = !!(f & 8);
+    document.getElementById('dbg4').checked = !!(f & 16);
+    document.getElementById('dbg5').checked = !!(f & 32);
+    document.getElementById('kd0').checked = !!d.keya_dis.enable;
+    document.getElementById('kd1').value   = d.keya_dis.setSpeedMin;
+    document.getElementById('kd2').value   = d.keya_dis.actSpeedMin;
+    document.getElementById('md0').checked = !!d.motor_dis.enable;
+    document.getElementById('md1').value   = d.motor_dis.angleErrorMin;
+    document.getElementById('kd3').value   = d.keya_dis.timeoutMs;
+    document.getElementById('md2').value   = d.motor_dis.timeoutMs;
+    document.getElementById('kw1').value   = d.keya_was.ticksPerDeg;
+    document.getElementById('kw2').checked = !!d.keya_was.encInvert;
+    document.getElementById('kwema').value  = d.keya_was.emaAlpha;
+    document.getElementById('kw4').checked = !!d.keya_was.azEnable;
+    document.getElementById('kw5').value   = d.keya_was.azBeta;
+    document.getElementById('kw6').value   = d.keya_was.azSpeedMin;
+    document.getElementById('kw7').value   = d.keya_was.azYawMax;
+    document.getElementById('kw8').value   = d.keya_was.azSpeedSlow;
+    document.getElementById('kw10').value  = d.keya_was.azTimeSlowMs;
+    document.getElementById('kw11').value  = d.keya_was.azTimeFastMs;
+    document.getElementById('dbg6').checked = !!(d.cfg.debugFlags & 64);
+    document.getElementById('gpsBaud').value  = d.cfg.gpsBaud || 115200;
+    document.getElementById('can1Mode').value = d.cfg.can1Mode || 0;
+    document.getElementById('can2Mode').value = d.cfg.can2Mode || 0;
+    document.getElementById('can3Mode').value = d.cfg.can3Mode || 0;
+    document.getElementById('can1Baud').value = d.cfg.can1Baud || 250000;
+    document.getElementById('can2Baud').value = d.cfg.can2Baud || 250000;
+    document.getElementById('can3Baud').value = d.cfg.can3Baud || 250000;
+    document.getElementById('wasSource').value = d.cfg.wasSource || 0;
+    if (document.getElementById('csBrand')) document.getElementById('csBrand').value = d.cfg.steerBrand || 0;
+    if (d.j1939) {
+      document.getElementById('j19Addr').value      = d.j1939.srcAddr;
+      document.getElementById('j19En65267').checked  = !!d.j1939.en65267;
+      document.getElementById('j19R65267').value    = d.j1939.rate65267;
+      document.getElementById('j19En129029').checked = !!d.j1939.en129029;
+      document.getElementById('j19R129029').value   = d.j1939.rate129029;
+      var fixNames = ['—','GPS','DGPS','PPS','RTK','Float RTK','Est','Manual','Sim'];
+      document.getElementById('j19Fix').textContent = fixNames[d.j1939.fixType] || d.j1939.fixType;
+      if (d.j1939.lat !== 0 || d.j1939.lon !== 0)
+        document.getElementById('j19LatLon').textContent = d.j1939.lat.toFixed(7) + ' / ' + d.j1939.lon.toFixed(7);
+    }
+    document.getElementById('iw0').checked = !!d.imu_was.invert;
+    document.getElementById('iw1').value   = d.imu_was.cpdScale;
+    document.getElementById('iw2').checked = !!d.imu_was.azEnable;
+    document.getElementById('iw3').value   = d.imu_was.azBeta;
+    document.getElementById('iw4').value   = d.imu_was.azSpeedMin;
+    document.getElementById('iw5').value   = d.imu_was.azYawMax;
+  }
+
+  document.getElementById('sb').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+}
+
+function saveMotor() {
+  var url = '/api/save?motorDis=' + (document.getElementById('md0').checked ? 1 : 0)
+          + '&motorAngleMin=' + document.getElementById('md1').value
+          + '&speedDiffTimeout=' + document.getElementById('md2').value;
+  fetch(url).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'Motor params saved.' : 'ERROR saving.';
+  });
+}
+
+function saveKeya() {
+  var url = '/api/save?keyaDis=' + (document.getElementById('kd0').checked ? 1 : 0)
+          + '&keyaSet=' + document.getElementById('kd1').value
+          + '&keyaAct=' + document.getElementById('kd2').value
+          + '&speedDiffTimeout=' + document.getElementById('kd3').value;
+  fetch(url).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'Keya params saved.' : 'ERROR saving.';
+  });
+}
+
+function saveDbg() {
+  var f = 0;
+  if (document.getElementById('dbg0').checked) f |= 1;
+  if (document.getElementById('dbg1').checked) f |= 2;
+  if (document.getElementById('dbg2').checked) f |= 4;
+  if (document.getElementById('dbg3').checked) f |= 8;
+  if (document.getElementById('dbg4').checked) f |= 16;
+  if (document.getElementById('dbg5').checked) f |= 32;
+  if (document.getElementById('dbg6').checked) f |= 64;
+  fetch('/api/save?debugFlags=' + f).then(function(r) {
+    document.getElementById('sb').textContent = r.ok
+      ? 'Debug flags saved (no restart).' : 'ERROR saving flags.';
+  });
+}
+
+function pollLog() {
+  if (logFetching) return;
+  logFetching = true;
+  var el = document.getElementById('log');
+  var atBottom = el.scrollHeight - el.clientHeight <= el.scrollTop + 10;
+  fetch('/api/log', { cache: 'no-store' })
+    .then(function(r) { return r.text(); })
+    .then(function(t) {
+      logFetching = false;
+      el.textContent = t || '(empty)';
+      if (atBottom) el.scrollTop = el.scrollHeight;
+    })
+    .catch(function() { logFetching = false; });
+}
+
+function clearLog() {
+  fetch('/api/log?clear=1').then(function() {
+    document.getElementById('log').textContent = '(cleared)';
+  });
+}
+
+function tick() {
+  fetch('/api/status', { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      upd(d);
+      if (activeTab === 'debug') pollLog();
+      if (activeTab === 'um98x') pollGpsRaw();
+      if (activeTab === 'cansteer') pollCanRaw();
+    })
+    .catch(function() {
+      document.getElementById('sb').textContent = 'No connection to Teensy...';
+    });
+}
+
+function saveCanModes() {
+  var url = '/api/save?can1Mode=' + document.getElementById('can1Mode').value
+          + '&can2Mode='  + document.getElementById('can2Mode').value
+          + '&can3Mode='  + document.getElementById('can3Mode').value
+          + '&can1Baud='  + document.getElementById('can1Baud').value
+          + '&can2Baud='  + document.getElementById('can2Baud').value
+          + '&can3Baud='  + document.getElementById('can3Baud').value;
+  fetch(url).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'CAN assignment saved – restarting...' : 'Error saving CAN assignment.';
+  });
+}
+
+function saveJ1939() {
+  var url = '/api/save'
+    + '?j19Addr='    + document.getElementById('j19Addr').value
+    + '&j19En65267=' + (document.getElementById('j19En65267').checked ? 1 : 0)
+    + '&j19R65267='  + document.getElementById('j19R65267').value
+    + '&j19En129029='+ (document.getElementById('j19En129029').checked ? 1 : 0)
+    + '&j19R129029=' + document.getElementById('j19R129029').value;
+  fetch(url).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'J1939 params saved.' : 'Error saving J1939 params.';
+  });
+}
+
+function saveWasSource() {
+  var url = '/api/save?wasSource=' + document.getElementById('wasSource').value;
+  fetch(url).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'WAS source saved.' : 'Error saving WAS source.';
+  });
+}
+
+function setKeyaZero() {
+  fetch('/api/keyazero', { cache: 'no-store' }).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'Keya WAS zero set.' : 'Error setting zero.';
+    loaded = false;
+  });
+}
+
+function saveKeyaWas() {
+  var url = '/api/save'
+    + '?keyaTicksPD=' + document.getElementById('kw1').value
+    + '&keyaEncInv='  + (document.getElementById('kw2').checked ? 1 : 0)
+    + '&keyaEmaA='    + document.getElementById('kwema').value
+    + '&keyaAzEn='    + (document.getElementById('kw4').checked ? 1 : 0)
+    + '&keyaAzBeta='  + document.getElementById('kw5').value
+    + '&keyaAzVmin='  + document.getElementById('kw6').value
+    + '&keyaAzYawMax='+ document.getElementById('kw7').value
+    + '&keyaAzVslow=' + document.getElementById('kw8').value
+    + '&keyaAzTslow=' + document.getElementById('kw10').value
+    + '&keyaAzTfast=' + document.getElementById('kw11').value;
+  fetch(url).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'Keya WAS params saved.' : 'ERROR saving.';
+  });
+}
+
+
+function setImuWasZero() {
+  fetch('/api/imuwaszero', { cache: 'no-store' }).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'IMU WAS zero set.' : 'Error setting zero.';
+  });
+}
+
+function saveImuWas() {
+  var url = '/api/save'
+    + '?imuWasInv='  + (document.getElementById('iw0').checked ? 1 : 0)
+    + '&imuWasCpd='  + document.getElementById('iw1').value
+    + '&imuWasAzEn=' + (document.getElementById('iw2').checked ? 1 : 0)
+    + '&imuWasAzB='  + document.getElementById('iw3').value
+    + '&imuWasVmin=' + document.getElementById('iw4').value
+    + '&imuWasYaw='  + document.getElementById('iw5').value;
+  fetch(url).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'IMU WAS params saved.' : 'ERROR saving.';
+  });
+}
+
+function applyGpsBaud() {
+  var baud = document.getElementById('gpsBaud').value;
+  fetch('/api/gpsbaud?baud=' + baud).then(function(r) {
+    document.getElementById('gpsStatus').textContent = r.ok ? 'Baud set to ' + baud + ' bps' : 'Error setting baud';
+  });
+}
+
+var gpsRawFetching = false;
+
+function pollGpsRaw() {
+  if (gpsRawFetching) return;
+  gpsRawFetching = true;
+  var el = document.getElementById('gpsraw');
+  var atBottom = el.scrollHeight - el.clientHeight <= el.scrollTop + 10;
+  fetch('/api/gpsraw', { cache: 'no-store' })
+    .then(function(r) { return r.text(); })
+    .then(function(t) {
+      gpsRawFetching = false;
+      el.textContent = t || '(empty)';
+      if (atBottom) el.scrollTop = el.scrollHeight;
+    })
+    .catch(function() { gpsRawFetching = false; });
+}
+
+function clearGpsRaw() {
+  fetch('/api/gpsraw?clear=1').then(function() {
+    document.getElementById('gpsraw').textContent = '(cleared)';
+  });
+}
+
+function gpsCmd(cmd) {
+  document.getElementById('gpsStatus').textContent = 'Sending: ' + cmd;
+  fetch('/api/gpscmd?line=' + encodeURIComponent(cmd))
+    .then(function() {
+      document.getElementById('gpsStatus').textContent = 'Sent: ' + cmd;
+      setTimeout(pollGpsRaw, 500);
+    });
+}
+
+function doFactoryReset() {
+  if (!confirm('Factory reset the GPS receiver? This will erase all saved config.')) return;
+  gpsCmd('FRESET');
+}
+
+function saveCanBrand() {
+  var v = document.getElementById('csBrand').value;
+  fetch('/api/save?brand=' + v).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'Brand saved – restarting...' : 'Error saving brand.';
+  });
+}
+
+var canRawFetching = false;
+
+function pollCanRaw() {
+  if (canRawFetching) return;
+  canRawFetching = true;
+  var el = document.getElementById('canraw');
+  var atBottom = el.scrollHeight - el.clientHeight <= el.scrollTop + 10;
+  fetch('/api/canraw', { cache: 'no-store' })
+    .then(function(r) { return r.text(); })
+    .then(function(t) {
+      canRawFetching = false;
+      el.textContent = t || '(empty)';
+      if (atBottom) el.scrollTop = el.scrollHeight;
+    })
+    .catch(function() { canRawFetching = false; });
+}
+
+function clearCanRaw() {
+  fetch('/api/canraw?clear=1').then(function() {
+    document.getElementById('canraw').textContent = '(cleared)';
+  });
+}
+
+function toggleCanPlot() {
+  var btn = document.getElementById('canPlotBtn');
+  var on = btn.textContent === 'Enable CAN log' ? 1 : 0;
+  fetch('/api/canraw?show=' + (on ? '1' : '0')).then(function(r) {
+    if (r.ok) btn.textContent = on ? 'Disable CAN log' : 'Enable CAN log';
+  });
+}
+
+var knownCanIds = {
+  '0x0CAC1E13':'Claas — steering curve + valve state',
+  '0x18EF1CD2':'Claas — engage',
+  '0x1CFFE6D2':'Claas — CEBIS work mode',
+  '0x0CAD131E':'Claas — TX (AIO → valve)',
+  '0x0CAC1C13':'Valtra / McCormick / MF / AgOpenGPS — steering curve + valve state',
+  '0x18EF1C32':'Valtra — engage',
+  '0x18EF1CFC':'McCormick — engage',
+  '0x18EF1C00':'Massey Ferguson — engage',
+  '0x18FF8306':'McCormick — joystick engage',
+  '0x0CAD131C':'Valtra / McC / MF / AgOpenGPS — TX (AIO → valve)',
+  '0x0CACAA08':'CaseIH / New Holland — steering curve + valve state',
+  '0x18FFBB03':'CaseIH — engage',
+  '0x14FF7706':'CaseIH — K_Bus engage',
+  '0x18FE4523':'CaseIH — K_Bus rear hitch',
+  '0x0CAD08AA':'CaseIH / NH — TX (AIO → valve)',
+  '0x0CEF2CF0':'Fendt / FendtOne — steering curve',
+  '0x0CEFF02C':'Fendt / FendtOne — TX (AIO → valve)',
+  '0x18EF2CF0':'Fendt — ISO engage',
+  '0x0CFFD899':'FendtOne — K_Bus engage',
+  '0x0CACAB13':'JCB — steering curve + valve state',
+  '0x18EFAB27':'JCB — engage',
+  '0x0CAD13AB':'JCB — TX (AIO → valve)',
+  '0x0CACF013':'Lindner — steering curve + valve state',
+  '0x0CEFF021':'Lindner — engage',
+  '0x0CAD13F0':'Lindner — TX (AIO → valve)',
+  '0x18EF1CF0':'Cat / Challenger MT Late — curve + valve + engage',
+  '0x1CEFF01C':'Cat MT Late — TX (AIO → valve)',
+  '0x0CEFFF76':'Cat / Challenger MT Early — curve + valve + engage',
+  '0x0CEF762C':'Cat MT Early — TX (AIO → valve)',
+};
+function getIdLabel(id) {
+  var k = knownCanIds[id];
+  if (k) return k;
+  var n = parseInt(id, 16);
+  if ((n & 0x00FFFF00) === 0x00FEBB00) return 'ISO — rear hitch PGN 65093';
+  if ((n & 0x00FF0000) === 0x00EA0000) return 'J1939 — parameter request (PVED tool)';
+  if ((n & 0x00FF0000) === 0x00EF0000) return 'J1939 — proprietary peer-to-peer';
+  return '';
+}
+function startCanScan() {
+  var btn = document.getElementById('scanBtn');
+  btn.disabled = true;
+  document.getElementById('scanResults').innerHTML = '';
+  document.getElementById('scanTimer').textContent = '';
+  fetch('/api/canscan?start').then(function() {
+    var t = 5;
+    document.getElementById('scanTimer').textContent = t + 's remaining';
+    var iv = setInterval(function() {
+      t--;
+      if (t > 0) {
+        document.getElementById('scanTimer').textContent = t + 's remaining';
+      } else {
+        clearInterval(iv);
+        document.getElementById('scanTimer').textContent = 'analysing...';
+        fetch('/api/canscan?stop').then(function() {
+          fetch('/api/canscan?data').then(function(r) { return r.json(); }).then(function(d) {
+            btn.disabled = false;
+            renderScanResults(d);
+          });
+        });
+      }
+    }, 1000);
+  });
+}
+function renderScanResults(d) {
+  var el = document.getElementById('scanTimer');
+  if (d.count === 0) {
+    el.textContent = 'No messages received';
+    document.getElementById('scanResults').innerHTML = '<p style="color:#f87171;font-size:13px;margin-top:6px">Nothing detected. Check CAN port configuration and wiring.</p>';
+    return;
+  }
+  el.textContent = d.count + ' unique ID' + (d.count > 1 ? 's' : '') + ' found';
+  d.entries.sort(function(a,b){ return b.n - a.n; });
+  var known = d.entries.filter(function(e){ return getIdLabel(e.id) !== ''; });
+  var unknown = d.entries.filter(function(e){ return getIdLabel(e.id) === ''; });
+  var html = '';
+  if (known.length) {
+    html += '<p style="color:#4ade80;font-size:12px;margin:6px 0 4px"><b>Known IDs detected:</b></p>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    html += '<tr style="color:#64748b;font-size:11px"><th style="text-align:left;padding:3px 6px">Bus</th><th style="text-align:left;padding:3px 6px">ID</th><th style="text-align:right;padding:3px 6px">Cnt</th><th style="text-align:left;padding:3px 6px">Description</th></tr>';
+    known.forEach(function(e) {
+      html += '<tr style="border-top:1px solid #1e293b"><td style="padding:4px 6px;color:#94a3b8">' + e.bus + '</td>';
+      html += '<td style="padding:4px 6px;font-family:monospace;color:#e2e8f0">' + e.id + '</td>';
+      html += '<td style="padding:4px 6px;text-align:right;color:#64748b">' + e.n + '</td>';
+      html += '<td style="padding:4px 6px;color:#4ade80">' + getIdLabel(e.id) + '</td></tr>';
+    });
+    html += '</table>';
+  }
+  if (unknown.length) {
+    html += '<p style="color:#64748b;font-size:12px;margin:10px 0 4px">Unknown IDs (' + unknown.length + '):</p>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    unknown.forEach(function(e) {
+      html += '<tr style="border-top:1px solid #1e293b"><td style="padding:3px 6px;color:#475569;width:20px">' + e.bus + '</td>';
+      html += '<td style="padding:3px 6px;font-family:monospace;color:#64748b">' + e.id + '</td>';
+      html += '<td style="padding:3px 6px;text-align:right;color:#334155">' + e.n + '</td><td></td></tr>';
+    });
+    html += '</table>';
+  }
+  document.getElementById('scanResults').innerHTML = html;
+}
+
+function pvedCmd(cmd) {
+  fetch('/api/pved?cmd=' + cmd).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'PVED ' + cmd + ' sent. Enable CAN log to see responses.' : 'Error.';
+    setTimeout(pollCanRaw, 300);
+    if (cmd === 'read64007' || cmd === 'restore') setTimeout(tick, 800);
+  });
+}
+
+function uploadLines() {
+  var raw = document.getElementById('gpsLines').value;
+  var lines = raw.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+  if (!lines.length) { document.getElementById('gpsStatus').textContent = 'No lines to send.'; return; }
+  var i = 0;
+  var st = document.getElementById('gpsStatus');
+  function sendNext() {
+    if (i >= lines.length) {
+      st.textContent = 'Done — ' + lines.length + ' line(s) sent.';
+      setTimeout(pollGpsRaw, 300);
+      return;
+    }
+    var line = lines[i];
+    st.textContent = 'Sending ' + (i + 1) + '/' + lines.length + ': ' + line;
+    fetch('/api/gpscmd?line=' + encodeURIComponent(line))
+      .then(function() { i++; setTimeout(sendNext, 1000); })
+      .catch(function() { st.textContent = 'Error on line ' + (i + 1); });
+  }
+  sendNext();
+}
+
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>
+)AIOHTML";
+
+// ── Helper: send buffer in 512-byte chunks ────────────────────────────────────
+void sendBuf(EthernetClient& client, const uint8_t* p, size_t len)
+{
+    while (len > 0 && client.connected()) {
+        size_t chunk = (len > 512) ? 512 : len;
+        size_t sent  = client.write(p, chunk);
+        if (sent == 0) delay(5);
+        else { p += sent; len -= sent; }
+    }
+}
+
+// ── Public API ─────────────────────────────────────────────────────────────────
+
+void webServerBegin()
+{
+    webServer.begin();
+    Serial.print("Web server: http://");
+    Serial.println(Ethernet.localIP());
+    webLogf("Web server: http://%d.%d.%d.%d",
+        Ethernet.localIP()[0], Ethernet.localIP()[1],
+        Ethernet.localIP()[2], Ethernet.localIP()[3]);
+}
+
+void handleWebClient()
+{
+    if (pendingRestart && restartDelay > 600) {
+        Serial.println("Restarting Teensy...");
+        delay(50);
+        SCB_AIRCR = 0x05FA0004;
+    }
+
+    EthernetClient client = webServer.available();
+    if (!client) return;
+
+    // ── Read first request line ───────────────────────────────────────────────
+    char reqLine[256];
+    int  idx = 0;
+    elapsedMillis t = 0;
+    while (client.connected() && t < 500) {
+        if (client.available()) {
+            char c = client.read();
+            if (c == '\n') break;
+            if (c != '\r' && idx < 254) reqLine[idx++] = c;
+        }
+    }
+    reqLine[idx] = '\0';
+
+    if (DBG_STEER) { Serial.print("WEB: "); Serial.println(reqLine); }
+
+    // ── Drain headers until blank line ────────────────────────────────────────
+    {
+        int hi = 0;
+        t = 0;
+        while (client.connected() && t < 500) {
+            if (client.available()) {
+                char c = client.read();
+                if (c == '\n') { if (hi == 0) break; hi = 0; }
+                else if (c != '\r') hi++;
+            }
+        }
+    }
+
+    // ── Route ─────────────────────────────────────────────────────────────────
+    if      (strstr(reqLine, "/api/save")   != NULL) handleApiSave(client, reqLine);
+    else if (strstr(reqLine, "/api/log")    != NULL) handleApiLog(client, reqLine);
+    else if (strstr(reqLine, "/api/status") != NULL) handleApiStatus(client);
+    else if (strstr(reqLine, "/api/gpsraw")   != NULL) handleApiGpsRaw(client, reqLine);
+    else if (strstr(reqLine, "/api/gpscmd")   != NULL) handleApiGpsCmd(client, reqLine);
+    else if (strstr(reqLine, "/api/gpsbaud")  != NULL) handleApiGpsBaud(client, reqLine);
+    else if (strstr(reqLine, "/api/keyazero")  != NULL) handleApiKeyaZero(client);
+    else if (strstr(reqLine, "/api/imuwaszero") != NULL) handleApiImuWasZero(client);
+    else if (strstr(reqLine, "/api/canraw")  != NULL) handleApiCanRaw(client, reqLine);
+    else if (strstr(reqLine, "/api/canscan") != NULL) handleApiCanScan(client, reqLine);
+    else if (strstr(reqLine, "/api/pved")    != NULL) handleApiPved(client, reqLine);
+    else if (Autosteer_running && watchdogTimer < WATCHDOG_THRESHOLD) {
+        // HTML page is ~7KB – blocks loop() 300-800ms. Refuse during active steering.
+        client.println(F("HTTP/1.1 503 Service Unavailable\r\n"
+                         "Content-Type: text/plain\r\n"
+                         "Connection: close\r\n"
+                         "\r\n"
+                         "Autosteer active - open page when not steering."));
+    }
+    else                                              handleRoot(client);
+
+    // ── Wait for browser to receive before closing ────────────────────────────
+    client.flush();
+    elapsedMillis closeTimer = 0;
+    while (client.connected() && closeTimer < 500) {
+        while (client.available()) client.read();
+    }
+    client.stop();
+}
+
+// ── Route handlers ─────────────────────────────────────────────────────────────
+
+void sendHeaders(EthernetClient& c, const char* ct)
+{
+    c.println(F("HTTP/1.1 200 OK"));
+    c.print(F("Content-Type: ")); c.println(ct);
+    c.println(F("Connection: close"));
+    c.println(F("Cache-Control: no-cache"));
+    c.println();
+}
+
+void handleRoot(EthernetClient& client)
+{
+    sendHeaders(client, "text/html");
+    sendBuf(client, (const uint8_t*)HTML_PAGE, strlen(HTML_PAGE));
+}
+
+void handleApiStatus(EthernetClient& client)
+{
+    sendHeaders(client, "application/json");
+
+    client.print(F("{\"detected\":{"));
+    client.print(F("\"bno_rvc\":")); client.print(useBNO08xRVC  ? F("true") : F("false"));
+    client.print(F(",\"bno_i2c\":")); client.print(useBNO08xI2C ? F("true") : F("false"));
+    client.print(F(",\"tm171\":")); client.print(useTMxx_IMU    ? F("true") : F("false"));
+    client.print(F(",\"keya\":")); client.print(keyaDetected    ? F("true") : F("false"));
+    client.print(F(",\"ads1115\":")); client.print(Autosteer_running ? F("true") : F("false"));
+    client.print(F(",\"imuWas\":")); client.print((imuWasReceived && imuWasTimeout < 500) ? F("true") : F("false"));
+    client.print(F(",\"gps\":")); client.print(GGAReadyTime < 10000 ? F("true") : F("false"));
+
+    client.print(F("},\"udp\":{"));
+    client.print(F("\"kp\":")); client.print(steerSettings.Kp);
+    client.print(F(",\"highPWM\":")); client.print(steerSettings.highPWM);
+    client.print(F(",\"lowPWM\":")); client.print(steerSettings.lowPWM);
+    client.print(F(",\"minPWM\":")); client.print(steerSettings.minPWM);
+    client.print(F(",\"counts\":")); client.print((int)steerSettings.steerSensorCounts);
+    client.print(F(",\"wasOffset\":")); client.print(steerSettings.wasOffset);
+    client.print(F(",\"invertWAS\":")); client.print(steerConfig.InvertWAS);
+    client.print(F(",\"cytron\":")); client.print(steerConfig.CytronDriver);
+    client.print(F(",\"shaftEncoder\":")); client.print(steerConfig.ShaftEncoder);
+    client.print(F(",\"pressureSensor\":")); client.print(steerConfig.PressureSensor);
+    client.print(F(",\"currentSensor\":")); client.print(steerConfig.CurrentSensor);
+    client.print(F(",\"danfoss\":")); client.print(steerConfig.IsDanfoss);
+
+    client.print(F("},\"live\":{"));
+    client.print(F("\"actualAngle\":")); client.print(steerAngleActual, 2);
+    client.print(F(",\"setpoint\":")); client.print(steerAngleSetPoint, 2);
+    client.print(F(",\"gpsSpeed\":")); client.print(gpsSpeed, 1);
+    client.print(F(",\"active\":")); client.print(
+        (watchdogTimer < WATCHDOG_THRESHOLD) ? F("true") : F("false"));
+    client.print(F(",\"keyaActSpeed\":")); client.print(keyaCurrentActualSpeed);
+    client.print(F(",\"keyaSetSpeed\":")); client.print(keyaCurrentSetSpeed);
+
+    client.print(F("},\"keya_dis\":{"));
+    client.print(F("\"enable\":")); client.print(moduleConfig.keyaDisEnable);
+    client.print(F(",\"setSpeedMin\":")); client.print(moduleConfig.keyaSetSpeedMin);
+    client.print(F(",\"actSpeedMin\":")); client.print(moduleConfig.keyaActSpeedMin);
+    client.print(F(",\"timeoutMs\":")); client.print(moduleConfig.speedDiffTimeout);
+
+    client.print(F("},\"motor_dis\":{"));
+    client.print(F("\"enable\":")); client.print(moduleConfig.motorDisEnable);
+    client.print(F(",\"angleErrorMin\":")); client.print(moduleConfig.motorAngleErrorMin);
+    client.print(F(",\"timeoutMs\":")); client.print(moduleConfig.speedDiffTimeout);
+
+    client.print(F("},\"keya_was\":{"));
+    client.print(F("\"ticksPerDeg\":")); client.print(moduleConfig.keyaTicksPerDeg, 2);
+    client.print(F(",\"encInvert\":")); client.print(moduleConfig.keyaEncInvert);
+    client.print(F(",\"zeroTicks\":")); client.print(moduleConfig.keyaZeroTicks);
+    client.print(F(",\"azEnable\":")); client.print(moduleConfig.keyaAzEnable);
+    client.print(F(",\"azBeta\":")); client.print(moduleConfig.keyaAzBeta, 4);
+    client.print(F(",\"azSpeedMin\":")); client.print(moduleConfig.keyaAzSpeedMin, 1);
+    client.print(F(",\"azYawMax\":")); client.print(moduleConfig.keyaAzYawMax, 1);
+    client.print(F(",\"azSpeedSlow\":")); client.print(moduleConfig.keyaAzSpeedSlow);
+    client.print(F(",\"azTimeSlowMs\":")); client.print(moduleConfig.keyaAzTimeSlowMs);
+    client.print(F(",\"azTimeFastMs\":")); client.print(moduleConfig.keyaAzTimeFastMs);
+    client.print(F(",\"emaAlpha\":")); client.print(moduleConfig.keyaEmaAlpha, 3);
+
+    client.print(F("},\"imu_was\":{"));
+    client.print(F("\"invert\":")); client.print(moduleConfig.imuWasInvert);
+    client.print(F(",\"cpdScale\":")); client.print(moduleConfig.imuWasCpdScale, 3);
+    client.print(F(",\"azEnable\":")); client.print(moduleConfig.imuWasAzEnable);
+    client.print(F(",\"azBeta\":")); client.print(moduleConfig.imuWasAzBeta, 4);
+    client.print(F(",\"azSpeedMin\":")); client.print(moduleConfig.imuWasSpeedMin, 1);
+    client.print(F(",\"azYawMax\":")); client.print(moduleConfig.imuWasYawMax, 2);
+
+    client.print(F("},\"j1939\":{"));
+    client.print(F("\"srcAddr\":")); client.print(moduleConfig.j1939SrcAddr);
+    client.print(F(",\"en65267\":")); client.print(moduleConfig.j1939En65267);
+    client.print(F(",\"en129029\":")); client.print(moduleConfig.j1939En129029);
+    client.print(F(",\"rate65267\":")); client.print(moduleConfig.j1939Rate65267);
+    client.print(F(",\"rate129029\":")); client.print(moduleConfig.j1939Rate129029);
+    client.print(F(",\"fixType\":")); client.print(j1939FixType);
+    client.print(F(",\"lat\":")); client.print(j1939Lat, 7);
+    client.print(F(",\"lon\":")); client.print(j1939Lon, 7);
+
+    client.print(F("},\"can_steer\":{"));
+    client.print(F("\"valveReady\":")); client.print(steeringValveReady);
+    client.print(F(",\"estCurve\":")); client.print(estCurve);
+    client.print(F(",\"setCurve\":")); client.print(setCurve);
+    client.print(F(",\"hitch\":")); client.print(ISORearHitch);
+    client.print(F(",\"intend\":")); client.print(canSteerIntend ? F("true") : F("false"));
+    client.print(F(",\"showData\":")); client.print(showCANData ? F("true") : F("false"));
+
+    client.print(F("},\"cfg\":{"));
+    client.print(F("\"imuType\":")); client.print(moduleConfig.imuType);
+    client.print(F(",\"can1Mode\":")); client.print(moduleConfig.can1Mode);
+    client.print(F(",\"can2Mode\":")); client.print(moduleConfig.can2Mode);
+    client.print(F(",\"can3Mode\":")); client.print(moduleConfig.can3Mode);
+    client.print(F(",\"can1Baud\":")); client.print(moduleConfig.can1Baud);
+    client.print(F(",\"can2Baud\":")); client.print(moduleConfig.can2Baud);
+    client.print(F(",\"can3Baud\":")); client.print(moduleConfig.can3Baud);
+    client.print(F(",\"wasSource\":")); client.print(moduleConfig.wasSource);
+    client.print(F(",\"steerBrand\":")); client.print(moduleConfig.steerBrand);
+    client.print(F(",\"disengageType\":")); client.print(moduleConfig.disengageType);
+    client.print(F(",\"debugFlags\":")); client.print(moduleConfig.debugFlags);
+    client.print(F(",\"gpsBaud\":")); client.print(moduleConfig.gpsBaud);
+    client.print(F(",\"hasVbus\":")); client.print(hasFuncMode(CAN_MODE_VBUS) ? F("true") : F("false"));
+    client.print(F(",\"hasImu\":")); client.print(hasFuncMode(CAN_MODE_IMU)  ? F("true") : F("false"));
+
+    client.print(F("},\"pved\":{"));
+    client.print(F("\"detected\":")); client.print(pvedValveDetected ? F("true") : F("false"));
+    client.print(F(",\"last64007\":")); client.print(pvedLastRead64007);
+    client.print(F(",\"factory64007\":")); client.print(moduleConfig.pvedParam64007Factory);
+    client.print(F("}}"));
+}
+
+void handleApiLog(EthernetClient& client, const char* req)
+{
+    if (strstr(req, "clear=1") != NULL) {
+        logWrite   = 0;
+        logWrapped = false;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
+    sendHeaders(client, "text/plain; charset=utf-8");
+    if (logWrapped) {
+        // oldest data first: from logWrite to end, then 0 to logWrite-1
+        sendBuf(client, (const uint8_t*)logBuf + logWrite, LOG_BUF_SIZE - logWrite);
+        sendBuf(client, (const uint8_t*)logBuf, logWrite);
+    } else if (logWrite > 0) {
+        sendBuf(client, (const uint8_t*)logBuf, logWrite);
+    }
+}
+
+void handleApiKeyaZero(EthernetClient& client)
+{
+    moduleConfig.keyaZeroTicks = keyaSteeringPosition;
+    moduleConfigSave();
+    Serial.print("Keya WAS zero set at "); Serial.println(keyaSteeringPosition);
+    webLogf("Keya WAS zero set at %d ticks", keyaSteeringPosition);
+    sendHeaders(client, "text/plain");
+    client.print(F("OK"));
+}
+
+void handleApiImuWasZero(EthernetClient& client)
+{
+    imuWasZeroRequest = true;
+    Serial.println("IMU WAS: zero request");
+    webLog("IMU WAS: zero request");
+    sendHeaders(client, "text/plain");
+    client.print(F("OK"));
+}
+
+void handleApiGpsRaw(EthernetClient& client, const char* req)
+{
+    if (strstr(req, "clear=1") != NULL) {
+        gpsRawWrite   = 0;
+        gpsRawWrapped = false;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
+    sendHeaders(client, "text/plain; charset=utf-8");
+    if (gpsRawWrapped) {
+        sendBuf(client, (const uint8_t*)gpsRawBuf + gpsRawWrite, GPS_RAW_BUF_SIZE - gpsRawWrite);
+        sendBuf(client, (const uint8_t*)gpsRawBuf, gpsRawWrite);
+    } else if (gpsRawWrite > 0) {
+        sendBuf(client, (const uint8_t*)gpsRawBuf, gpsRawWrite);
+    }
+}
+
+static uint8_t hexNib(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return 0;
+}
+
+static void urlDecode(char* dst, const char* src, size_t maxLen)
+{
+    size_t i = 0;
+    while (*src && i < maxLen - 1) {
+        if (*src == '%' && *(src+1) && *(src+2)) {
+            *dst++ = (char)((hexNib(*(src+1)) << 4) | hexNib(*(src+2)));
+            src += 3;
+        } else if (*src == '+') {
+            *dst++ = ' ';
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+        i++;
+    }
+    *dst = '\0';
+}
+
+void handleApiGpsBaud(EthernetClient& client, const char* req)
+{
+    static const uint32_t validBauds[] = {9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600};
+    const char* p = strstr(req, "baud=");
+    if (p) {
+        uint32_t nb = (uint32_t)atol(p + 5);
+        bool ok = false;
+        for (uint8_t i = 0; i < 8; i++) if (validBauds[i] == nb) { ok = true; break; }
+        if (ok) {
+            moduleConfig.gpsBaud = nb;
+            moduleConfigSave();
+            SerialGPS->begin(nb);
+            Serial.print("GPS baud: "); Serial.println(nb);
+            webLogf("GPS baud changed to %lu", nb);
+        }
+    }
+    sendHeaders(client, "text/plain");
+    client.print(F("OK"));
+}
+
+void handleApiGpsCmd(EthernetClient& client, const char* req)
+{
+    const char* p = strstr(req, "line=");
+    if (p) {
+        p += 5;
+        char raw[160];
+        int i = 0;
+        while (*p && *p != ' ' && *p != '\r' && i < 159) raw[i++] = *p++;
+        raw[i] = '\0';
+        char decoded[160];
+        urlDecode(decoded, raw, sizeof(decoded));
+        SerialGPS->print(decoded);
+        SerialGPS->print("\r\n");
+        Serial.print("GPS cmd: "); Serial.println(decoded);
+        webLogf("GPS cmd: %s", decoded);
+    }
+    sendHeaders(client, "text/plain");
+    client.print(F("OK"));
+}
+
+void handleApiCanRaw(EthernetClient& client, const char* req)
+{
+    if (strstr(req, "show=1") != NULL) {
+        showCANData = true;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
+    if (strstr(req, "show=0") != NULL) {
+        showCANData = false;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
+    if (strstr(req, "clear=1") != NULL) {
+        canRawWrite   = 0;
+        canRawWrapped = false;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
+    sendHeaders(client, "text/plain; charset=utf-8");
+    if (canRawWrapped) {
+        sendBuf(client, (const uint8_t*)canRawBuf + canRawWrite, CAN_RAW_BUF_SIZE - canRawWrite);
+        sendBuf(client, (const uint8_t*)canRawBuf, canRawWrite);
+    } else if (canRawWrite > 0) {
+        sendBuf(client, (const uint8_t*)canRawBuf, canRawWrite);
+    }
+}
+
+void handleApiCanScan(EthernetClient& client, const char* req)
+{
+    if (strstr(req, "start") != NULL) {
+        memset(canScanBuf, 0, sizeof(canScanBuf));
+        canScanCount = 0;
+        canScanActive = true;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
+    if (strstr(req, "stop") != NULL) {
+        canScanActive = false;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
+    // data
+    sendHeaders(client, "application/json");
+    client.print(F("{\"active\":"));
+    client.print(canScanActive ? F("true") : F("false"));
+    client.print(F(",\"count\":"));
+    client.print(canScanCount);
+    client.print(F(",\"entries\":["));
+    for (uint8_t i = 0; i < canScanCount; i++) {
+        if (i > 0) client.print(',');
+        char hex[12];
+        snprintf(hex, sizeof(hex), "0x%08lX", (unsigned long)canScanBuf[i].id);
+        client.print(F("{\"id\":\""));  client.print(hex);
+        client.print(F("\",\"bus\":\""));client.print(canScanBuf[i].bus);
+        client.print(F("\",\"n\":"));   client.print(canScanBuf[i].count);
+        client.print('}');
+    }
+    client.print(F("]}"));
+}
+
+void handleApiPved(EthernetClient& client, const char* req)
+{
+    if (strstr(req, "cmd=readall") != NULL) {
+        pvedReadAll();
+        showCANData = true;
+    } else if (strstr(req, "cmd=read64007") != NULL) {
+        pvedReadParam(64007);
+        showCANData = true;
+    } else if (strstr(req, "cmd=write") != NULL) {
+        pvedWriteParam();
+    } else if (strstr(req, "cmd=commit") != NULL) {
+        pvedCommit();
+    } else if (strstr(req, "cmd=restore") != NULL) {
+        pvedRestoreParam64007();
+    }
+    sendHeaders(client, "text/plain");
+    client.print(F("OK"));
+}
+
+void handleApiSave(EthernetClient& client, const char* req)
+{
+    bool needRestart = false;
+    const char* p;
+
+    if ((p = strstr(req, "imuType=")) != NULL) {
+        moduleConfig.imuType = (uint8_t)atoi(p + 8);
+        needRestart = true;
+    }
+    if ((p = strstr(req, "can1Mode=")) != NULL) {
+        moduleConfig.can1Mode = (uint8_t)atoi(p + 9);
+        needRestart = true;
+    }
+    if ((p = strstr(req, "can2Mode=")) != NULL) {
+        moduleConfig.can2Mode = (uint8_t)atoi(p + 9);
+        needRestart = true;
+    }
+    if ((p = strstr(req, "can3Mode=")) != NULL) {
+        moduleConfig.can3Mode = (uint8_t)atoi(p + 9);
+        needRestart = true;
+    }
+    if ((p = strstr(req, "brand=")) != NULL) {
+        moduleConfig.steerBrand = (uint8_t)atoi(p + 6);
+        needRestart = true;
+    }
+    if ((p = strstr(req, "disengage=")) != NULL) {
+        moduleConfig.disengageType = (uint8_t)atoi(p + 10);
+        needRestart = true;
+    }
+    if ((p = strstr(req, "debugFlags=")) != NULL) {
+        moduleConfig.debugFlags = (uint8_t)atoi(p + 11);
+    }
+    if ((p = strstr(req, "keyaDis=")) != NULL) {
+        moduleConfig.keyaDisEnable = (uint8_t)atoi(p + 8);
+    }
+    if ((p = strstr(req, "keyaSet=")) != NULL) {
+        moduleConfig.keyaSetSpeedMin = (uint8_t)atoi(p + 8);
+    }
+    if ((p = strstr(req, "keyaAct=")) != NULL) {
+        moduleConfig.keyaActSpeedMin = (uint8_t)atoi(p + 8);
+    }
+    if ((p = strstr(req, "motorDis=")) != NULL) {
+        moduleConfig.motorDisEnable = (uint8_t)atoi(p + 9);
+    }
+    if ((p = strstr(req, "motorAngleMin=")) != NULL) {
+        moduleConfig.motorAngleErrorMin = (uint8_t)atoi(p + 14);
+    }
+    if ((p = strstr(req, "speedDiffTimeout=")) != NULL)
+        moduleConfig.speedDiffTimeout = (uint16_t)atoi(p + 17);
+    if ((p = strstr(req, "keyaTicksPD="))  != NULL) moduleConfig.keyaTicksPerDeg = atof(p + 12);
+    if ((p = strstr(req, "keyaEncInv="))   != NULL) moduleConfig.keyaEncInvert   = (uint8_t)atoi(p + 11);
+    if ((p = strstr(req, "keyaAzEn="))     != NULL) moduleConfig.keyaAzEnable    = (uint8_t)atoi(p + 9);
+    if ((p = strstr(req, "keyaAzBeta="))   != NULL) moduleConfig.keyaAzBeta      = atof(p + 11);
+    if ((p = strstr(req, "keyaAzVmin="))   != NULL) moduleConfig.keyaAzSpeedMin  = atof(p + 11);
+    if ((p = strstr(req, "keyaAzYawMax=")) != NULL) moduleConfig.keyaAzYawMax    = atof(p + 13);
+    if ((p = strstr(req, "keyaAzVslow="))  != NULL) moduleConfig.keyaAzSpeedSlow = (uint8_t)atoi(p + 12);
+    if ((p = strstr(req, "keyaAzTslow="))  != NULL) moduleConfig.keyaAzTimeSlowMs = (uint16_t)atoi(p + 12);
+    if ((p = strstr(req, "keyaAzTfast="))  != NULL) moduleConfig.keyaAzTimeFastMs = (uint16_t)atoi(p + 12);
+    if ((p = strstr(req, "keyaEmaA="))     != NULL) moduleConfig.keyaEmaAlpha      = atof(p + 9);
+    if ((p = strstr(req, "can2Baud="))     != NULL) {
+        moduleConfig.can2Baud = (uint32_t)atol(p + 9);
+        needRestart = true;
+    }
+    if ((p = strstr(req, "can3Baud="))     != NULL) {
+        moduleConfig.can3Baud = (uint32_t)atol(p + 9);
+        needRestart = true;
+    }
+    if ((p = strstr(req, "wasSource="))    != NULL) moduleConfig.wasSource       = (uint8_t)atoi(p + 10);
+    if ((p = strstr(req, "j19Addr="))     != NULL) moduleConfig.j1939SrcAddr    = (uint8_t)atoi(p + 9);
+    if ((p = strstr(req, "j19En65267="))  != NULL) moduleConfig.j1939En65267    = (uint8_t)atoi(p + 12);
+    if ((p = strstr(req, "j19R65267="))   != NULL) moduleConfig.j1939Rate65267  = (uint16_t)atoi(p + 11);
+    if ((p = strstr(req, "j19En129029=")) != NULL) moduleConfig.j1939En129029   = (uint8_t)atoi(p + 13);
+    if ((p = strstr(req, "j19R129029="))  != NULL) moduleConfig.j1939Rate129029 = (uint16_t)atoi(p + 12);
+    if ((p = strstr(req, "imuWasInv="))   != NULL) moduleConfig.imuWasInvert    = (uint8_t)atoi(p + 10);
+    if ((p = strstr(req, "imuWasCpd="))   != NULL) moduleConfig.imuWasCpdScale = atof(p + 10);
+    if ((p = strstr(req, "imuWasAzEn="))  != NULL) moduleConfig.imuWasAzEnable = (uint8_t)atoi(p + 11);
+    if ((p = strstr(req, "imuWasAzB="))   != NULL) moduleConfig.imuWasAzBeta   = atof(p + 10);
+    if ((p = strstr(req, "imuWasVmin="))  != NULL) moduleConfig.imuWasSpeedMin = atof(p + 11);
+    if ((p = strstr(req, "imuWasYaw="))   != NULL) moduleConfig.imuWasYawMax   = atof(p + 10);
+
+    moduleConfigSave();
+
+    sendHeaders(client, "text/plain");
+    client.print(F("OK"));
+
+    if (needRestart) {
+        Serial.println("Config saved – restart pending...");
+        webLog("Config saved - restarting...");
+        pendingRestart = true;
+        restartDelay   = 0;
+    } else {
+        Serial.print("Debug flags: 0x");
+        Serial.println(moduleConfig.debugFlags, HEX);
+        webLogf("Debug flags: 0x%02X", moduleConfig.debugFlags);
+    }
+}

@@ -1,0 +1,105 @@
+IMU as WAS – CAN1 protocol
+==========================
+
+AIO board (Teensy 4.1) prima yaw kut kotaca preko CAN1 busa.
+Wheel-mounted IMU node salje samo sirovi yaw kut svog IMU-a.
+AIO board sam oduzima chassis yaw i racuna kut upravljaca.
+
+CAN postavke
+------------
+Bus        : CAN1 (Teensy pin TX1/RX1)
+Baud       : 250 kbps
+CAN ID     : 0x300  (standard 11-bit)
+DLC        : 8 bytes
+Rate       : 50 Hz (svakih 20 ms) ili brze
+Tip okvira : standard (ne extended)
+
+Format poruke (8 bajta)
+-----------------------
+Byte 0-1 : int16_t  yaw_angle * 100   (big-endian, centidegrees)
+           Raspon: -32768 do +32767  =>  -327.68° do +327.67°
+           Primjer: 12.34° => hi=0x04, lo=0xD2
+
+Byte 2-3 : int16_t  yaw_rate * 100    (big-endian, centidegrees/s)
+           Primjer: 5.0°/s => hi=0x01, lo=0xF4
+           (koristi se samo za debug, AIO koristi vlastiti chassis yaw rate)
+
+Byte 4   : uint8_t  status
+           bit 0 = 1  =>  podaci valjani (data valid)
+           bit 0 = 0  =>  podaci nevaljani (AIO ignorira poruku)
+
+Byte 5-7 : 0x00  (rezervirano, posalji nule)
+
+Primjer koda za sender – Teensy/Arduino + FlexCAN_T4
+-----------------------------------------------------
+#include <FlexCAN_T4.h>
+FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_256> Can;
+
+void setup() {
+    Can.begin();
+    Can.setBaudRate(250000);
+}
+
+void sendImuWas(float yaw_deg, float yaw_rate_dps) {
+    CAN_message_t msg;
+    msg.id  = 0x300;
+    msg.len = 8;
+    int16_t yc = (int16_t)(yaw_deg * 100.0f);
+    int16_t rc = (int16_t)(yaw_rate_dps * 100.0f);
+    msg.buf[0] = highByte(yc);
+    msg.buf[1] = lowByte(yc);
+    msg.buf[2] = highByte(rc);
+    msg.buf[3] = lowByte(rc);
+    msg.buf[4] = 0x01;   // valid flag
+    msg.buf[5] = msg.buf[6] = msg.buf[7] = 0;
+    Can.write(msg);
+}
+
+// Pozovi iz loop() svakih 20 ms:
+void loop() {
+    static elapsedMillis txTimer = 0;
+    if (txTimer >= 20) {
+        txTimer = 0;
+        float yaw = readYawFromIMU();       // tvoj IMU yaw u stupnjevima
+        float rate = readYawRateFromIMU();  // tvoj IMU yaw rate u stupnjevima/s
+        sendImuWas(yaw, rate);
+    }
+}
+
+Napomene
+--------
+- IMU na kotacu salje SIROVI yaw kut – nije potrebno racunati razliku
+  na kotacu, AIO board to radi sam oduzimanjem chassis yaw-a.
+- Yaw kut moze biti apsolutni (0-360°) ili relativni – nije bitno jer
+  AIO koristi integrator koji prati promjenu, ne apsolutnu vrijednost.
+- Ako IMU ima wraparound (0/360 granicu), nista posebno ne treba raditi,
+  integrator u AIO kodu to ispravno hendla.
+- Smjer yaw-a: pozitivan = desno (clockwise gledano odozgo) je standard.
+  Ako je obratno, enable "Invert direction" u web konfiguraciji.
+- Auto-zero: AIO automatski korigira drift dok vozac vozi ravno
+  (GPS speed > imuWasSpeedMin, chassis yaw rate < imuWasYawMax).
+  Radi bez interakcije korisnika.
+- "Set Zero Now" u web GUI resetira integrator i offset na 0 u trenutnom
+  polozaju upravljaca – koristiti kada su kotaci ravno.
+
+Konfiguracija na AIO web sučelju (Config tab)
+---------------------------------------------
+1. Auto-detected devices:
+   WAS        => IMUasWAS
+   CAN1 mode  => IMUasWAS
+   (promjena CAN1 mode zahtijeva restart – Teensy se sam restartira)
+
+2. IMU as WAS kartica (dno Config taba):
+   Invert direction    : OFF (ako je smjer OK)
+   Sensitivity scale   : 1.0  (povecaj ako WAS pokazuje premalo, smanji ako previse)
+   Auto-zero Enable    : ON
+   Beta                : 0.05  (veci = brza korekcija, manji = sporija ali stabilnija)
+   Min GPS speed km/h  : 1.0
+   Max chassis yaw deg/s : 0.8  (manji = strozi uvjet za "ravno")
+
+Zahtjevi
+--------
+- Na AIO boardu mora biti aktivan chassis IMU (BNO085 ili TM171 na Serial2)
+  jer IMU WAS racuna razliku yawova: wheel_yaw - chassis_yaw.
+- Ako nema chassis IMU, auto-zero ce i dalje raditi ali pocetna kalibracija
+  nece biti tocna – koristiti "Set Zero Now" rucno.

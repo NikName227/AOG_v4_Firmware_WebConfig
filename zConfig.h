@@ -1,0 +1,138 @@
+#pragma once
+#include <EEPROM.h>
+
+// ── EEPROM layout ──────────────────────────────────────────────────────────────
+// addr  0  : EEP_Ident (uint16)   – steer settings identity (existing)
+// addr 10  : steerSettings        – 11 bytes (existing)
+// addr 40  : steerConfig          –  9 bytes (existing)
+// addr 60  : networkAddress       –  3 bytes (existing)
+// addr 80  : ModuleConfig         (NEW)
+
+#define EEP_MODULE_ADDR  80
+#define EEP_MODULE_IDENT 0xBF   // change to force EEPROM reset on next boot
+
+// IMU type
+#define IMU_AUTO    0   // auto-detect: RVC → I2C → TM171
+#define IMU_BNO_RVC 1   // force Serial BNO085 RVC only
+#define IMU_BNO_I2C 2   // force I2C BNO085 only
+#define IMU_TM171   3   // force TM171 only
+#define IMU_NONE    4   // no IMU
+
+// CAN port function modes  (same set for CAN1, CAN2, CAN3)
+#define CAN_MODE_OFF    0   // port disabled
+#define CAN_MODE_KEYA   1   // Keya brushless motor drive
+#define CAN_MODE_IMU    2   // wheel-mounted IMU WAS – sends yaw via CAN
+#define CAN_MODE_VBUS   3   // steer-ready tractor valve – V_Bus
+#define CAN_MODE_KBUS   4   // Fendt K_Bus engage signals
+#define CAN_MODE_ISO    5   // ISO_Bus engage + hitch signals
+#define CAN_MODE_J1939  6   // J1939/NMEA 2000 GPS broadcast
+#define CAN_MODE_CANTEST 7  // CAN loopback test — echoes RX back with data+1
+#define CAN_MODE_CUSTOM  8  // reserved / user-defined
+
+// WAS sensor source
+#define WAS_SOURCE_ADS1115   0   // analog sensor via ADS1115 (default)
+#define WAS_SOURCE_KEYA      1   // Keya motor encoder
+#define WAS_SOURCE_IMU_CAN   2   // wheel-mounted IMU via CAN_MODE_IMU port
+#define WAS_SOURCE_CAN_VALVE 3   // tractor valve estCurve via CAN_MODE_VBUS port
+
+// Disengage type
+#define DIS_MOTOR_SPEED  0   // speed-direction detection (PWM motor)
+#define DIS_KEYA_EASY    1   // Keya easy-disengage via CAN error
+#define DIS_CURRENT_ADC  2   // ADC current sensor (original)
+#define DIS_TRACTOR_CAN  3   // future: disengage from tractor CAN
+
+struct ModuleConfig {
+    uint8_t ident           = EEP_MODULE_IDENT;
+    uint8_t imuType         = IMU_AUTO;
+    // ── CAN port modes + baud rates ─────────────────────────────────────────
+    uint8_t  can1Mode       = CAN_MODE_OFF;   // CAN1 function (see CAN_MODE_*)
+    uint8_t  can2Mode       = CAN_MODE_OFF;   // CAN2 function
+    uint8_t  can3Mode       = CAN_MODE_OFF;   // CAN3 function
+    uint32_t can1Baud       = 250000;
+    uint32_t can2Baud       = 250000;
+    uint32_t can3Baud       = 250000;
+    uint8_t  wasSource      = WAS_SOURCE_ADS1115; // active WAS sensor (see WAS_SOURCE_*)
+    uint8_t steerBrand      = 1;              // steer-ready brand: 0=Claas 1=Valtra 2=CaseIH
+                                              //   3=Fendt 4=JCB 5=FendtOne 6=Lindner 7=AgOpenGPS
+    uint8_t disengageType   = DIS_MOTOR_SPEED;
+    uint8_t debugFlags      = 0;              // bitmask, see DBG_* defines below
+    // ── Keya speed-direction disengage ──────────────────────────────────────
+    uint8_t keyaDisEnable   = 0;    // 0=off 1=on
+    uint8_t keyaSetSpeedMin = 10;   // abs(setSpeed) threshold
+    uint8_t keyaActSpeedMin = 5;    // abs(actSpeed) threshold
+    // ── Motor (PWM) speed-direction disengage ───────────────────────────────
+    uint8_t motorDisEnable     = 0; // 0=off 1=on
+    uint8_t motorAngleErrorMin = 3; // abs(steerAngleError) threshold in degrees
+    uint32_t gpsBaud           = 115200;
+    uint16_t speedDiffTimeout  = 250;   // Keya + Motor speedDiff disengage timeout (ms)
+    // ── Keya encoder as WAS ─────────────────────────────────────────────────
+    float    keyaTicksPerDeg  = 24.0f;
+    uint8_t  keyaEncInvert    = 0;
+    int16_t  keyaZeroTicks    = 0;
+    uint8_t  keyaAzEnable     = 1;
+    float    keyaAzBeta       = 0.05f;
+    float    keyaAzSpeedMin   = 1.0f;
+    float    keyaAzYawMax     = 1.0f;
+    uint8_t  keyaAzSpeedSlow  = 3;
+    uint16_t keyaAzTimeSlowMs = 500;
+    uint16_t keyaAzTimeFastMs = 200;
+    float    keyaEmaAlpha     = 0.0f;
+    // ── J1939 / NMEA 2000 GPS broadcast ─────────────────────────────────────
+    uint8_t  j1939SrcAddr    = 0x1E;  // J1939 source address (30 = default AIO)
+    uint8_t  j1939En65267    = 1;     // enable PGN 65267/65256 (position + direction)
+    uint8_t  j1939En129029   = 0;     // enable PGN 129029 (NMEA 2000 fast-packet)
+    uint16_t j1939Rate65267  = 200;   // send interval ms (default 5 Hz)
+    uint16_t j1939Rate129029 = 1000;  // send interval ms (default 1 Hz)
+    // ── IMU as WAS (wheel-mounted IMU via CAN @ ID 0x300) ───────────────────────
+    uint8_t  imuWasInvert    = 0;       // flip sign of measured wheel angle
+    float    imuWasCpdScale  = 1.0f;    // sensitivity scale factor
+    uint8_t  imuWasAzEnable  = 1;       // auto-zero via GPS angle comparison
+    float    imuWasAzBeta    = 0.05f;   // auto-zero correction fraction per cycle
+    float    imuWasSpeedMin  = 1.0f;    // min GPS speed km/h for auto-zero
+    float    imuWasYawMax    = 0.8f;    // max chassis yaw rate deg/s for straight detection
+    // ── PVED tool ────────────────────────────────────────────────────────────
+    uint16_t pvedParam64007Factory = 0xFFFF;  // original tractor value (0xFFFF = never read)
+};
+extern ModuleConfig moduleConfig;
+
+// Debug flag bitmask
+#define DBG_GPS        (moduleConfig.debugFlags & 0x01)
+#define DBG_IMU        (moduleConfig.debugFlags & 0x02)
+#define DBG_WAS        (moduleConfig.debugFlags & 0x04)
+#define DBG_STEER      (moduleConfig.debugFlags & 0x08)
+#define DBG_CAN        (moduleConfig.debugFlags & 0x10)
+#define DBG_KEYA_DIFF  (moduleConfig.debugFlags & 0x20)
+#define DBG_MOTOR_DIFF (moduleConfig.debugFlags & 0x40)
+
+inline void moduleConfigLoad()
+{
+    uint8_t ident;
+    EEPROM.get(EEP_MODULE_ADDR, ident);
+    if (ident == EEP_MODULE_IDENT) {
+        EEPROM.get(EEP_MODULE_ADDR, moduleConfig);
+        Serial.println("ModuleConfig: loaded from EEPROM");
+    } else {
+        EEPROM.put(EEP_MODULE_ADDR, moduleConfig);
+        Serial.println("ModuleConfig: first boot, defaults written");
+    }
+    Serial.print("  imuType=");   Serial.print(moduleConfig.imuType);
+    Serial.printf("  CAN1=%u@%luk", moduleConfig.can1Mode, moduleConfig.can1Baud/1000);
+    Serial.printf("  CAN2=%u@%luk", moduleConfig.can2Mode, moduleConfig.can2Baud/1000);
+    Serial.printf("  CAN3=%u@%luk", moduleConfig.can3Mode, moduleConfig.can3Baud/1000);
+    Serial.print("  wasSrc=");    Serial.print(moduleConfig.wasSource);
+    Serial.print("  brand=");     Serial.print(moduleConfig.steerBrand);
+    Serial.print("  dis=");       Serial.println(moduleConfig.disengageType);
+}
+
+inline void moduleConfigSave()
+{
+    EEPROM.put(EEP_MODULE_ADDR, moduleConfig);
+}
+
+// ── Web log helpers (defined in zWebServer.ino) ────────────────────────────────
+void webLog(const char* msg);
+void webLogf(const char* fmt, ...);
+void gpsRawByte(uint8_t c);
+
+// SLOG – print to USB Serial AND buffer for web display
+#define SLOG(msg)  do { Serial.println(msg); webLog(msg); } while(0)
