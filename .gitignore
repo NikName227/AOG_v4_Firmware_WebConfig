@@ -9,8 +9,11 @@ build/
 *.bak
 *.tmp
 
-# Test logs
+# Test logs and output files
 *.log
+*.csv
+*.txt
+!doc/*.txt
 
 # Windows
 Thumbs.db
