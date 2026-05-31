@@ -305,7 +305,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Speed slow threshold km/h <small style="color:#64748b">(def 3)</small></span>
 <input type="number" id="kw8" min="0" max="25" step="1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed the slow straight-time applies. Longer wait at low speed reduces false corrections on headland turns.</p>
-<div class="row"><span class="lbl">Speed fast threshold km/h <small style="color:#64748b">(def 17)</small></span>
+<div class="row"><span class="lbl">Speed fast threshold km/h <small style="color:#64748b">(def 12)</small></span>
 <input type="number" id="kw9" min="0" max="30" step="1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Above this speed the fast straight-time applies. Between slow and fast thresholds the time is linearly interpolated.</p>
 <div class="row"><span class="lbl">Straight time at slow speed ms <small style="color:#64748b">(def 500)</small></span>

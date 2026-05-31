@@ -74,7 +74,7 @@ struct ModuleConfig {
     float    keyaAzSpeedMin   = 2.5f;   // Flodu default — below this auto-zero blocked
     float    keyaAzYawMax     = 0.3f;   // Flodu default — stricter straight detection
     uint8_t  keyaAzSpeedSlow  = 3;
-    float    keyaAzSpeedFast  = 17.0f;  // above this → fast (timeFast) applies
+    float    keyaAzSpeedFast  = 12.0f;  // above this → fast (timeFast) applies
     uint16_t keyaAzTimeSlowMs = 500;
     uint16_t keyaAzTimeFastMs = 200;
     float    keyaEmaAlpha     = 0.0f;
