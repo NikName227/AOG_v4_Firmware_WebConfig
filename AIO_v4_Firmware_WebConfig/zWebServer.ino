@@ -23,13 +23,14 @@ static bool     gpsRawWrapped = false;
 
 void gpsRawByte(uint8_t c)
 {
+    if (!gpsRawActive) return;
     gpsRawBuf[gpsRawWrite] = (char)c;
     if (++gpsRawWrite >= GPS_RAW_BUF_SIZE) { gpsRawWrite = 0; gpsRawWrapped = true; }
 }
 
 void webLog(const char* msg)
 {
-    if (!msg) return;
+    if (!msg || !logActive) return;
     while (*msg) {
         logBuf[logWrite] = *msg++;
         if (++logWrite >= LOG_BUF_SIZE) { logWrite = 0; logWrapped = true; }
@@ -92,6 +93,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <h1>&#9881; AIO v4 | Web Config</h1>
 <div class="tabs">
 <button class="tab active" onclick="showTab('config',this)">Config</button>
+<button class="tab" onclick="showTab('live',this)">Live</button>
 <button class="tab" onclick="showTab('keya',this)">Keya</button>
 <button class="tab" onclick="showTab('cansteer',this)">CAN Steer</button>
 <button class="tab" onclick="showTab('debug',this)">Debug</button>
@@ -194,13 +196,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <button class="btn green" onclick="saveWasSource()" style="margin-top:8px">Save WAS source</button>
 </div>
 
-<div class="card">
-<h2>Live data</h2>
-<div class="row"><span class="lbl">Steer angle actual</span><span class="val" id="l0">-</span></div>
-<div class="row"><span class="lbl">Steer setpoint</span><span class="val" id="l1">-</span></div>
-<div class="row"><span class="lbl">GPS speed</span><span class="val" id="l2">-</span></div>
-<div class="row"><span class="lbl">Autosteer</span><span id="l3" class="badge fail">OFF</span></div>
-</div>
 </div>
 
 <div class="card">
@@ -269,6 +264,17 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 
 </div><!-- /config -->
+
+<!-- LIVE TAB -->
+<div id="live" class="panel">
+<div class="card">
+<h2>Live data</h2>
+<div class="row"><span class="lbl">Steer angle actual</span><span class="val" id="l0">-</span></div>
+<div class="row"><span class="lbl">Steer setpoint</span><span class="val" id="l1">-</span></div>
+<div class="row"><span class="lbl">GPS speed</span><span class="val" id="l2">-</span></div>
+<div class="row"><span class="lbl">Autosteer</span><span id="l3" class="badge fail">OFF</span></div>
+</div>
+</div><!-- /live -->
 
 <!-- KEYA TAB -->
 <div id="keya" class="panel">
@@ -446,7 +452,11 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 <div class="card">
 <h2>Serial log <button class="btn sm" onclick="clearLog()">&#128465; Clear</button></h2>
-<pre id="log">Waiting for log data...</pre>
+<div class="chk-row" style="margin-bottom:8px">
+<input type="checkbox" id="logActive" onchange="setLogActive(this.checked)">
+<label for="logActive" style="cursor:pointer">Active — enable log capture (disable to save CPU when not debugging)</label>
+</div>
+<pre id="log">(log capture disabled — enable above to start)</pre>
 </div>
 </div><!-- /debug -->
 
@@ -483,7 +493,11 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 <div class="card">
 <h2>GPS raw serial <button class="btn sm" onclick="clearGpsRaw()">&#128465; Clear</button></h2>
-<pre id="gpsraw">Waiting for GPS data...</pre>
+<div class="chk-row" style="margin-bottom:8px">
+<input type="checkbox" id="gpsActive" onchange="setGpsActive(this.checked)">
+<label for="gpsActive" style="cursor:pointer">Active — enable GPS raw capture</label>
+</div>
+<pre id="gpsraw">(GPS raw capture disabled — enable above to start)</pre>
 </div>
 </div><!-- /um98x -->
 
@@ -491,8 +505,10 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <script>
 var loaded = false;
+var configLoaded = false;
 var activeTab = 'config';
 var logFetching = false;
+var tickTimer = null;
 
 function showTab(t, el) {
   activeTab = t;
@@ -500,8 +516,15 @@ function showTab(t, el) {
   document.querySelectorAll('.panel').forEach(function(e) { e.classList.remove('active'); });
   document.getElementById(t).classList.add('active');
   el.classList.add('active');
+  restartTick();
   if (t === 'debug') pollLog();
   if (t === 'um98x') pollGpsRaw();
+}
+
+function restartTick() {
+  if (tickTimer) clearInterval(tickTimer);
+  var rate = (activeTab === 'live') ? 500 : 2000;
+  tickTimer = setInterval(tick, rate);
 }
 
 function badge(id, ok) {
@@ -699,17 +722,92 @@ function clearLog() {
 }
 
 function tick() {
-  fetch('/api/status', { cache: 'no-store' })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      upd(d);
-      if (activeTab === 'debug') pollLog();
-      if (activeTab === 'um98x') pollGpsRaw();
-      if (activeTab === 'cansteer') pollCanRaw();
-    })
-    .catch(function() {
-      document.getElementById('sb').textContent = 'No connection to Teensy...';
-    });
+  if (!configLoaded) {
+    fetch('/api/status', { cache: 'no-store' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) { upd(d); configLoaded = true; })
+      .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
+  } else {
+    fetch('/api/live', { cache: 'no-store' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) { updLive(d); })
+      .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
+    if (activeTab === 'debug') pollLog();
+    if (activeTab === 'um98x') pollGpsRaw();
+    if (activeTab === 'cansteer') pollCanRaw();
+  }
+}
+
+function updLive(d) {
+  document.getElementById('l0').textContent = d.angle.toFixed(2) + ' °';
+  document.getElementById('l1').textContent = d.setpt.toFixed(2) + ' °';
+  document.getElementById('l2').textContent = d.spd.toFixed(1)   + ' km/h';
+  var la = document.getElementById('l3');
+  la.className = 'badge ' + (d.on ? 'ok' : 'fail');
+  la.textContent = d.on ? 'ACTIVE' : 'OFF';
+
+  badge('d5', d.gps); badge('d_gga', d.gga); badge('d_vtg', d.vtg); badge('d_hpr', d.hpr);
+  badge('d1', d.bno); badge('d2', d.tm);
+  badge('d_ads', d.ads); badge('d_imuWas', d.iWas); badge('d3', d.keya);
+
+  badge('k_det',  d.keya); badge('k_zero', d.kZero);
+  document.getElementById('k_enc').textContent  = d.kEnc + ' ticks';
+  document.getElementById('k_off').textContent  = d.kOff.toFixed(3) + ' °';
+  document.getElementById('kw_off').textContent = d.kOff.toFixed(3) + ' °';
+  document.getElementById('k_act').textContent  = d.kAct;
+  document.getElementById('k_set').textContent  = d.kSet;
+
+  document.getElementById('cs0').textContent = d.vReady === 16 ? 'READY (16)' : (d.vReady || 0);
+  document.getElementById('cs1').textContent = d.eCurve + ' (' + (d.eCurve - 32128) + ')';
+  document.getElementById('cs2').textContent = d.sCurve + ' (' + (d.sCurve - 32128) + ')';
+  document.getElementById('cs3').textContent = Math.round(d.hitch / 2.5) + ' %';
+  var ci = document.getElementById('cs4');
+  ci.className = 'badge ' + (d.intend ? 'ok' : 'fail');
+  ci.textContent = d.intend ? 'STEERING' : 'IDLE';
+  var pb = document.getElementById('canPlotBtn');
+  if (pb && d.showData) pb.textContent = 'Disable CAN log';
+
+  document.getElementById('u0').textContent  = d.kp;
+  document.getElementById('u1').textContent  = d.hiPWM;
+  document.getElementById('u2').textContent  = d.loPWM;
+  document.getElementById('u3').textContent  = d.minPWM;
+  document.getElementById('u4').textContent  = d.cnt;
+  document.getElementById('u5').textContent  = d.wasOff;
+  document.getElementById('u6').textContent  = yn(d.invWAS);
+  document.getElementById('u7').textContent  = yn(d.cytron);
+  document.getElementById('u8').textContent  = yn(d.shaftEnc);
+  document.getElementById('u9').textContent  = yn(d.pres);
+  document.getElementById('u10').textContent = yn(d.curr);
+  document.getElementById('u11').textContent = yn(d.danf);
+
+  var fixNames = ['—','GPS','DGPS','PPS','RTK','Float RTK','Est','Manual','Sim'];
+  document.getElementById('j19Fix').textContent = fixNames[d.j19Fix] || d.j19Fix;
+  if (d.j19Lat !== 0 || d.j19Lon !== 0)
+    document.getElementById('j19LatLon').textContent = d.j19Lat.toFixed(7) + ' / ' + d.j19Lon.toFixed(7);
+
+  var pi = document.getElementById('pvedInfo');
+  var rb = document.getElementById('pvedRestoreBtn');
+  if (pi) {
+    var toHex = function(v) { return '0x' + v.toString(16).toUpperCase().padStart(2,'0'); };
+    var html = 'Valve: <b style="color:' + (d.pvedDet ? '#4ade80' : '#f87171') + '">' + (d.pvedDet ? 'detected' : 'not detected') + '</b>';
+    if (d.pvedLast !== 65535) html += '&nbsp;&nbsp;&nbsp;Param 64007 (current): <b style="color:#e2e8f0">' + toHex(d.pvedLast) + '</b>';
+    if (d.pvedFac !== 65535) html += '&nbsp;&nbsp;&nbsp;Factory value (saved): <b style="color:#fbbf24">' + toHex(d.pvedFac) + '</b>';
+    pi.innerHTML = html;
+    pi.style.display = (d.pvedDet || d.pvedFac !== 65535) ? '' : 'none';
+    var wb = document.getElementById('pvedWriteBtn');
+    if (wb) wb.style.display = (d.pvedFac !== 65535) ? '' : 'none';
+    if (rb) rb.style.display = (d.pvedFac !== 65535 && d.pvedFac !== 30) ? '' : 'none';
+  }
+
+  document.getElementById('sb').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+}
+
+function setLogActive(on) {
+  fetch('/api/log?active=' + (on ? '1' : '0'));
+}
+
+function setGpsActive(on) {
+  fetch('/api/gpsraw?active=' + (on ? '1' : '0'));
 }
 
 function saveCanModes() {
@@ -721,6 +819,7 @@ function saveCanModes() {
           + '&can3Baud='  + document.getElementById('can3Baud').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'CAN assignment saved – restarting...' : 'Error saving CAN assignment.';
+    configLoaded = false;
   });
 }
 
@@ -1002,7 +1101,7 @@ function uploadLines() {
 }
 
 tick();
-setInterval(tick, 2000);
+restartTick();
 </script>
 </body>
 </html>
@@ -1072,6 +1171,7 @@ void handleWebClient()
 
     // ── Route ─────────────────────────────────────────────────────────────────
     if      (strstr(reqLine, "/api/save")   != NULL) handleApiSave(client, reqLine);
+    else if (strstr(reqLine, "/api/live")   != NULL) handleApiLive(client);
     else if (strstr(reqLine, "/api/log")    != NULL) handleApiLog(client, reqLine);
     else if (strstr(reqLine, "/api/status") != NULL) handleApiStatus(client);
     else if (strstr(reqLine, "/api/gpsraw")   != NULL) handleApiGpsRaw(client, reqLine);
@@ -1234,8 +1334,69 @@ void handleApiStatus(EthernetClient& client)
     client.print(F("}}"));
 }
 
+void handleApiLive(EthernetClient& client)
+{
+    sendHeaders(client, "application/json");
+    client.print(F("{"));
+    client.print(F("\"angle\":")); client.print(steerAngleActual, 2);
+    client.print(F(",\"setpt\":")); client.print(steerAngleSetPoint, 2);
+    client.print(F(",\"spd\":")); client.print(gpsSpeed, 1);
+    client.print(F(",\"on\":")); client.print((watchdogTimer < WATCHDOG_THRESHOLD) ? F("true") : F("false"));
+    client.print(F(",\"kAct\":")); client.print(keyaCurrentActualSpeed);
+    client.print(F(",\"kSet\":")); client.print(keyaCurrentSetSpeed);
+    client.print(F(",\"gps\":")); client.print(GGAReadyTime < 10000 ? F("true") : F("false"));
+    client.print(F(",\"gga\":")); client.print(GGAReadyTime < 10000 ? F("true") : F("false"));
+    client.print(F(",\"vtg\":")); client.print(VTGReadyTime < 10000 ? F("true") : F("false"));
+    client.print(F(",\"hpr\":")); client.print(HPRReadyTime < 10000 ? F("true") : F("false"));
+    client.print(F(",\"bno\":")); client.print(useBNO08xI2C ? F("true") : F("false"));
+    client.print(F(",\"tm\":")); client.print(useTMxx_IMU ? F("true") : F("false"));
+    client.print(F(",\"keya\":")); client.print(keyaDetected ? F("true") : F("false"));
+    client.print(F(",\"kZero\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
+    client.print(F(",\"kEnc\":")); client.print(keyaEncoderRaw);
+    client.print(F(",\"kOff\":")); client.print(keyaGpsOffset, 3);
+    client.print(F(",\"ads\":")); client.print(Autosteer_running ? F("true") : F("false"));
+    client.print(F(",\"iWas\":")); client.print((imuWasReceived && imuWasTimeout < 500) ? F("true") : F("false"));
+    client.print(F(",\"vReady\":")); client.print(steeringValveReady);
+    client.print(F(",\"eCurve\":")); client.print(estCurve);
+    client.print(F(",\"sCurve\":")); client.print(setCurve);
+    client.print(F(",\"hitch\":")); client.print(ISORearHitch);
+    client.print(F(",\"intend\":")); client.print(canSteerIntend ? F("true") : F("false"));
+    client.print(F(",\"showData\":")); client.print(showCANData ? F("true") : F("false"));
+    client.print(F(",\"kp\":")); client.print(steerSettings.Kp);
+    client.print(F(",\"hiPWM\":")); client.print(steerSettings.highPWM);
+    client.print(F(",\"loPWM\":")); client.print(steerSettings.lowPWM);
+    client.print(F(",\"minPWM\":")); client.print(steerSettings.minPWM);
+    client.print(F(",\"cnt\":")); client.print((int)steerSettings.steerSensorCounts);
+    client.print(F(",\"wasOff\":")); client.print(steerSettings.wasOffset);
+    client.print(F(",\"invWAS\":")); client.print(steerConfig.InvertWAS);
+    client.print(F(",\"cytron\":")); client.print(steerConfig.CytronDriver);
+    client.print(F(",\"shaftEnc\":")); client.print(steerConfig.ShaftEncoder);
+    client.print(F(",\"pres\":")); client.print(steerConfig.PressureSensor);
+    client.print(F(",\"curr\":")); client.print(steerConfig.CurrentSensor);
+    client.print(F(",\"danf\":")); client.print(steerConfig.IsDanfoss);
+    client.print(F(",\"j19Fix\":")); client.print(j1939FixType);
+    client.print(F(",\"j19Lat\":")); client.print(j1939Lat, 7);
+    client.print(F(",\"j19Lon\":")); client.print(j1939Lon, 7);
+    client.print(F(",\"pvedDet\":")); client.print(pvedValveDetected ? F("true") : F("false"));
+    client.print(F(",\"pvedLast\":")); client.print(pvedLastRead64007);
+    client.print(F(",\"pvedFac\":")); client.print(moduleConfig.pvedParam64007Factory);
+    client.print(F("}"));
+}
+
 void handleApiLog(EthernetClient& client, const char* req)
 {
+    if (strstr(req, "active=1") != NULL) {
+        logActive = true;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
+    if (strstr(req, "active=0") != NULL) {
+        logActive = false;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
     if (strstr(req, "clear=1") != NULL) {
         logWrite   = 0;
         logWrapped = false;
@@ -1274,6 +1435,18 @@ void handleApiImuWasZero(EthernetClient& client)
 
 void handleApiGpsRaw(EthernetClient& client, const char* req)
 {
+    if (strstr(req, "active=1") != NULL) {
+        gpsRawActive = true;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
+    if (strstr(req, "active=0") != NULL) {
+        gpsRawActive = false;
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+        return;
+    }
     if (strstr(req, "clear=1") != NULL) {
         gpsRawWrite   = 0;
         gpsRawWrapped = false;

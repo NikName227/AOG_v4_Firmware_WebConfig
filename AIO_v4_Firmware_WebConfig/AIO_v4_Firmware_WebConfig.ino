@@ -117,6 +117,9 @@ bool     keyaEncInitDone     = false;
 bool     keyaInitialZeroDone = false;  // autosteer blocked until first auto-zero done
 float    keyaGpsOffset       = 0.0f;  // runtime drift correction (degrees)
 
+bool logActive    = false;  // serial log capture enabled (web Debug tab)
+bool gpsRawActive = false;  // GPS raw capture enabled (web UM98x tab)
+
 // ── IMU as WAS state ──────────────────────────────────────────────────────────
 float         imuWasRawYaw      = 0.0f;
 bool          imuWasReceived    = false;
