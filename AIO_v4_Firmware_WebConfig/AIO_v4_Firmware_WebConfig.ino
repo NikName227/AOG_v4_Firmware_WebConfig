@@ -141,6 +141,7 @@ bool dualReadyHPR   = false;  // HPR sentence arrived, waiting for GGA
 elapsedMillis GGAReadyTime    = 10000;
 elapsedMillis VTGReadyTime    = 10000;
 elapsedMillis HPRReadyTime    = 10000;
+elapsedMillis RELPOSReadyTime = 10000;  // reset by relPosDecode on valid fix
 elapsedMillis ethernetLinkCheck = 1000;
 
 double headingcorr = 900;

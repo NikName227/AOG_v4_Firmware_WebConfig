@@ -41,10 +41,11 @@ void relPosDecode()
         rollDual = (asin(relPosD / baseline)) * -RAD_TO_DEG;
         digitalWrite(GPSGREEN_LED, HIGH);
         useDual = true;
+        RELPOSReadyTime = 0;
 
         if (moduleConfig.headingSource == HDG_SRC_RELPOS) {
-            imuHandler();       // compute heading rate, yaw rate, wheel angle
-            dualReadyRelPos = true;  // main loop triggers BuildNmea when GGA also ready
+            imuHandler();
+            dualReadyRelPos = true;
         }
     }
     else

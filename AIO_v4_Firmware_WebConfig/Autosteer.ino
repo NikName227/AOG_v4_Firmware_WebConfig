@@ -1014,6 +1014,34 @@ void ReceiveUdp()
     }
 }
 
+// ── PGN 221 (0xDD) — Display Message to AgIO ─────────────────────────────────
+// color: 0 = Salmon (warning/red), 1 = Bisque (info)
+void sendDisplayMessage(const char* msg, uint8_t seconds, uint8_t color)
+{
+    uint8_t textLen = (uint8_t)strlen(msg);
+    uint8_t payloadLen = 2 + textLen;          // displayTime + color + text
+    uint8_t pktSize = 5 + payloadLen + 1;      // header(4) + len(1) + payload + CRC
+    if (pktSize > 110) return;                 // safety
+
+    uint8_t pkt[110];
+    uint8_t i = 0;
+    pkt[i++] = 0x80;
+    pkt[i++] = 0x81;
+    pkt[i++] = 0x7E;       // source: AIO module
+    pkt[i++] = 0xDD;       // PGN 221
+    pkt[i++] = payloadLen;
+    pkt[i++] = seconds;
+    pkt[i++] = color;
+    for (uint8_t j = 0; j < textLen; j++) pkt[i++] = (uint8_t)msg[j];
+
+    uint8_t crc = 0;
+    for (uint8_t j = 2; j < i; j++) crc += pkt[j];
+    pkt[i++] = crc;
+
+    SendUdp(pkt, i, Eth_ipDestination, portDestination);
+    webLogf("AgIO msg: %s", msg);
+}
+
 #ifdef ARDUINO_TEENSY41
 void SendUdp(uint8_t *data, uint8_t datalen, IPAddress dip, uint16_t dport)
 {

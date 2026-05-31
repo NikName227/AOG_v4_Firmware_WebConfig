@@ -85,9 +85,29 @@ void GGA_Handler() //Rec'd GGA
     if (hasFuncMode(CAN_MODE_J1939)) j1939UpdateFromGGA();
 
     // ── Source-based routing ──────────────────────────────────────────────────
-    bool needsHPR    = (moduleConfig.headingSource == HDG_SRC_HPR
-                     || moduleConfig.rollSource    == ROLL_SRC_HPR);
-    bool needsRELPOS = (moduleConfig.headingSource == HDG_SRC_RELPOS);
+    bool configuredHPR    = (moduleConfig.headingSource == HDG_SRC_HPR
+                          || moduleConfig.rollSource    == ROLL_SRC_HPR);
+    bool configuredRELPOS = (moduleConfig.headingSource == HDG_SRC_RELPOS);
+
+    // Timeout fallback: if configured source hasn't sent data in 3s → fall back to IMU
+    bool needsHPR    = configuredHPR    && (HPRReadyTime    < 3000);
+    bool needsRELPOS = configuredRELPOS && (RELPOSReadyTime < 3000);
+
+    // Warn user in AgIO when configured source is missing (once every 5s)
+    if (configuredHPR && !needsHPR) {
+        static elapsedMillis hprWarnTimer = 5001;
+        if (hprWarnTimer > 5000) {
+            sendDisplayMessage("AIO: HPR not received - check GPS $HPR output config", 5, 0);
+            hprWarnTimer = 0;
+        }
+    }
+    if (configuredRELPOS && !needsRELPOS) {
+        static elapsedMillis relposWarnTimer = 5001;
+        if (relposWarnTimer > 5000) {
+            sendDisplayMessage("AIO: RELPOS not received - check u-blox F9P config", 5, 0);
+            relposWarnTimer = 0;
+        }
+    }
 
     if (needsHPR || needsRELPOS) {
         // Defer: wait for HPR sentence or RELPOS packet
