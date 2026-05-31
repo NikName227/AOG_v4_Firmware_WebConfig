@@ -457,6 +457,29 @@ void autosteerLoop()
     switchByte |= (steerSwitch << 1);   //put steerswitch status in bit 1 position
     switchByte |= workSwitch;
 
+    // Initial auto-zero for Keya encoder — runs before autosteer is allowed
+    if (moduleConfig.wasSource == WAS_SOURCE_KEYA
+        && keyaDetected && keyaEncInitDone && !keyaInitialZeroDone
+        && moduleConfig.keyaAzEnable && gpsSpeed >= moduleConfig.keyaAzSpeedMin)
+    {
+        static elapsedMillis keyaInitTimer = 0;
+        if ((float)abs(headingRate) <= moduleConfig.keyaAzYawMax) {
+            if (keyaInitTimer > (float)moduleConfig.keyaAzTimeSlowMs) {
+                // Fast direct offset to GPS wheel angle (Flodu model)
+                int32_t deltaTicks = keyaEncoderRaw - moduleConfig.keyaZeroTicks;
+                float rawAngle = (moduleConfig.keyaEncInvert ? -(float)deltaTicks : (float)deltaTicks)
+                                 / moduleConfig.keyaTicksPerDeg;
+                // Store initial offset as keyaZeroTicks shift
+                moduleConfig.keyaZeroTicks = keyaEncoderRaw - (int32_t)(wheelAngleGPS * moduleConfig.keyaTicksPerDeg);
+                keyaInitialZeroDone = true;
+                webLog("Keya WAS: initial zero done — autosteer unlocked");
+                Serial.println("Keya WAS: initial zero done");
+            }
+        } else {
+            keyaInitTimer = 0;
+        }
+    }
+
     switch (moduleConfig.wasSource)
     {
     case WAS_SOURCE_IMU_CAN:
@@ -517,29 +540,51 @@ void autosteerLoop()
     case WAS_SOURCE_KEYA:
     {
         if (!keyaDetected) break;
+
+        // Block autosteer until initial auto-zero is done (Flodu model)
+        if (!keyaInitialZeroDone) {
+            watchdogTimer = WATCHDOG_FORCE_VALUE;
+            steerAngleActual = 0;
+            break;
+        }
+
         static float keyaGpsOffset = 0.0f;
         static elapsedMillis keyaStraightTimer = 0;
 
-        float rawTicks = moduleConfig.keyaEncInvert ? -(float)keyaSteeringPosition : (float)keyaSteeringPosition;
-        float rawAngle = (rawTicks - (float)moduleConfig.keyaZeroTicks) / moduleConfig.keyaTicksPerDeg;
+        // Cumulative int32 encoder — invert then subtract zero
+        int32_t deltaTicks = keyaEncoderRaw - moduleConfig.keyaZeroTicks;
+        float rawAngle = (moduleConfig.keyaEncInvert ? -(float)deltaTicks : (float)deltaTicks)
+                         / moduleConfig.keyaTicksPerDeg;
 
-        if (moduleConfig.keyaAzEnable
-            && gpsSpeed >= moduleConfig.keyaAzSpeedMin
-            && gpsSpeed > 1.0f)
+        if (moduleConfig.keyaAzEnable && gpsSpeed >= moduleConfig.keyaAzSpeedMin)
         {
-            float yawRateDeg = (float)abs(headingRate);
-            uint16_t timeThresh = (gpsSpeed < (float)moduleConfig.keyaAzSpeedSlow)
-                                  ? moduleConfig.keyaAzTimeSlowMs
-                                  : moduleConfig.keyaAzTimeFastMs;
-            if (yawRateDeg <= moduleConfig.keyaAzYawMax)
-            {
-                if (keyaStraightTimer > timeThresh)
-                {
-                    float wasDiff = (rawAngle + keyaGpsOffset) - wheelAngleGPS;
-                    keyaGpsOffset -= wasDiff * moduleConfig.keyaAzBeta;
-                }
+            bool isStable = ((float)abs(headingRate) <= moduleConfig.keyaAzYawMax);
+
+            // Linear time interpolation (Flodu model)
+            float azTimeMs;
+            if (gpsSpeed <= (float)moduleConfig.keyaAzSpeedSlow)
+                azTimeMs = (float)moduleConfig.keyaAzTimeSlowMs;
+            else if (gpsSpeed >= moduleConfig.keyaAzSpeedFast)
+                azTimeMs = (float)moduleConfig.keyaAzTimeFastMs;
+            else {
+                float t = (gpsSpeed - (float)moduleConfig.keyaAzSpeedSlow)
+                        / (moduleConfig.keyaAzSpeedFast - (float)moduleConfig.keyaAzSpeedSlow);
+                azTimeMs = (float)moduleConfig.keyaAzTimeSlowMs
+                         + t * ((float)moduleConfig.keyaAzTimeFastMs - (float)moduleConfig.keyaAzTimeSlowMs);
             }
-            else { keyaStraightTimer = 0; }
+
+            if (isStable) {
+                if (keyaStraightTimer > azTimeMs) {
+                    // Guidance-aware: slower correction when autosteer active (Flodu model)
+                    float beta = (watchdogTimer < WATCHDOG_THRESHOLD)
+                                 ? moduleConfig.keyaAzBeta * 0.2f
+                                 : moduleConfig.keyaAzBeta;
+                    float wasDiff = (rawAngle + keyaGpsOffset) - wheelAngleGPS;
+                    keyaGpsOffset -= wasDiff * beta;
+                }
+            } else {
+                keyaStraightTimer = 0;
+            }
         }
 
         float correctedAngle = rawAngle + keyaGpsOffset;

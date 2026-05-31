@@ -1,0 +1,24 @@
+PVED Read v3 - source address test  2026-05-29 17:09:17.844022
+Parametar: 64007
+Dest SA: 0xF7
+
+   SA  Opis                                     Status                             
+--------------------------------------------------------------------------------
+  0xFE  off-board diag tool 1 (Tony default)   NACK (denied)                    
+  0xFB  off-board diag tool 2                  NACK (denied)                    
+  0xFA  off-board service tool                 NACK (denied)                    
+  0xF9  off-board service tool 2               NACK (denied)                    
+  0xF8  lighting controller (vec aktivna SA na NACK (denied)                    
+  0xF0  fleet management (engine ECU)          NACK (denied)                    
+  0xDE  vec aktivna SA                         NACK (denied)                    
+  0xD3  vec aktivna SA                         NACK (denied)                    
+  0x80  navigation generic                     NACK (denied)                    
+  0x1C  SASA-style                             NACK (denied)                    
+  0x2B  vec aktivna SA                         NACK (denied)                    
+  0x26  vec aktivna SA                         NACK (denied)                    
+  0x9C  Navigation reserved 1                  NACK (denied)                    
+  0x9F  Navigation reserved 2                  NACK (denied)                    
+  0x1E  Tony AIO board default                 NACK (denied)                    
+
+Nijedna SA nije autorizirana za parameter read.
+PVED treba ili Diagnostic Session Start, ili je read u tvornici disabled.

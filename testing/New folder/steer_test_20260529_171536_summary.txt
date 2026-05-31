@@ -1,0 +1,118 @@
+CAN steer test sazetak  2026-05-29 17:16:43.791121
+Bitrate: 250000 bps
+Trajanje: 67.8s
+Ukupno: 27040 okvira
+
+==================================================
+TOP 30 SOURCE ADDRESSES
+==================================================
+  SA 0xDE (222)  x13433
+  SA 0xF0 (240)  x10913 (Engine ECU / Fleet)
+  SA 0x1C ( 28)  x1411
+  SA 0xD3 (211)  x788
+  SA 0x81 (129)  x150
+  SA 0x2B ( 43)  x133
+  SA 0x26 ( 38)  x80
+  SA 0xF7 (247)  x50 *** PVED-CLS Steering ***
+  SA 0xF8 (248)  x50
+  SA 0x9F (159)  x16 (Navigation)
+  SA 0xED (237)  x16
+
+==================================================
+TOP 40 PGN-OVA s primjerima
+==================================================
+  PGN 0xAD00  x13433  primjer: ID 0x1BADC0DE data 434F4D4D464C54
+  PGN 0xE700  x 1477  primjer: ID 0x1CE7FFD3 data 23010001FFFFFFFF
+  PGN 0xF022  x  672  primjer: ID 0x0CF022F0 data 00006E0000000001
+  PGN 0xFE18  x  672  primjer: ID 0x0CFE18F0 data 7D7D32FFFFFFFFFF
+  PGN 0xFE17  x  672  primjer: ID 0x0CFE17F0 data 7D7D30FFFFFFFFFF
+  PGN 0xFE16  x  672  primjer: ID 0x0CFE16F0 data 7D7D30FFFFFFFFFF
+  PGN 0xFE46  x  672  primjer: ID 0x0CFE46F0 data FFFFFFFFFFFFFFFF
+  PGN 0xFE15  x  672  primjer: ID 0x0CFE15F0 data FFFF3FFFFFFFFFFF
+  PGN 0xFE45  x  672  primjer: ID 0x0CFE45F0 data FFFF780A7CFFFFFF
+  PGN 0xFE14  x  672  primjer: ID 0x0CFE14F0 data 7D7D30FFFFFFFFFF
+  PGN 0xF004  x  672  primjer: ID 0x0CF004F0 data FFFFFFFFFFFFFFFF
+  PGN 0xFE13  x  672  primjer: ID 0x0CFE13F0 data 7D7D30FFFFFFFFFF
+  PGN 0xFE49  x  672  primjer: ID 0x0CFE49F0 data 000000000000FFFD
+  PGN 0xFE12  x  672  primjer: ID 0x0CFE12F0 data 7D7D30FFFFFFFFFF
+  PGN 0xFE48  x  671  primjer: ID 0x0CFE48F0 data 00006E00000002C5
+  PGN 0xFE11  x  671  primjer: ID 0x0CFE11F0 data 7D7D30FFFFFFFFFF
+  PGN 0xFE10  x  671  primjer: ID 0x0CFE10F0 data FFFFFFFFFFFFFFFF
+  PGN 0xF801  x  670  primjer: ID 0x09F8011C data B58A0B1B8165EB0A
+  PGN 0xF805  x  469  primjer: ID 0x0DF8051C data 402BA17A5010FDBD
+  PGN 0xF802  x  268  primjer: ID 0x09F8021C data 6D00CC6701000000
+  PGN 0xEA00  x  117  primjer: ID 0x18EAFF2B data 00EE00
+  PGN 0xFECB  x   73  primjer: ID 0x18FECBF0 data FFFF00000000FFFF
+  PGN 0xFE41  x   68  primjer: ID 0x0CFE41F0 data 00005000000C0000
+  PGN 0xFD02  x   67  primjer: ID 0x0CFD0281 data FFFFFFFFFFFF00FD
+  PGN 0xFEE6  x   67  primjer: ID 0x18FEE681 data 600E11057329FFF9
+  PGN 0xCB00  x   67  primjer: ID 0x08CBFFF7 data FEFFFFFF00000000
+  PGN 0xE600  x   64  primjer: ID 0x0CE6FF26 data FEFEFFFFFFFF00FF
+  PGN 0xEE00  x   64  primjer: ID 0x18EEFFF8 data E296E91C003D0080
+  PGN 0xAB00  x   34  primjer: ID 0x1CABFFF8 data 000000FFFFFFFFFF
+  PGN 0xD000  x   13  primjer: ID 0x0CD0FFF0 data FFFFFFFFFFFFFFFF
+  PGN 0xE800  x   12  primjer: ID 0x18E8FF1C data 01FFFFFFFFCBFE00
+
+==================================================
+SVI CAN ID-OVI (top 60 po broju)
+==================================================
+  0x1BADC0DE  x13433
+  0x0CF022F0  x672
+  0x0CFE18F0  x672
+  0x0CFE17F0  x672
+  0x0CFE16F0  x672
+  0x0CFE46F0  x672
+  0x0CFE15F0  x672
+  0x0CFE45F0  x672
+  0x0CFE14F0  x672
+  0x0CF004F0  x672
+  0x0CFE13F0  x672
+  0x1CE7FFD3  x672
+  0x0CFE49F0  x672
+  0x0CFE12F0  x672
+  0x0CFE48F0  x671
+  0x0CFE11F0  x671
+  0x1CE7FFF0  x671
+  0x0CFE10F0  x671
+  0x09F8011C  x670
+  0x0DF8051C  x469
+  0x09F8021C  x268
+  0x0CFE41F0  x68
+  0x0CFD0281  x67
+  0x1CE726F0  x67
+  0x14E726D3  x67
+  0x18FEE681  x67
+  0x0CE6FF26  x64
+  0x08CBFFF7  x34
+  0x1CABFFF8  x34
+  0x0CCBF7D3  x33
+  0x18EA1C2B  x28
+  0x0CD0FFF0  x13
+  0x18EAF02B  x10
+  0x18FECBF0  x10
+  0x18EAF72B  x9
+  0x18FECBF7  x9
+  0x18EA262B  x9
+  0x18FECB26  x9
+  0x18EA2B2B  x9
+  0x18FECB2B  x9
+  0x18EA9F2B  x9
+  0x18E82B9F  x9
+  0x18EAF82B  x9
+  0x18FECBF8  x9
+  0x18EA812B  x9
+  0x18FECB81  x9
+  0x18EAED2B  x9
+  0x18FECBED  x9
+  0x18EAD32B  x9
+  0x18FECBD3  x9
+  0x18EAFF2B  x7
+  0x18EEFFF8  x7
+  0x18EEFF2B  x7
+  0x18EEFF26  x7
+  0x18EEFF9F  x7
+  0x18EEFFD3  x7
+  0x18EEFFF0  x7
+  0x18EEFFED  x7
+  0x18EEFFF7  x7
+  0x18EEFF81  x7

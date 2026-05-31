@@ -267,48 +267,53 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="card">
 <h2>Keya status</h2>
 <div class="row"><span class="lbl">Detected</span><span id="k_det" class="badge fail">--</span></div>
+<div class="row"><span class="lbl">Initial zero done</span><span id="k_zero" class="badge fail">--</span></div>
+<div class="row"><span class="lbl">Encoder raw (ticks)</span><span class="val" id="k_enc">-</span></div>
 <div class="row"><span class="lbl">Actual motor speed</span><span class="val" id="k_act">-</span></div>
 <div class="row"><span class="lbl">Set motor speed</span><span class="val" id="k_set">-</span></div>
 </div>
 
 <div class="card">
 <h2>Keya encoder as WAS — parameters</h2>
-<p style="color:#64748b;font-size:13px;margin-bottom:8px">Activate by setting WAS source to "Keya encoder" above. ADS1115 settings in AgIO have no effect when Keya encoder is selected.</p>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Activate by setting WAS source to "Keya encoder" above. Autosteer is locked until the first auto-zero completes (drive straight at &gt;2.5 km/h). ADS1115 settings in AgIO have no effect.</p>
 <div class="row"><span class="lbl">Ticks per degree <small style="color:#64748b">(def 24)</small></span>
 <input type="number" id="kw1" min="1" max="500" step="0.1" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Encoder resolution — how many encoder ticks equal one degree of wheel angle. Measure by turning wheel a known angle and counting ticks.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Mechanical ratio: encoder ticks per degree of wheel steering. Turn wheel a known angle and count ticks to calibrate.</p>
 <div class="row"><span class="lbl">Invert encoder <small style="color:#64748b">(def OFF)</small></span>
 <input type="checkbox" id="kw2" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Flip encoder direction. Enable if turning right shows a negative angle.</p>
 <div class="row"><span class="lbl">EMA filter alpha <small style="color:#64748b">(def 0.0 = off, 0.3 = medium)</small></span>
 <input type="number" id="kwema" min="0" max="0.99" step="0.01" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Smoothing filter on WAS output. 0 = off, 0.3 = medium, 0.8 = heavy. Higher values reduce noise but add lag.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Exponential smoothing on WAS output. 0 = off, 0.3 = medium, 0.8 = heavy. Higher values reduce noise but add lag.</p>
 <div class="row"><span class="lbl">Zero offset (ticks)</span><span class="val" id="kw3">-</span></div>
 <button class="btn" onclick="setKeyaZero()" style="margin-top:6px">Set Zero Now</button>
-<p style="color:#94a3b8;font-size:10px;margin:3px 0 5px;line-height:1.3">Saves current encoder position as the straight-ahead zero point. Use with wheels pointing straight ahead.</p>
+<p style="color:#94a3b8;font-size:10px;margin:3px 0 5px;line-height:1.3">Manually saves current encoder position as straight-ahead zero. Auto-zero does this automatically while driving straight.</p>
 <div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
 <div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Auto-zero — GPS drift correction</div>
 <div class="row"><span class="lbl">Enable <small style="color:#64748b">(def ON)</small></span>
 <input type="checkbox" id="kw4" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Automatically corrects slow encoder drift by comparing to GPS-computed wheel angle while driving straight.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Corrects encoder drift by comparing measured angle to GPS-computed wheel angle while driving straight. First correction unlocks autosteer on boot.</p>
 <div class="row"><span class="lbl">Beta / correction fraction <small style="color:#64748b">(def 0.05)</small></span>
 <input type="number" id="kw5" min="0.001" max="1" step="0.001" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How aggressively auto-zero corrects encoder drift each cycle. 0.05 = slow and stable, 0.3 = fast but may hunt.</p>
-<div class="row"><span class="lbl">Min speed km/h <small style="color:#64748b">(def 1)</small></span>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Soft correction speed — 5% of error per cycle. 0.05 = slow and stable. When autosteer is active, correction is automatically reduced 5x to avoid fighting the PID.</p>
+<div class="row"><span class="lbl">Min speed km/h <small style="color:#64748b">(def 2.5)</small></span>
 <input type="number" id="kw6" min="0" max="25" step="0.5" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Auto-zero only runs above this speed. Prevents false corrections when stationary or moving very slowly.</p>
-<div class="row"><span class="lbl">Max yaw rate deg/s <small style="color:#64748b">(def 1.0)</small></span>
-<input type="number" id="kw7" min="0.1" max="10" step="0.1" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Maximum chassis yaw rate to consider the vehicle driving straight. Lower = stricter, higher = more permissive.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed auto-zero is completely blocked. Prevents false corrections when stationary.</p>
+<div class="row"><span class="lbl">Max yaw rate deg/s <small style="color:#64748b">(def 0.3)</small></span>
+<input type="number" id="kw7" min="0.05" max="5" step="0.05" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">GPS heading rate threshold. If heading changes faster than this, the tractor is considered turning — auto-zero pauses. Lower = stricter straight detection.</p>
 <div class="row"><span class="lbl">Speed slow threshold km/h <small style="color:#64748b">(def 3)</small></span>
 <input type="number" id="kw8" min="0" max="25" step="1" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed the longer straight time applies. Reduces false corrections at low speed turns and headland manoeuvres.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed the slow straight-time applies. Longer wait at low speed reduces false corrections on headland turns.</p>
+<div class="row"><span class="lbl">Speed fast threshold km/h <small style="color:#64748b">(def 12)</small></span>
+<input type="number" id="kw9" min="0" max="30" step="1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Above this speed the fast straight-time applies. Between slow and fast thresholds the time is linearly interpolated.</p>
 <div class="row"><span class="lbl">Straight time at slow speed ms <small style="color:#64748b">(def 500)</small></span>
-<input type="number" id="kw10" min="100" max="2000" step="50" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Time vehicle must drive straight below the slow threshold before auto-zero applies a correction.</p>
+<input type="number" id="kw10" min="100" max="5000" step="50" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Time vehicle must drive straight below the slow threshold before a correction is applied. Longer = safer, corrections rarer.</p>
 <div class="row"><span class="lbl">Straight time at fast speed ms <small style="color:#64748b">(def 200)</small></span>
-<input type="number" id="kw11" min="50" max="1000" step="50" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Time vehicle must drive straight above the slow threshold before auto-zero applies a correction.</p>
+<input type="number" id="kw11" min="50" max="2000" step="50" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Time vehicle must drive straight above the fast threshold. At speed the tractor naturally drives straighter so shorter time is sufficient.</p>
 <button class="btn green" onclick="saveKeyaWas()" style="margin-top:8px">Save WAS params</button>
 </div>
 
@@ -500,6 +505,8 @@ function yn(v) { return v ? 'YES' : 'NO'; }
 
 function upd(d) {
   badge('k_det', d.detected.keya);
+  badge('k_zero', d.keya_was.initialZeroDone);
+  document.getElementById('k_enc').textContent = d.keya_was.encoderRaw + ' ticks';
   document.getElementById('k_act').textContent = d.live.keyaActSpeed;
   document.getElementById('k_set').textContent = d.live.keyaSetSpeed;
   document.getElementById('kw3').textContent   = d.keya_was.zeroTicks + ' ticks';
@@ -593,6 +600,7 @@ function upd(d) {
     document.getElementById('kw6').value   = d.keya_was.azSpeedMin;
     document.getElementById('kw7').value   = d.keya_was.azYawMax;
     document.getElementById('kw8').value   = d.keya_was.azSpeedSlow;
+    document.getElementById('kw9').value   = d.keya_was.azSpeedFast;
     document.getElementById('kw10').value  = d.keya_was.azTimeSlowMs;
     document.getElementById('kw11').value  = d.keya_was.azTimeFastMs;
     document.getElementById('dbg6').checked = !!(d.cfg.debugFlags & 64);
@@ -744,6 +752,7 @@ function saveKeyaWas() {
     + '&keyaAzVmin='  + document.getElementById('kw6').value
     + '&keyaAzYawMax='+ document.getElementById('kw7').value
     + '&keyaAzVslow=' + document.getElementById('kw8').value
+    + '&keyaAzVfast=' + document.getElementById('kw9').value
     + '&keyaAzTslow=' + document.getElementById('kw10').value
     + '&keyaAzTfast=' + document.getElementById('kw11').value;
   fetch(url).then(function(r) {
@@ -1155,11 +1164,14 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"azEnable\":")); client.print(moduleConfig.keyaAzEnable);
     client.print(F(",\"azBeta\":")); client.print(moduleConfig.keyaAzBeta, 4);
     client.print(F(",\"azSpeedMin\":")); client.print(moduleConfig.keyaAzSpeedMin, 1);
-    client.print(F(",\"azYawMax\":")); client.print(moduleConfig.keyaAzYawMax, 1);
+    client.print(F(",\"azYawMax\":")); client.print(moduleConfig.keyaAzYawMax, 2);
     client.print(F(",\"azSpeedSlow\":")); client.print(moduleConfig.keyaAzSpeedSlow);
+    client.print(F(",\"azSpeedFast\":")); client.print(moduleConfig.keyaAzSpeedFast, 1);
     client.print(F(",\"azTimeSlowMs\":")); client.print(moduleConfig.keyaAzTimeSlowMs);
     client.print(F(",\"azTimeFastMs\":")); client.print(moduleConfig.keyaAzTimeFastMs);
     client.print(F(",\"emaAlpha\":")); client.print(moduleConfig.keyaEmaAlpha, 3);
+    client.print(F(",\"encoderRaw\":")); client.print(keyaEncoderRaw);
+    client.print(F(",\"initialZeroDone\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
 
     client.print(F("},\"imu_was\":{"));
     client.print(F("\"invert\":")); client.print(moduleConfig.imuWasInvert);
@@ -1472,6 +1484,7 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "keyaAzVmin="))   != NULL) moduleConfig.keyaAzSpeedMin  = atof(p + 11);
     if ((p = strstr(req, "keyaAzYawMax=")) != NULL) moduleConfig.keyaAzYawMax    = atof(p + 13);
     if ((p = strstr(req, "keyaAzVslow="))  != NULL) moduleConfig.keyaAzSpeedSlow = (uint8_t)atoi(p + 12);
+    if ((p = strstr(req, "keyaAzVfast="))  != NULL) moduleConfig.keyaAzSpeedFast = atof(p + 12);
     if ((p = strstr(req, "keyaAzTslow="))  != NULL) moduleConfig.keyaAzTimeSlowMs = (uint16_t)atoi(p + 12);
     if ((p = strstr(req, "keyaAzTfast="))  != NULL) moduleConfig.keyaAzTimeFastMs = (uint16_t)atoi(p + 12);
     if ((p = strstr(req, "keyaEmaA="))     != NULL) moduleConfig.keyaEmaAlpha      = atof(p + 9);

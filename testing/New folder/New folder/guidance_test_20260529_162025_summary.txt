@@ -1,0 +1,95 @@
+Summary  2026-05-29 16:21:26.707546
+Trajanje: 60.8s, bitrate: 250000
+
+==================================================
+TOP 20 SOURCE ADDRESSES
+==================================================
+  SA 0xDE  x12047
+  SA 0xF0  x9832
+  SA 0x1C  x1262
+  SA 0xD3  x837
+  SA 0x26  x266
+  SA 0x2B  x187
+  SA 0x81  x136
+  SA 0xF8  x47
+  SA 0xF7  x46 (PVED)
+  SA 0x9F  x16
+  SA 0xED  x16
+
+==================================================
+TOP 30 PGN-OVA
+==================================================
+  PGN 0xAD00  x12047
+  PGN 0xE700  x1405
+  PGN 0xFE10  x603
+  PGN 0xF022  x603
+  PGN 0xFE18  x603
+  PGN 0xFE17  x602
+  PGN 0xFE16  x602
+  PGN 0xFE46  x602
+  PGN 0xFE15  x602
+  PGN 0xFE45  x602
+  PGN 0xFE14  x602
+  PGN 0xF004  x602
+  PGN 0xFE13  x602
+  PGN 0xFE49  x602
+  PGN 0xFE12  x602
+  PGN 0xFE48  x602
+  PGN 0xFE11  x602
+  PGN 0xF801  x601
+  PGN 0xF805  x420
+  PGN 0xF802  x241
+  PGN 0xEA00  x174
+  PGN 0xEC00  x129
+  PGN 0xE600  x117
+  PGN 0xEB00  x97
+  PGN 0xFECB  x72
+  PGN 0xEE00  x63
+  PGN 0xFD02  x60
+  PGN 0xFE41  x60
+  PGN 0xFEE6  x60
+  PGN 0xCB00  x60
+
+==================================================
+TOP 40 ID-OVA
+==================================================
+  0x1BADC0DE  x12047
+  0x0CFE10F0  x603
+  0x0CF022F0  x603
+  0x0CFE18F0  x603
+  0x0CFE17F0  x602
+  0x0CFE16F0  x602
+  0x0CFE46F0  x602
+  0x0CFE15F0  x602
+  0x0CFE45F0  x602
+  0x0CFE14F0  x602
+  0x0CF004F0  x602
+  0x0CFE13F0  x602
+  0x0CFE49F0  x602
+  0x0CFE12F0  x602
+  0x0CFE48F0  x602
+  0x0CFE11F0  x602
+  0x1CE7FFF0  x602
+  0x09F8011C  x601
+  0x1CE7FFD3  x589
+  0x0DF8051C  x420
+  0x09F8021C  x241
+  0x1CE726F0  x90
+  0x18EBD326  x81
+  0x18EC26D3  x76
+  0x1CE726D3  x64
+  0x0CFD0281  x60
+  0x0CFE41F0  x60
+  0x14E726D3  x60
+  0x18FEE681  x60
+  0x0CE6FF26  x58
+  0x18EA9C2B  x45
+  0x18EA1C2B  x39
+  0x18ECD326  x38
+  0x1CE6F026  x33
+  0x1CABFFF8  x30
+  0x08CBFFF7  x30
+  0x0CCBF7D3  x30
+  0x1CE6D326  x26
+  0x0CD0FFF0  x12
+  0x1CEB26F0  x12

@@ -105,11 +105,16 @@ uint16_t canRawWrite   = 0;
 bool     canRawWrapped = false;
 
 elapsedMillis lastKeyaHeatbeat;
-bool    keyaDetected          = false;
+bool    keyaDetected           = false;
 bool    keyaIntendToSteer;
-int16_t keyaSteeringPosition  = 0;
-int16_t keyaCurrentSetSpeed   = 0;
+int16_t keyaCurrentSetSpeed    = 0;
 int16_t keyaCurrentActualSpeed = 0;
+
+// ── Keya encoder accumulator ──────────────────────────────────────────────────
+int32_t  keyaEncoderRaw      = 0;
+uint16_t keyaEncPrev         = 0;
+bool     keyaEncInitDone     = false;
+bool     keyaInitialZeroDone = false;  // autosteer blocked until first auto-zero done
 
 // ── IMU as WAS state ──────────────────────────────────────────────────────────
 float         imuWasRawYaw      = 0.0f;

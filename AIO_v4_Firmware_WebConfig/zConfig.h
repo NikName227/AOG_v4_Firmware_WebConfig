@@ -9,7 +9,7 @@
 // addr 80  : ModuleConfig         (NEW)
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xBF   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xC0   // change to force EEPROM reset on next boot
 
 // IMU type
 #define IMU_AUTO    0   // auto-detect: RVC → I2C → TM171
@@ -68,12 +68,13 @@ struct ModuleConfig {
     // ── Keya encoder as WAS ─────────────────────────────────────────────────
     float    keyaTicksPerDeg  = 24.0f;
     uint8_t  keyaEncInvert    = 0;
-    int16_t  keyaZeroTicks    = 0;
+    int32_t  keyaZeroTicks    = 0;      // int32 — matches cumulative encoder accumulator
     uint8_t  keyaAzEnable     = 1;
     float    keyaAzBeta       = 0.05f;
-    float    keyaAzSpeedMin   = 1.0f;
-    float    keyaAzYawMax     = 1.0f;
+    float    keyaAzSpeedMin   = 2.5f;   // Flodu default — below this auto-zero blocked
+    float    keyaAzYawMax     = 0.3f;   // Flodu default — stricter straight detection
     uint8_t  keyaAzSpeedSlow  = 3;
+    float    keyaAzSpeedFast  = 12.0f;  // above this → fast (timeFast) applies
     uint16_t keyaAzTimeSlowMs = 500;
     uint16_t keyaAzTimeFastMs = 200;
     float    keyaEmaAlpha     = 0.0f;

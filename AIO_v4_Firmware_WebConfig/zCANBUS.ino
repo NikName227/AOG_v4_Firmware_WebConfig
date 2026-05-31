@@ -65,7 +65,17 @@ void KeyaBus_Receive()
                 keyaDetected = true;
             }
 
-            keyaSteeringPosition = (int16_t)((int16_t)msg.buf[0] << 8 | (int16_t)msg.buf[1]) * -1;
+            // Cumulative delta encoder (Flodu model) — handles uint16 overflow correctly
+            uint16_t encTick = ((uint16_t)msg.buf[0] << 8) | (uint16_t)msg.buf[1];
+            if (!keyaEncInitDone) {
+                keyaEncPrev     = encTick;
+                keyaEncInitDone = true;
+            } else {
+                int16_t delta = (int16_t)(encTick - keyaEncPrev);
+                keyaEncoderRaw += delta;
+                keyaEncPrev = encTick;
+            }
+
             keyaCurrentActualSpeed = (int16_t)((int16_t)msg.buf[2] << 8 | (int16_t)msg.buf[3]);
             int16_t error = abs(keyaCurrentActualSpeed - keyaCurrentSetSpeed);
             static int16_t counter = 0;

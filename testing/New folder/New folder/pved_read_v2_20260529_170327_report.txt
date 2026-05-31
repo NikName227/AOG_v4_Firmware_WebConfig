@@ -1,0 +1,27 @@
+PVED Read v2 report  2026-05-29 17:03:42.691775
+
+=== Test 1: Tony original (broadcast, 3B) ===
+Status: NO RESPONSE
+
+=== Test 2: Directed to PVED (3B) ===
+Status: OK
+  t= 0.00s  ID 0x18E8FEF7  PGN 0xE800  SA=0xF7 PS=0xFE  01FFFFFFFF07FAFF
+
+=== Test 3: Directed to PVED (8B padded) ===
+Status: OK
+  t= 0.00s  ID 0x18E8FEF7  PGN 0xE800  SA=0xF7 PS=0xFE  01FFFFFFFF07FAFF
+
+=== Test 4: Danfoss PEFFF1E format (read sub-cmd FB) ===
+Status: NO RESPONSE
+
+=== Test 5: Danfoss PEFFF1E format (read sub-cmd 1A) ===
+Status: NO RESPONSE
+
+=== Test 6: Standard J1939 Request PGN 0xCB00 ===
+Status: OK
+  t= 0.00s  ID 0x18E8FEF7  PGN 0xE800  SA=0xF7 PS=0xFE  01FFFFFFFF00CB00
+
+=== Test 7: Request 65080 directed ===
+Status: OK
+  t= 0.00s  ID 0x18E8FEF7  PGN 0xE800  SA=0xF7 PS=0xFE  01FFFFFFFF38FEFF
+

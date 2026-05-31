@@ -1,0 +1,51 @@
+PVED Parameter Read Report  2026-05-29 16:52:26.014408
+Bitrate: 250000
+TX ID: 0x18EAFFFE
+
+Poslano requesta: 22
+Primljeno odgovora: 0
+
+============================================================
+REZULTATI PO PARAMETRU
+============================================================
+
+   Param      Hex      Dec  Opis
+------------------------------------------------------------
+     508    ----    ----    (nema odgovora)
+     706    ----    ----    (nema odgovora)
+     707    ----    ----    (nema odgovora)
+     729    ----    ----    (nema odgovora)
+     737    ----    ----    (nema odgovora)
+     738    ----    ----    (nema odgovora)
+     747    ----    ----    (nema odgovora)
+     748    ----    ----    (nema odgovora)
+     758    ----    ----    (nema odgovora)
+    1027    ----    ----    (nema odgovora)
+    5027    ----    ----    (nema odgovora)
+   64007    ----    ----  *** SETPOINT CONTROLLER ADDRESS *** (0xFF=none, 0x1E=AIO)  (nema odgovora)
+   64022    ----    ----    (nema odgovora)
+   64023    ----    ----    (nema odgovora)
+   65080    ----    ----  Address Claim source address  (nema odgovora)
+   65083    ----    ----  Steering Mode  (nema odgovora)
+   65086    ----    ----  Vehicle Speed Source  (nema odgovora)
+   65099    ----    ----  Steering Wheel Sensor SA  (nema odgovora)
+   65100    ----    ----  High Priority Steering Device SA  (nema odgovora)
+   65101    ----    ----  Low Priority Steering Device SA  (nema odgovora)
+   65104    ----    ----  High Priority Setpoint Controller SA  (nema odgovora)
+   65112    ----    ----  Operator Presence Source  (nema odgovora)
+
+============================================================
+KLJUCNI PARAMETAR: 64007 - Setpoint Controller Address
+============================================================
+
+Nema odgovora za parametar 64007.
+Moguce je da PVED ne razumije nas Read Request format,
+ili da je ovaj Read mechanizam blokiran u tvornickoj konfiguraciji.
+
+============================================================
+DRUGI VAZNI PARAMETRI
+============================================================
+
+============================================================
+RAW LOG SVIH ODGOVORA
+============================================================

@@ -1,0 +1,153 @@
+PVED komunikacija report  2026-05-29 16:21:26.704339
+Trajanje: 60.8s
+Baseline (samo RX): 0-10s
+Active (RX+TX):     10-60s
+Nasa SA: 0x9C
+PVED SA: 0xF7
+
+Address Claims poslano: 10
+Curvature Commands poslano: 484
+Ukupno primljeno: 24692
+
+============================================================
+USPOREDBA: BASELINE vs ACTIVE
+============================================================
+
+
+--- PGN 0xCB00 (51968) ---
+Baseline unique payloads: 2
+Active unique payloads:   2
+NEW in active phase:      0
+LOST in active phase:     0
+
+Baseline payloads:
+  0F00000000000000
+  FEFFFFFF00000000
+
+Kronologija (sve 60 poruka):
+  [baseline] t=  1.30s    FEFFFFFF00000000
+  [baseline] t=  1.61s    0F00000000000000
+  [baseline] t=  3.30s    FEFFFFFF00000000
+  [baseline] t=  3.61s    0F00000000000000
+  [baseline] t=  5.30s    FEFFFFFF00000000
+  [baseline] t=  5.61s    0F00000000000000
+  [baseline] t=  7.30s    FEFFFFFF00000000
+  [baseline] t=  7.61s    0F00000000000000
+  [baseline] t=  9.30s    FEFFFFFF00000000
+  [baseline] t=  9.61s    0F00000000000000
+  [active  ] t= 11.30s    FEFFFFFF00000000
+  [active  ] t= 11.61s    0F00000000000000
+  [active  ] t= 13.30s    FEFFFFFF00000000
+  [active  ] t= 13.61s    0F00000000000000
+  [active  ] t= 15.30s    FEFFFFFF00000000
+  [active  ] t= 15.61s    0F00000000000000
+  [active  ] t= 17.30s    FEFFFFFF00000000
+  [active  ] t= 17.61s    0F00000000000000
+  [active  ] t= 19.30s    FEFFFFFF00000000
+  [active  ] t= 19.61s    0F00000000000000
+  [active  ] t= 21.30s    FEFFFFFF00000000
+  [active  ] t= 21.61s    0F00000000000000
+  [active  ] t= 23.30s    FEFFFFFF00000000
+  [active  ] t= 23.61s    0F00000000000000
+  [active  ] t= 25.30s    FEFFFFFF00000000
+  [active  ] t= 25.61s    0F00000000000000
+  [active  ] t= 27.30s    FEFFFFFF00000000
+  [active  ] t= 27.61s    0F00000000000000
+  [active  ] t= 29.30s    FEFFFFFF00000000
+  [active  ] t= 29.61s    0F00000000000000
+  [active  ] t= 31.30s    FEFFFFFF00000000
+  [active  ] t= 31.61s    0F00000000000000
+  [active  ] t= 33.30s    FEFFFFFF00000000
+  [active  ] t= 33.61s    0F00000000000000
+  [active  ] t= 35.30s    FEFFFFFF00000000
+  [active  ] t= 35.61s    0F00000000000000
+  [active  ] t= 37.30s    FEFFFFFF00000000
+  [active  ] t= 37.61s    0F00000000000000
+  [active  ] t= 39.30s    FEFFFFFF00000000
+  [active  ] t= 39.61s    0F00000000000000
+  [active  ] t= 41.30s    FEFFFFFF00000000
+  [active  ] t= 41.61s    0F00000000000000
+  [active  ] t= 43.30s    FEFFFFFF00000000
+  [active  ] t= 43.61s    0F00000000000000
+  [active  ] t= 45.30s    FEFFFFFF00000000
+  [active  ] t= 45.61s    0F00000000000000
+  [active  ] t= 47.30s    FEFFFFFF00000000
+  [active  ] t= 47.61s    0F00000000000000
+  [active  ] t= 49.30s    FEFFFFFF00000000
+  [active  ] t= 49.61s    0F00000000000000
+  [active  ] t= 51.30s    FEFFFFFF00000000
+  [active  ] t= 51.61s    0F00000000000000
+  [active  ] t= 53.30s    FEFFFFFF00000000
+  [active  ] t= 53.61s    0F00000000000000
+  [active  ] t= 55.30s    FEFFFFFF00000000
+  [active  ] t= 55.61s    0F00000000000000
+  [active  ] t= 57.30s    FEFFFFFF00000000
+  [active  ] t= 57.61s    0F00000000000000
+  [active  ] t= 59.30s    FEFFFFFF00000000
+  [active  ] t= 59.61s    0F00000000000000
+
+--- PGN 0xEA00 (59904) ---
+Baseline unique payloads: 1
+Active unique payloads:   1
+NEW in active phase:      0
+LOST in active phase:     0
+
+Baseline payloads:
+  CBFE00
+
+Kronologija (sve 9 poruka):
+  [baseline] t=  2.53s    CBFE00
+  [baseline] t=  9.54s    CBFE00
+  [active  ] t= 16.65s    CBFE00
+  [active  ] t= 23.67s    CBFE00
+  [active  ] t= 30.75s    CBFE00
+  [active  ] t= 37.74s    CBFE00
+  [active  ] t= 44.74s    CBFE00
+  [active  ] t= 51.74s    CBFE00
+  [active  ] t= 58.74s    CBFE00
+
+--- PGN 0xEE00 (60928) ---
+Baseline unique payloads: 1
+Active unique payloads:   1
+NEW in active phase:      0
+LOST in active phase:     0
+
+Baseline payloads:
+  E296E91C008200A0
+
+Kronologija (sve 7 poruka):
+  [baseline] t=  0.06s    E296E91C008200A0
+  [baseline] t=  5.33s    E296E91C008200A0
+  [active  ] t= 15.33s    E296E91C008200A0
+  [active  ] t= 25.34s    E296E91C008200A0
+  [active  ] t= 35.33s    E296E91C008200A0
+  [active  ] t= 45.33s    E296E91C008200A0
+  [active  ] t= 55.33s    E296E91C008200A0
+
+--- PGN 0xFECB (65227) ---
+Baseline unique payloads: 1
+Active unique payloads:   1
+NEW in active phase:      0
+LOST in active phase:     0
+
+Baseline payloads:
+  FFFF00000000FFFF
+
+Kronologija (sve 9 poruka):
+  [baseline] t=  2.53s    FFFF00000000FFFF
+  [baseline] t=  9.54s    FFFF00000000FFFF
+  [active  ] t= 16.65s    FFFF00000000FFFF
+  [active  ] t= 23.67s    FFFF00000000FFFF
+  [active  ] t= 30.75s    FFFF00000000FFFF
+  [active  ] t= 37.74s    FFFF00000000FFFF
+  [active  ] t= 44.74s    FFFF00000000FFFF
+  [active  ] t= 51.74s    FFFF00000000FFFF
+  [active  ] t= 58.74s    FFFF00000000FFFF
+
+============================================================
+INTERPRETACIJA
+============================================================
+NEW payloads in active -> PVED nas DETEKTIRA i reagira
+Same payloads -> PVED nas IGNORIRA
+Novi PGN-ovi (npr. 0xAC00) -> PVED je usao u 'aware' mod
+PGN 0xEEFF (Address Claim with our SA) iz drugog ECU-a -> SA collision
