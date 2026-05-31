@@ -81,58 +81,46 @@ void GGA_Handler() //Rec'd GGA
     }
 
     blink = !blink;
-    if (useDual)
-    {
-       dualReadyGGA = true;
-    }
-
-    else if (useTMxx_IMU){
-      if (steerConfig.IsUseY_Axis){
-        
-        strcpy(imuRoll, TM171_IMU.getPitchStr());
-        strcpy(imuPitch, TM171_IMU.getRollStr());
-      }
-      else{
-        strcpy(imuPitch, TM171_IMU.getPitchStr());
-        strcpy(imuRoll, TM171_IMU.getRollStr());
-      }
-      strcpy(imuHeading, TM171_IMU.getYawStr());
-      itoa(0, imuYawRate, 10);
-  
-        
-        BuildNmea();           //Build & send data GPS data to AgIO (Both Dual & Single)
-        dualReadyGGA = false;  //Force dual GGA ready false because we just sent it to AgIO based off the IMU data
-        if (!useDual)
-        {
-            digitalWrite(GPSRED_LED, HIGH);    //Turn red GPS LED ON, we have GGA and must have a IMU     
-            digitalWrite(GPSGREEN_LED, LOW);   //Make sure the Green LED is OFF     
-        }
-      
-    }
-
-    else if (useBNO08xRVC || useBNO08xI2C)
-    {
-        if (useBNO08xRVC) { bnoTrigger = true; bnoTimer = 0; }
-        BuildNmea();
-        dualReadyGGA = false;
-        if (!useDual)
-        {
-            digitalWrite(GPSRED_LED, HIGH);
-            digitalWrite(GPSGREEN_LED, LOW);
-        }
-    }
-
-    else if (!useDual && !useBNO08xRVC && !useBNO08xI2C)
-    {
-        digitalWrite(GPSRED_LED, blink);   //Flash red GPS LED, we have GGA but no IMU or dual
-        digitalWrite(GPSGREEN_LED, LOW);   //Make sure the Green LED is OFF
-        itoa(65535, imuHeading, 10);       //65535 is max value to stop AgOpen using IMU in Panda
-        BuildNmea();
-    }
-    
+    GGAReadyTime = 0;
     if (hasFuncMode(CAN_MODE_J1939)) j1939UpdateFromGGA();
 
-    GGAReadyTime = 0;   //Used for GGA timeout (LED's ETC)
+    // ── Source-based routing ──────────────────────────────────────────────────
+    bool needsHPR    = (moduleConfig.headingSource == HDG_SRC_HPR
+                     || moduleConfig.rollSource    == ROLL_SRC_HPR);
+    bool needsRELPOS = (moduleConfig.headingSource == HDG_SRC_RELPOS);
+
+    if (needsHPR || needsRELPOS) {
+        // Defer: wait for HPR sentence or RELPOS packet
+        dualReadyGGA = true;
+        if (needsHPR && dualReadyHPR) {
+            // HPR already arrived before GGA — process now
+            imuHandler();
+            BuildNmea();
+            dualReadyGGA = dualReadyHPR = false;
+            useDual = true;
+            digitalWrite(GPSGREEN_LED, HIGH);
+            digitalWrite(GPSRED_LED,   HIGH);
+        }
+        return;
+    }
+
+    // ── IMU heading/roll path ─────────────────────────────────────────────────
+    bool hasIMU = useBNO08xI2C || useBNO08xRVC || useTMxx_IMU;
+    if (!hasIMU) {
+        // No IMU: 65535 tells AgIO to ignore IMU heading
+        itoa(65535, imuHeading, 10);
+        itoa(0, imuRoll,    10);
+        itoa(0, imuPitch,   10);
+        itoa(0, imuYawRate, 10);
+        digitalWrite(GPSRED_LED, blink);
+        digitalWrite(GPSGREEN_LED, LOW);
+    } else {
+        if (useBNO08xRVC) { bnoTrigger = true; bnoTimer = 0; }
+        digitalWrite(GPSRED_LED, HIGH);
+        digitalWrite(GPSGREEN_LED, LOW);
+    }
+    BuildNmea();
+    dualReadyGGA = false;
 
     if (DBG_GPS) {
         static elapsedMillis gpsDbgTimer = 1001;
@@ -159,68 +147,64 @@ void VTG_Handler()
 void HPR_Handler()
 {
     HPRReadyTime = 0;
-    // HPR Heading
-    parser.getArg(1, umHeading);
-    heading = atof(umHeading);
+    parser.getArg(1, umHeading);  heading       = atof(umHeading);
+    parser.getArg(2, umRoll);     rollDual      = atof(umRoll);
+    parser.getArg(4, solQuality); solQualityHPR = atoi(solQuality);
 
-    // HPR Roll
-    parser.getArg(2, umRoll);
-    rollDual = atof(umRoll);
-
-    // Solution quality factor
-    parser.getArg(4, solQuality);
-    solQualityHPR = atoi(solQuality);
+    bool needsHPR = (moduleConfig.headingSource == HDG_SRC_HPR
+                  || moduleConfig.rollSource    == ROLL_SRC_HPR);
+    if (!needsHPR) return;  // not using HPR source, just store data
 
     useDual = true;
-    imuHandler();
-    BuildNmea();
-    dualReadyGGA = false;
+    if (dualReadyGGA) {
+        // GGA already arrived — process immediately
+        imuHandler();
+        BuildNmea();
+        dualReadyGGA = dualReadyHPR = false;
+        digitalWrite(GPSGREEN_LED, HIGH);
+        digitalWrite(GPSRED_LED,   HIGH);
+    } else {
+        // GGA hasn't arrived yet — mark HPR ready, GGA_Handler will trigger
+        dualReadyHPR = true;
+    }
 }
 
 void imuHandler()
 {
-    if (useBNO08xRVC)
-    {
+    // Write heading string only when source is not IMU (IMU sets imuHeading in loop())
+    if (moduleConfig.headingSource != HDG_SRC_IMU)
+        dtostrf(heading, 4, 2, imuHeading);
+
+    // Write roll string only when source is not IMU (IMU sets imuRoll in loop())
+    if (moduleConfig.rollSource != ROLL_SRC_IMU)
+        dtostrf(rollDual, 4, 2, imuRoll);
+
+    // Always compute heading rate, working direction, wheel angle from heading
+    if (abs((int)(headingVTG - heading) % 360) > 120 && gpsSpeed > 0.5)
+        workingDir = -1;
+    else
+        workingDir = 1;
+
+    static double headingOld = heading;
+    headingRate = (heading - headingOld) * GPS_Hz;
+    headingOld = heading;
+    if (headingRate > 360)  headingRate -= 360;
+    if (headingRate < -360) headingRate += 360;
+
+    // Write yaw rate only when source is not IMU (IMU already sets imuYawRate)
+    if (moduleConfig.headingSource != HDG_SRC_IMU) {
+        int16_t yawRatex10 = (int16_t)(headingRate * 10);
+        itoa(yawRatex10, imuYawRate, 10);
+    } else if (useBNO08xRVC) {
+        // BNO RVC provides angular velocity
         int16_t yawRatex10 = bnoData.angVel;
         itoa(yawRatex10, imuYawRate, 10);
     }
 
-    if (!useDual)
-    {
-    }
-
-    else
-    {
-        // the roll
-        dtostrf(rollDual, 4, 2, imuRoll);
-
-        // the Dual heading raw
-        dtostrf(heading, 4, 2, imuHeading);
-
-        if (abs((int)(headingVTG - heading) % 360) > 120 && gpsSpeed > 0.5)  //reverse
-            workingDir = -1;
-        else
-            workingDir = 1;
-
-        static double headingOld = heading;
-
-        headingRate = (heading - headingOld) * GPS_Hz;
-        headingOld = heading;
-        if (headingRate > 360)
-            headingRate -= 360;
-        if (headingRate < -360)
-            headingRate += 360;
-
-        int16_t yawRatex10 = (int16_t)(headingRate * 10);
-        itoa(yawRatex10, imuYawRate, 10);
-        
-        double ms = gpsSpeed * 0.27778;
-
-        if (gpsSpeed > 1)
-        {
-            wheelAngleGPS = atan(headingRate / RAD_TO_DEG * wheelBase / ms) * RAD_TO_DEG * workingDir;
-            if (!(wheelAngleGPS<50 && wheelAngleGPS>-50)) wheelAngleGPS = steerAngleActual;
-        }
+    double ms = gpsSpeed * 0.27778;
+    if (gpsSpeed > 1) {
+        wheelAngleGPS = atan(headingRate / RAD_TO_DEG * wheelBase / ms) * RAD_TO_DEG * workingDir;
+        if (!(wheelAngleGPS < 50 && wheelAngleGPS > -50)) wheelAngleGPS = steerAngleActual;
     }
 }
 
@@ -295,8 +279,8 @@ void BuildNmea(void)
 {
     strcpy(nmea, "");
 
-    if (useDual) strcat(nmea, "$PAOGI,");
-    else strcat(nmea, "$PANDA,");
+    if (moduleConfig.nmeaType == NMEA_TYPE_PAOGI) strcat(nmea, "$PAOGI,");
+    else                                           strcat(nmea, "$PANDA,");
 
     strcat(nmea, fixTime);
     strcat(nmea, ",");

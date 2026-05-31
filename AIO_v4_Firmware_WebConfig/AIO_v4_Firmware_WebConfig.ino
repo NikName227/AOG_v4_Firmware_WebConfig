@@ -136,6 +136,7 @@ float   wheelAngleGPS = 0;
 bool useDual        = false;
 bool dualReadyGGA   = false;
 bool dualReadyRelPos = false;
+bool dualReadyHPR   = false;  // HPR sentence arrived, waiting for GGA
 
 elapsedMillis GGAReadyTime    = 10000;
 elapsedMillis VTGReadyTime    = 10000;

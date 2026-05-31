@@ -124,6 +124,39 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 
 <div class="card">
+<h2>Data Source <span style="color:#64748b;font-weight:normal;font-size:11px">— restart required on change</span></h2>
+<p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">Select which sensor or message provides each data channel sent to AgIO.</p>
+<div class="row"><span class="lbl">WAS sensor</span>
+<select id="wasSource">
+<option value="0">ADS1115 — analog voltage sensor (default)</option>
+<option value="1">Keya encoder — brushless motor position</option>
+<option value="2">IMU via CAN — wheel-mounted IMU on CAN bus</option>
+<option value="3">CAN valve — angle from V_Bus steer valve</option>
+</select></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 8px;line-height:1.3">Wheel angle source. For CAN options the corresponding CAN port must be configured below.</p>
+<div class="row"><span class="lbl">Roll source</span>
+<select id="rollSource">
+<option value="0">IMU — onboard BNO085 or TM171 (default)</option>
+<option value="1">HPR — $HPR NMEA from dual GPS (UM980 / UM982)</option>
+</select></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 8px;line-height:1.3">Roll / tilt angle in the NMEA sentence to AgIO. IMU: from onboard sensor. HPR: receiver computes roll from dual antennas and sends it in the $HPR sentence.</p>
+<div class="row"><span class="lbl">Heading source</span>
+<select id="headingSource">
+<option value="0">IMU — onboard BNO085 or TM171 (default)</option>
+<option value="1">HPR — $HPR NMEA from dual GPS (UM980 / UM982)</option>
+<option value="2">RELPOS — UBX binary from dual u-blox F9P</option>
+</select></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 8px;line-height:1.3">Heading direction source. IMU: from compass in BNO085 or TM171. HPR: receiver with two antennas sends $HPR NMEA (single cable). RELPOS: two u-blox F9P receivers connected via UBX binary protocol (older dual setup).</p>
+<div class="row"><span class="lbl">NMEA sentence to AgIO</span>
+<select id="nmeaType">
+<option value="0">$PANDA — single GPS or IMU heading (default)</option>
+<option value="1">$PAOGI — dual GPS heading</option>
+</select></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 8px;line-height:1.3">Sentence name in the output to AgIO. Data fields are identical — AgIO uses the name to know if dual GPS heading is available. Select PAOGI when using HPR or RELPOS heading source.</p>
+<button class="btn green" onclick="saveDataSource()" style="margin-top:8px">Save Data Source (restart)</button>
+</div>
+
+<div class="card">
 <h2>CAN port assignment <span style="color:#64748b;font-weight:normal;font-size:11px">— restart required on change</span></h2>
 <p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">Map each physical CAN port to its function and baud rate.</p>
 <div class="row"><span class="lbl">CAN1</span>
@@ -181,19 +214,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <option value="1000000">1M</option>
 </select></div>
 <button class="btn green" onclick="saveCanModes()" style="margin-top:8px">Save CAN assignment (restart)</button>
-</div>
-
-<div class="card">
-<h2>WAS source</h2>
-<p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">Select which sensor provides the wheel angle. The corresponding CAN port must also be configured above.</p>
-<div class="row"><span class="lbl">WAS sensor</span>
-<select id="wasSource">
-<option value="0">ADS1115 (analog sensor)</option>
-<option value="1">Keya encoder</option>
-<option value="2">IMU via CAN</option>
-<option value="3">CAN valve (V_Bus)</option>
-</select></div>
-<button class="btn green" onclick="saveWasSource()" style="margin-top:8px">Save WAS source</button>
 </div>
 
 </div>
@@ -643,7 +663,10 @@ function upd(d) {
     document.getElementById('can1Baud').value = d.cfg.can1Baud || 250000;
     document.getElementById('can2Baud').value = d.cfg.can2Baud || 250000;
     document.getElementById('can3Baud').value = d.cfg.can3Baud || 250000;
-    document.getElementById('wasSource').value = d.cfg.wasSource || 0;
+    document.getElementById('wasSource').value     = d.cfg.wasSource     || 0;
+    document.getElementById('rollSource').value    = d.cfg.rollSource    || 0;
+    document.getElementById('headingSource').value = d.cfg.headingSource || 0;
+    document.getElementById('nmeaType').value      = d.cfg.nmeaType      || 0;
     if (document.getElementById('csBrand')) document.getElementById('csBrand').value = d.cfg.steerBrand || 0;
     if (d.j1939) {
       document.getElementById('j19Addr').value      = d.j1939.srcAddr;
@@ -837,10 +860,15 @@ function saveJ1939() {
   });
 }
 
-function saveWasSource() {
-  var url = '/api/save?wasSource=' + document.getElementById('wasSource').value;
+function saveDataSource() {
+  var url = '/api/save'
+    + '?wasSource='     + document.getElementById('wasSource').value
+    + '&rollSource='    + document.getElementById('rollSource').value
+    + '&headingSource=' + document.getElementById('headingSource').value
+    + '&nmeaType='      + document.getElementById('nmeaType').value;
   fetch(url).then(function(r) {
-    document.getElementById('sb').textContent = r.ok ? 'WAS source saved.' : 'Error saving WAS source.';
+    document.getElementById('sb').textContent = r.ok ? 'Data source saved – restarting...' : 'Error saving data source.';
+    configLoaded = false;
   });
 }
 
@@ -1330,6 +1358,9 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"can2Baud\":")); client.print(moduleConfig.can2Baud);
     client.print(F(",\"can3Baud\":")); client.print(moduleConfig.can3Baud);
     client.print(F(",\"wasSource\":")); client.print(moduleConfig.wasSource);
+    client.print(F(",\"rollSource\":")); client.print(moduleConfig.rollSource);
+    client.print(F(",\"headingSource\":")); client.print(moduleConfig.headingSource);
+    client.print(F(",\"nmeaType\":")); client.print(moduleConfig.nmeaType);
     client.print(F(",\"steerBrand\":")); client.print(moduleConfig.steerBrand);
     client.print(F(",\"disengageType\":")); client.print(moduleConfig.disengageType);
     client.print(F(",\"debugFlags\":")); client.print(moduleConfig.debugFlags);
@@ -1692,7 +1723,10 @@ void handleApiSave(EthernetClient& client, const char* req)
         moduleConfig.can3Baud = (uint32_t)atol(p + 9);
         needRestart = true;
     }
-    if ((p = strstr(req, "wasSource="))    != NULL) moduleConfig.wasSource       = (uint8_t)atoi(p + 10);
+    if ((p = strstr(req, "wasSource="))     != NULL) { moduleConfig.wasSource      = (uint8_t)atoi(p + 10); needRestart = true; }
+    if ((p = strstr(req, "rollSource="))    != NULL) { moduleConfig.rollSource     = (uint8_t)atoi(p + 11); needRestart = true; }
+    if ((p = strstr(req, "headingSource=")) != NULL) { moduleConfig.headingSource  = (uint8_t)atoi(p + 14); needRestart = true; }
+    if ((p = strstr(req, "nmeaType="))      != NULL) { moduleConfig.nmeaType       = (uint8_t)atoi(p + 9);  needRestart = true; }
     if ((p = strstr(req, "j19Addr="))     != NULL) moduleConfig.j1939SrcAddr    = (uint8_t)atoi(p + 9);
     if ((p = strstr(req, "j19En65267="))  != NULL) moduleConfig.j1939En65267    = (uint8_t)atoi(p + 12);
     if ((p = strstr(req, "j19R65267="))   != NULL) moduleConfig.j1939Rate65267  = (uint16_t)atoi(p + 11);

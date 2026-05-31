@@ -9,7 +9,7 @@
 // addr 80  : ModuleConfig         (NEW)
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xC0   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xC1   // change to force EEPROM reset on next boot
 
 // IMU type
 #define IMU_AUTO    0   // auto-detect: RVC → I2C → TM171
@@ -35,6 +35,19 @@
 #define WAS_SOURCE_IMU_CAN   2   // wheel-mounted IMU via CAN_MODE_IMU port
 #define WAS_SOURCE_CAN_VALVE 3   // tractor valve estCurve via CAN_MODE_VBUS port
 
+// Roll source
+#define ROLL_SRC_IMU  0   // roll from active IMU (BNO085 / TM171)
+#define ROLL_SRC_HPR  1   // roll from dual GPS HPR sentence or RELPOS
+
+// Heading source
+#define HDG_SRC_IMU    0  // heading from active IMU
+#define HDG_SRC_HPR    1  // heading from dual GPS HPR NMEA sentence
+#define HDG_SRC_RELPOS 2  // heading from UBX RELPOS (u-blox dual GPS)
+
+// NMEA sentence type sent to AgIO
+#define NMEA_TYPE_PANDA 0
+#define NMEA_TYPE_PAOGI 1
+
 // Disengage type
 #define DIS_MOTOR_SPEED  0   // speed-direction detection (PWM motor)
 #define DIS_KEYA_EASY    1   // Keya easy-disengage via CAN error
@@ -52,6 +65,9 @@ struct ModuleConfig {
     uint32_t can2Baud       = 250000;
     uint32_t can3Baud       = 250000;
     uint8_t  wasSource      = WAS_SOURCE_ADS1115; // active WAS sensor (see WAS_SOURCE_*)
+    uint8_t  rollSource     = ROLL_SRC_IMU;       // roll data source (see ROLL_SRC_*)
+    uint8_t  headingSource  = HDG_SRC_IMU;        // heading data source (see HDG_SRC_*)
+    uint8_t  nmeaType       = NMEA_TYPE_PANDA;    // NMEA sentence type to AgIO
     uint8_t steerBrand      = 1;              // steer-ready brand: 0=Claas 1=Valtra 2=CaseIH
                                               //   3=Fendt 4=JCB 5=FendtOne 6=Lindner 7=AgOpenGPS
     uint8_t disengageType   = DIS_MOTOR_SPEED;
