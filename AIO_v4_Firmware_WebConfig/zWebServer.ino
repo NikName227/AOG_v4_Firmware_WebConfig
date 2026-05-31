@@ -267,8 +267,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="card">
 <h2>Keya status</h2>
 <div class="row"><span class="lbl">Detected</span><span id="k_det" class="badge fail">--</span></div>
-<div class="row"><span class="lbl">Initial zero done</span><span id="k_zero" class="badge fail">--</span></div>
-<div class="row"><span class="lbl">Encoder raw (ticks)</span><span class="val" id="k_enc">-</span></div>
+<div class="row"><span class="lbl">WAS initial zero</span><span id="k_zero" class="badge fail">--</span></div>
+<div class="row"><span class="lbl">Encoder (ticks)</span><span class="val" id="k_enc">-</span></div>
+<div class="row"><span class="lbl">GPS drift offset (°)</span><span class="val" id="k_off">-</span></div>
 <div class="row"><span class="lbl">Actual motor speed</span><span class="val" id="k_act">-</span></div>
 <div class="row"><span class="lbl">Set motor speed</span><span class="val" id="k_set">-</span></div>
 </div>
@@ -285,9 +286,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">EMA filter alpha <small style="color:#64748b">(def 0.0 = off, 0.3 = medium)</small></span>
 <input type="number" id="kwema" min="0" max="0.99" step="0.01" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Exponential smoothing on WAS output. 0 = off, 0.3 = medium, 0.8 = heavy. Higher values reduce noise but add lag.</p>
-<div class="row"><span class="lbl">Zero offset (ticks)</span><span class="val" id="kw3">-</span></div>
-<button class="btn" onclick="setKeyaZero()" style="margin-top:6px">Set Zero Now</button>
-<p style="color:#94a3b8;font-size:10px;margin:3px 0 5px;line-height:1.3">Manually saves current encoder position as straight-ahead zero. Auto-zero does this automatically while driving straight.</p>
+<div class="row"><span class="lbl">GPS drift offset (°)</span><span class="val" id="kw_off">-</span></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Active drift correction applied to encoder angle. Auto-zero adjusts this continuously. Should converge toward 0 during straight driving.</p>
 <div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
 <div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Auto-zero — GPS drift correction</div>
 <div class="row"><span class="lbl">Enable <small style="color:#64748b">(def ON)</small></span>
@@ -507,9 +507,10 @@ function upd(d) {
   badge('k_det', d.detected.keya);
   badge('k_zero', d.keya_was.initialZeroDone);
   document.getElementById('k_enc').textContent = d.keya_was.encoderRaw + ' ticks';
+  document.getElementById('k_off').textContent = d.keya_was.gpsOffset.toFixed(3) + ' °';
+  document.getElementById('kw_off').textContent = d.keya_was.gpsOffset.toFixed(3) + ' °';
   document.getElementById('k_act').textContent = d.live.keyaActSpeed;
   document.getElementById('k_set').textContent = d.live.keyaSetSpeed;
-  document.getElementById('kw3').textContent   = d.keya_was.zeroTicks + ' ticks';
 
   badge('d5', d.detected.gps);
   badge('d1', d.detected.bno_i2c);
@@ -1171,6 +1172,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"azTimeFastMs\":")); client.print(moduleConfig.keyaAzTimeFastMs);
     client.print(F(",\"emaAlpha\":")); client.print(moduleConfig.keyaEmaAlpha, 3);
     client.print(F(",\"encoderRaw\":")); client.print(keyaEncoderRaw);
+    client.print(F(",\"gpsOffset\":")); client.print(keyaGpsOffset, 3);
     client.print(F(",\"initialZeroDone\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
 
     client.print(F("},\"imu_was\":{"));

@@ -115,6 +115,7 @@ int32_t  keyaEncoderRaw      = 0;
 uint16_t keyaEncPrev         = 0;
 bool     keyaEncInitDone     = false;
 bool     keyaInitialZeroDone = false;  // autosteer blocked until first auto-zero done
+float    keyaGpsOffset       = 0.0f;  // runtime drift correction (degrees)
 
 // ── IMU as WAS state ──────────────────────────────────────────────────────────
 float         imuWasRawYaw      = 0.0f;

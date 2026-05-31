@@ -544,7 +544,6 @@ void autosteerLoop()
             break;
         }
 
-        static float keyaGpsOffset = 0.0f;
         static elapsedMillis keyaStraightTimer = 0;
 
         // Cumulative int32 encoder — invert then subtract zero
