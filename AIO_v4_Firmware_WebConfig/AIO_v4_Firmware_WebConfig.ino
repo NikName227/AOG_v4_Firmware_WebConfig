@@ -118,9 +118,10 @@ bool     keyaInitialZeroDone = false;  // autosteer blocked until first auto-zer
 float    keyaGpsOffset       = 0.0f;  // runtime drift correction (degrees)
 
 // ── HPR RTK quality monitoring (UM982 second antenna) ────────────────────────
-bool          hprRtkLost      = false;  // true when solQualityHPR < 4
+bool          hprRtkLost      = false;  // true when main=RTK but secondary lost RTK
 bool          hprCutoffActive = false;  // true when lost >10s, fixQuality forced to 0
 elapsedMillis hprLostTimer    = 0;      // time since RTK fix was lost
+int           mainFixQuality  = 0;      // raw fix quality from main antenna GGA (before override)
 
 bool logActive       = true;   // enabled on boot to capture setup messages
 bool logAutoOffDone  = false;  // one-shot: auto-disables log after 10s

@@ -55,6 +55,7 @@ void GGA_Handler() //Rec'd GGA
 
     // fix quality
     parser.getArg(5, fixQuality);
+    mainFixQuality = atoi(fixQuality);  // store raw value before any override
     // HPR cutoff: after 10s of lost RTK on second antenna → force invalid GPS → AgIO disengages
     if (hprCutoffActive) itoa(0, fixQuality, 10);
 
@@ -174,9 +175,14 @@ void HPR_Handler()
     parser.getArg(4, solQuality); solQualityHPR = atoi(solQuality);
 
     // ── RTK quality guard for heading (UM982 second antenna) ─────────────────
+    // Condition: main antenna has RTK (4) but secondary antenna doesn't
+    // If main is not RTK either, AgIO handles it normally — no intervention needed
     if (moduleConfig.headingSource == HDG_SRC_HPR) {
-        if (solQualityHPR == 4) {
-            // RTK fix OK — update heading and reset loss state
+        bool mainIsRTK      = (mainFixQuality == 4);
+        bool secondaryIsRTK = (solQualityHPR  == 4);
+
+        if (secondaryIsRTK || !mainIsRTK) {
+            // Both OK, or main also degraded (AgIO handles that) — update heading normally
             heading = atof(umHeading);
             if (hprRtkLost) {
                 hprRtkLost      = false;
@@ -186,7 +192,7 @@ void HPR_Handler()
                 webLog("HPR RTK restored");
             }
         } else {
-            // RTK lost — heading stays frozen at last good value
+            // Main=RTK but secondary lost RTK → dangerous: freeze heading
             if (!hprRtkLost) {
                 hprRtkLost   = true;
                 hprLostTimer = 0;
