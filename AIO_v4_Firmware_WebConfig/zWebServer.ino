@@ -553,6 +553,7 @@ function upd(d) {
   badge('d_ads',    d.detected.ads1115);
   badge('d_imuWas', d.detected.imuWas);
   badge('d3',       d.detected.keya);
+  document.getElementById('logActive').checked = !!d.detected.logActive;
 
   if (d.can_steer) {
     document.getElementById('cs0').textContent = d.can_steer.valveReady === 16 ? 'READY (16)' : (d.can_steer.valveReady || 0);
@@ -799,6 +800,7 @@ function updLive(d) {
     if (rb) rb.style.display = (d.pvedFac !== 65535 && d.pvedFac !== 30) ? '' : 'none';
   }
 
+  document.getElementById('logActive').checked = !!d.logOn;
   document.getElementById('sb').textContent = 'Updated: ' + new Date().toLocaleTimeString();
 }
 
@@ -1240,6 +1242,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"gga\":")); client.print(GGAReadyTime < 10000 ? F("true") : F("false"));
     client.print(F(",\"vtg\":")); client.print(VTGReadyTime < 10000 ? F("true") : F("false"));
     client.print(F(",\"hpr\":")); client.print(HPRReadyTime < 10000 ? F("true") : F("false"));
+    client.print(F(",\"logActive\":")); client.print(logActive ? F("true") : F("false"));
 
     client.print(F("},\"udp\":{"));
     client.print(F("\"kp\":")); client.print(steerSettings.Kp);
@@ -1387,6 +1390,7 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"pvedDet\":")); client.print(pvedValveDetected ? F("true") : F("false"));
     client.print(F(",\"pvedLast\":")); client.print(pvedLastRead64007);
     client.print(F(",\"pvedFac\":")); client.print(moduleConfig.pvedParam64007Factory);
+    client.print(F(",\"logOn\":")); client.print(logActive ? F("true") : F("false"));
     client.print(F("}"));
 }
 

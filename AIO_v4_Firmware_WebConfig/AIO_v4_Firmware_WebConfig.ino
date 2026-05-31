@@ -117,8 +117,10 @@ bool     keyaEncInitDone     = false;
 bool     keyaInitialZeroDone = false;  // autosteer blocked until first auto-zero done
 float    keyaGpsOffset       = 0.0f;  // runtime drift correction (degrees)
 
-bool logActive    = false;  // serial log capture enabled (web Debug tab)
-bool gpsRawActive = false;  // GPS raw capture enabled (web UM98x tab)
+bool logActive       = true;   // enabled on boot to capture setup messages
+bool logAutoOffDone  = false;  // one-shot: auto-disables log after 10s
+bool gpsRawActive    = false;  // GPS raw capture enabled (web UM98x tab)
+elapsedMillis logBootTime = 0;
 
 // ── IMU as WAS state ──────────────────────────────────────────────────────────
 float         imuWasRawYaw      = 0.0f;
@@ -419,6 +421,13 @@ void loop()
 
     // ── Web server (non-blocking – only active when browser connects) ────────
     handleWebClient();
+
+    // ── Log auto-off 10s after boot (captures setup, then frees CPU) ────────
+    if (!logAutoOffDone && logBootTime > 10000) {
+        logActive = false;
+        logAutoOffDone = true;
+        Serial.println("Web log auto-disabled after 10s");
+    }
 
     // ── GPS timeout ─────────────────────────────────────────────────────────
     if (GGAReadyTime > 10000) {
