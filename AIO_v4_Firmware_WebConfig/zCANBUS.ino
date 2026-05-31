@@ -52,7 +52,7 @@ void CAN_Setup()
 void KeyaBus_Receive()
 {
     CAN_message_t msg;
-    if (canRead(CAN_MODE_KEYA, msg))
+    while (canRead(CAN_MODE_KEYA, msg))
     {
         // Heartbeat
         if (msg.id == 0x07000001)

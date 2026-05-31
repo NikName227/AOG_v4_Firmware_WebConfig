@@ -123,6 +123,7 @@ bool          hprCutoffActive = false;  // true when lost >10s, fixQuality force
 elapsedMillis hprLostTimer    = 0;      // time since RTK fix was lost
 int           mainFixQuality  = 0;      // raw fix quality from main antenna GGA (before override)
 
+bool adcConnected    = false;  // true if ADS1115 responded at boot
 bool logActive       = true;   // enabled on boot to capture setup messages
 bool logAutoOffDone  = false;  // one-shot: auto-disables log after 10s
 bool gpsRawActive    = false;  // GPS raw capture enabled (web UM98x tab)
@@ -343,15 +344,15 @@ void setupIMU()
 // ══════════════════════════════════════════════════════════════════════════════
 void loop()
 {
-    // ── GPS parsing ─────────────────────────────────────────────────────────
-    if (SerialGPS->available()) {
+    // ── GPS parsing ── drain full buffer each loop (prevents overflow if loop stalls)
+    while (SerialGPS->available()) {
         uint8_t _gc = SerialGPS->read();
         gpsRawByte(_gc);
         parser << (char)_gc;
     }
 
     // ── RTK passthrough ─────────────────────────────────────────────────────
-    if (SerialRTK.available()) SerialGPS->write(SerialRTK.read());
+    while (SerialRTK.available()) SerialGPS->write(SerialRTK.read());
 
     // ── NTRIP via UDP ───────────────────────────────────────────────────────
     unsigned int pktLen = Eth_udpNtrip.parsePacket();
@@ -367,25 +368,26 @@ void loop()
         dualReadyGGA = dualReadyRelPos = false;
     }
 
-    // ── RelPos (dual heading) – Serial5 / SerialGPS2 ────────────────────────
-    if (!useBNO08xRVC && SerialGPS2->available()) {
-        uint8_t c = SerialGPS2->read();
-        if (relposnedByteCount < 4 && c == ackPacket[relposnedByteCount]) {
-            relposnedByteCount++;
-        } else if (relposnedByteCount > 3) {
-            ackPacket[relposnedByteCount] = c;
-            relposnedByteCount++;
-        } else {
-            relposnedByteCount = 0;
+    // ── RelPos (dual heading) – Serial5 / SerialGPS2 ── only when RELPOS selected
+    if (moduleConfig.headingSource == HDG_SRC_RELPOS && !useBNO08xRVC) {
+        while (SerialGPS2->available()) {
+            uint8_t c = SerialGPS2->read();
+            if (relposnedByteCount < 4 && c == ackPacket[relposnedByteCount]) {
+                relposnedByteCount++;
+            } else if (relposnedByteCount > 3) {
+                ackPacket[relposnedByteCount] = c;
+                relposnedByteCount++;
+            } else {
+                relposnedByteCount = 0;
+            }
+            if (relposnedByteCount > 71) {
+                if (calcChecksum()) {
+                    digitalWrite(GPSRED_LED, LOW);
+                    relPosDecode();
+                }
+                relposnedByteCount = 0;
+            }
         }
-    }
-    if (relposnedByteCount > 71) {
-        if (calcChecksum()) {
-            digitalWrite(GPSRED_LED, LOW);
-            useDual = true;
-            relPosDecode();
-        }
-        relposnedByteCount = 0;
     }
 
     // ── BNO085 I2C ──────────────────────────────────────────────────────────

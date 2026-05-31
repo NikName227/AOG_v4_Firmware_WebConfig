@@ -213,15 +213,23 @@ void autosteerSetup()
   Wire1.end();
   Wire1.begin();
     
-  // Check ADC 
-  if(adc.testConnection())
+  // Check ADC — only required when ADS1115 is the WAS source
+  bool adcFound = adc.testConnection();
+  adcConnected = adcFound;
+  if (adcFound)
   {
     Serial.println("ADC Connecton OK");
   }
-  else
+  else if (moduleConfig.wasSource == WAS_SOURCE_ADS1115)
   {
+    // ADS1115 selected as WAS but missing → GPS-only mode
     Serial.println("ADC Connecton FAILED!");
     Autosteer_running = false;
+  }
+  else
+  {
+    // Another WAS source (Keya / IMU-CAN / CAN-valve) → ADC not needed, keep steering
+    Serial.println("ADC not found — using non-ADS WAS source, autosteer stays enabled");
   }
 
   //50Khz I2C
@@ -261,8 +269,10 @@ void autosteerSetup()
     return;
   }
 
-  adc.setSampleRate(ADS1115_REG_CONFIG_DR_128SPS); //128 samples per second
-  adc.setGain(ADS1115_REG_CONFIG_PGA_6_144V);
+  if (adcFound) {
+    adc.setSampleRate(ADS1115_REG_CONFIG_DR_128SPS); //128 samples per second
+    adc.setGain(ADS1115_REG_CONFIG_PGA_6_144V);
+  }
 
 }// End of Setup
 

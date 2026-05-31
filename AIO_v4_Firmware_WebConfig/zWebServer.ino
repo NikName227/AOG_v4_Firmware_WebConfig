@@ -1274,7 +1274,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"bno_i2c\":")); client.print(useBNO08xI2C ? F("true") : F("false"));
     client.print(F(",\"tm171\":")); client.print(useTMxx_IMU    ? F("true") : F("false"));
     client.print(F(",\"keya\":")); client.print(keyaDetected    ? F("true") : F("false"));
-    client.print(F(",\"ads1115\":")); client.print(Autosteer_running ? F("true") : F("false"));
+    client.print(F(",\"ads1115\":")); client.print(adcConnected ? F("true") : F("false"));
     client.print(F(",\"imuWas\":")); client.print((imuWasReceived && imuWasTimeout < 500) ? F("true") : F("false"));
     client.print(F(",\"gps\":")); client.print(GGAReadyTime < 10000 ? F("true") : F("false"));
     client.print(F(",\"gga\":")); client.print(GGAReadyTime < 10000 ? F("true") : F("false"));
@@ -1408,7 +1408,7 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"kZero\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
     client.print(F(",\"kEnc\":")); client.print(keyaEncoderRaw);
     client.print(F(",\"kOff\":")); client.print(keyaGpsOffset, 3);
-    client.print(F(",\"ads\":")); client.print(Autosteer_running ? F("true") : F("false"));
+    client.print(F(",\"ads\":")); client.print(adcConnected ? F("true") : F("false"));
     client.print(F(",\"iWas\":")); client.print((imuWasReceived && imuWasTimeout < 500) ? F("true") : F("false"));
     client.print(F(",\"vReady\":")); client.print(steeringValveReady);
     client.print(F(",\"eCurve\":")); client.print(estCurve);
