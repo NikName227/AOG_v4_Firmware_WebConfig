@@ -153,10 +153,12 @@ void VTG_Handler()
     parser.getArg(4, speedKnots);
 
     if (hasFuncMode(CAN_MODE_J1939)) j1939UpdateFromVTG();
+    VTGReadyTime = 0;
 }
 
 void HPR_Handler()
 {
+    HPRReadyTime = 0;
     // HPR Heading
     parser.getArg(1, umHeading);
     heading = atof(umHeading);

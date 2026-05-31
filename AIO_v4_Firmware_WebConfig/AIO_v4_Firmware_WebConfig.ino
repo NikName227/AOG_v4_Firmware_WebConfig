@@ -133,6 +133,8 @@ bool dualReadyGGA   = false;
 bool dualReadyRelPos = false;
 
 elapsedMillis GGAReadyTime    = 10000;
+elapsedMillis VTGReadyTime    = 10000;
+elapsedMillis HPRReadyTime    = 10000;
 elapsedMillis ethernetLinkCheck = 1000;
 
 double headingcorr = 900;

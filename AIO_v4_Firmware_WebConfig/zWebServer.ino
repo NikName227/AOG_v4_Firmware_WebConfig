@@ -103,13 +103,22 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <div class="section-row">
 <div class="card">
-<h2>Auto-detected devices</h2>
-<div class="row"><span class="lbl">GPS (main receiver)</span><span id="d5" class="badge fail">?</span></div>
-<div class="row"><span class="lbl">BNO085 I2C</span><span id="d1" class="badge fail">?</span></div>
-<div class="row"><span class="lbl">TM171 IMU (Serial2)</span><span id="d2" class="badge fail">?</span></div>
-<div class="row"><span class="lbl">Keya motor</span><span id="d3" class="badge fail">?</span></div>
-<div class="row"><span class="lbl">WAS</span><span id="d4" class="badge fail">?</span></div>
-<p style="color:#64748b;font-size:12px;margin-top:8px;line-height:1.4">WAS shows active source: ADS1115 / Keya encoder / CAN valve — whichever has highest priority.</p>
+<h2>Detected devices</h2>
+<style>
+.grp{color:#38bdf8;font-size:13px;font-weight:bold;padding:6px 0 2px;border-bottom:1px solid #334155;margin-bottom:2px}
+.sub{padding-left:18px;font-size:14px}
+</style>
+<div class="row"><span class="lbl grp">GPS</span><span id="d5" class="badge fail">?</span></div>
+<div class="row sub"><span class="lbl">GGA</span><span id="d_gga" class="badge fail">?</span></div>
+<div class="row sub"><span class="lbl">VTG</span><span id="d_vtg" class="badge fail">?</span></div>
+<div class="row sub"><span class="lbl">HPR <small style="color:#64748b">(dual heading)</small></span><span id="d_hpr" class="badge fail">?</span></div>
+<div class="row" style="padding-top:8px"><span class="lbl grp">IMU</span><span></span></div>
+<div class="row sub"><span class="lbl">BNO085 I2C</span><span id="d1" class="badge fail">?</span></div>
+<div class="row sub"><span class="lbl">TM171 (Serial2)</span><span id="d2" class="badge fail">?</span></div>
+<div class="row" style="padding-top:8px"><span class="lbl grp">WAS</span><span></span></div>
+<div class="row sub"><span class="lbl">ADS1115</span><span id="d_ads" class="badge fail">?</span></div>
+<div class="row sub"><span class="lbl">IMU as WAS (CAN)</span><span id="d_imuWas" class="badge fail">?</span></div>
+<div class="row" style="padding-top:8px"><span class="lbl grp">Keya motor</span><span id="d3" class="badge fail">?</span></div>
 </div>
 
 <div class="card">
@@ -512,17 +521,15 @@ function upd(d) {
   document.getElementById('k_act').textContent = d.live.keyaActSpeed;
   document.getElementById('k_set').textContent = d.live.keyaSetSpeed;
 
-  badge('d5', d.detected.gps);
-  badge('d1', d.detected.bno_i2c);
-  badge('d2', d.detected.tm171);
-  badge('d3', d.detected.keya);
-  // d4: active WAS source badge — reflects configured source
-  var ws = d.cfg.wasSource || 0;
-  var wasOk = ws === 3 ? d.cfg.hasVbus
-            : ws === 2 ? d.detected.imuWas
-            : ws === 1 ? d.detected.keya
-            : d.detected.ads1115;
-  badge('d4', wasOk);
+  badge('d5',       d.detected.gps);
+  badge('d_gga',    d.detected.gga);
+  badge('d_vtg',    d.detected.vtg);
+  badge('d_hpr',    d.detected.hpr);
+  badge('d1',       d.detected.bno_i2c);
+  badge('d2',       d.detected.tm171);
+  badge('d_ads',    d.detected.ads1115);
+  badge('d_imuWas', d.detected.imuWas);
+  badge('d3',       d.detected.keya);
 
   if (d.can_steer) {
     document.getElementById('cs0').textContent = d.can_steer.valveReady === 16 ? 'READY (16)' : (d.can_steer.valveReady || 0);
@@ -1123,6 +1130,9 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"ads1115\":")); client.print(Autosteer_running ? F("true") : F("false"));
     client.print(F(",\"imuWas\":")); client.print((imuWasReceived && imuWasTimeout < 500) ? F("true") : F("false"));
     client.print(F(",\"gps\":")); client.print(GGAReadyTime < 10000 ? F("true") : F("false"));
+    client.print(F(",\"gga\":")); client.print(GGAReadyTime < 10000 ? F("true") : F("false"));
+    client.print(F(",\"vtg\":")); client.print(VTGReadyTime < 10000 ? F("true") : F("false"));
+    client.print(F(",\"hpr\":")); client.print(HPRReadyTime < 10000 ? F("true") : F("false"));
 
     client.print(F("},\"udp\":{"));
     client.print(F("\"kp\":")); client.print(steerSettings.Kp);
