@@ -466,10 +466,6 @@ void autosteerLoop()
         if ((float)abs(headingRate) <= moduleConfig.keyaAzYawMax) {
             if (keyaInitTimer > (float)moduleConfig.keyaAzTimeSlowMs) {
                 // Fast direct offset to GPS wheel angle (Flodu model)
-                int32_t deltaTicks = keyaEncoderRaw - moduleConfig.keyaZeroTicks;
-                float rawAngle = (moduleConfig.keyaEncInvert ? -(float)deltaTicks : (float)deltaTicks)
-                                 / moduleConfig.keyaTicksPerDeg;
-                // Store initial offset as keyaZeroTicks shift
                 moduleConfig.keyaZeroTicks = keyaEncoderRaw - (int32_t)(wheelAngleGPS * moduleConfig.keyaTicksPerDeg);
                 keyaInitialZeroDone = true;
                 webLog("Keya WAS: initial zero done — autosteer unlocked");

@@ -1243,10 +1243,10 @@ void handleApiLog(EthernetClient& client, const char* req)
 
 void handleApiKeyaZero(EthernetClient& client)
 {
-    moduleConfig.keyaZeroTicks = keyaSteeringPosition;
+    moduleConfig.keyaZeroTicks = keyaEncoderRaw;
     moduleConfigSave();
-    Serial.print("Keya WAS zero set at "); Serial.println(keyaSteeringPosition);
-    webLogf("Keya WAS zero set at %d ticks", keyaSteeringPosition);
+    Serial.print("Keya WAS zero set at "); Serial.println(keyaEncoderRaw);
+    webLogf("Keya WAS zero set at %ld ticks", (long)keyaEncoderRaw);
     sendHeaders(client, "text/plain");
     client.print(F("OK"));
 }
