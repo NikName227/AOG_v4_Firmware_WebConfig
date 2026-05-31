@@ -117,6 +117,11 @@ bool     keyaEncInitDone     = false;
 bool     keyaInitialZeroDone = false;  // autosteer blocked until first auto-zero done
 float    keyaGpsOffset       = 0.0f;  // runtime drift correction (degrees)
 
+// ── HPR RTK quality monitoring (UM982 second antenna) ────────────────────────
+bool          hprRtkLost      = false;  // true when solQualityHPR < 4
+bool          hprCutoffActive = false;  // true when lost >10s, fixQuality forced to 0
+elapsedMillis hprLostTimer    = 0;      // time since RTK fix was lost
+
 bool logActive       = true;   // enabled on boot to capture setup messages
 bool logAutoOffDone  = false;  // one-shot: auto-disables log after 10s
 bool gpsRawActive    = false;  // GPS raw capture enabled (web UM98x tab)
@@ -423,6 +428,21 @@ void loop()
 
     // ── Web server (non-blocking – only active when browser connects) ────────
     handleWebClient();
+
+    // ── HPR RTK quality monitor (UM982 second antenna) ───────────────────────
+    if (hprRtkLost && moduleConfig.headingSource == HDG_SRC_HPR) {
+        static elapsedMillis hprWarnTimer = 4001;
+        if (hprWarnTimer > 4000) {
+            sendDisplayMessage("Heading antenna: RTK fix failed!", 5, 0);
+            hprWarnTimer = 0;
+        }
+        if (!hprCutoffActive && hprLostTimer > 10000) {
+            hprCutoffActive = true;
+            sendDisplayMessage("AUTOSTEER DISABLED: RTK fix lost >10s", 6, 0);
+            webLog("HPR RTK lost >10s: autosteer cutoff active");
+            Serial.println("HPR RTK: cutoff active after 10s");
+        }
+    }
 
     // ── Log auto-off 10s after boot (captures setup, then frees CPU) ────────
     if (!logAutoOffDone && logBootTime > 10000) {

@@ -55,6 +55,8 @@ void GGA_Handler() //Rec'd GGA
 
     // fix quality
     parser.getArg(5, fixQuality);
+    // HPR cutoff: after 10s of lost RTK on second antenna → force invalid GPS → AgIO disengages
+    if (hprCutoffActive) itoa(0, fixQuality, 10);
 
     // satellite #
     parser.getArg(6, numSats);
@@ -167,9 +169,33 @@ void VTG_Handler()
 void HPR_Handler()
 {
     HPRReadyTime = 0;
-    parser.getArg(1, umHeading);  heading       = atof(umHeading);
+    parser.getArg(1, umHeading);
     parser.getArg(2, umRoll);     rollDual      = atof(umRoll);
     parser.getArg(4, solQuality); solQualityHPR = atoi(solQuality);
+
+    // ── RTK quality guard for heading (UM982 second antenna) ─────────────────
+    if (moduleConfig.headingSource == HDG_SRC_HPR) {
+        if (solQualityHPR == 4) {
+            // RTK fix OK — update heading and reset loss state
+            heading = atof(umHeading);
+            if (hprRtkLost) {
+                hprRtkLost      = false;
+                hprCutoffActive = false;
+                hprLostTimer    = 0;
+                sendDisplayMessage("Heading antenna: RTK fix restored", 5, 1);
+                webLog("HPR RTK restored");
+            }
+        } else {
+            // RTK lost — heading stays frozen at last good value
+            if (!hprRtkLost) {
+                hprRtkLost   = true;
+                hprLostTimer = 0;
+            }
+            // heading intentionally NOT updated — keeps last good value
+        }
+    } else {
+        heading = atof(umHeading);  // no quality guard for other sources
+    }
 
     bool needsHPR = (moduleConfig.headingSource == HDG_SRC_HPR
                   || moduleConfig.rollSource    == ROLL_SRC_HPR);

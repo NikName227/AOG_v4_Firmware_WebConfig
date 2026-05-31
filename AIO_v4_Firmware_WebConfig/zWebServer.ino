@@ -114,6 +114,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row sub"><span class="lbl">GGA</span><span id="d_gga" class="badge fail">?</span></div>
 <div class="row sub"><span class="lbl">VTG</span><span id="d_vtg" class="badge fail">?</span></div>
 <div class="row sub"><span class="lbl">HPR <small style="color:#64748b">(dual heading)</small></span><span id="d_hpr" class="badge fail">?</span></div>
+<div class="row sub"><span class="lbl">HPR RTK quality</span><span id="d_hprQ" class="val" style="font-size:13px">-</span></div>
+<div class="row sub" id="hprCutoffRow" style="display:none"><span class="lbl" style="color:#f87171;font-weight:bold">⚠ HEADING CUTOFF</span><span class="val" style="color:#f87171;font-size:12px" id="d_hprCut">-</span></div>
 <div class="row" style="padding-top:8px"><span class="lbl grp">IMU</span><span></span></div>
 <div class="row sub"><span class="lbl">BNO085 I2C</span><span id="d1" class="badge fail">?</span></div>
 <div class="row sub"><span class="lbl">TM171 (Serial2)</span><span id="d2" class="badge fail">?</span></div>
@@ -771,6 +773,14 @@ function updLive(d) {
   la.textContent = d.on ? 'ACTIVE' : 'OFF';
 
   badge('d5', d.gps); badge('d_gga', d.gga); badge('d_vtg', d.vtg); badge('d_hpr', d.hpr);
+  var qN = {1:'GPS',2:'DGPS',4:'RTK',5:'Float'};
+  var qEl = document.getElementById('d_hprQ');
+  if (qEl) {
+    qEl.textContent = d.hpr ? (qN[d.hprQ] || 'Q='+d.hprQ) : '-';
+    qEl.style.color = d.hprRtkLost ? '#f87171' : '#4ade80';
+  }
+  var cr = document.getElementById('hprCutoffRow');
+  if (cr) cr.style.display = d.hprCutoff ? '' : 'none';
   badge('d1', d.bno); badge('d2', d.tm);
   badge('d_ads', d.ads); badge('d_imuWas', d.iWas); badge('d3', d.keya);
 
@@ -1389,6 +1399,9 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"gga\":")); client.print(GGAReadyTime < 10000 ? F("true") : F("false"));
     client.print(F(",\"vtg\":")); client.print(VTGReadyTime < 10000 ? F("true") : F("false"));
     client.print(F(",\"hpr\":")); client.print(HPRReadyTime < 10000 ? F("true") : F("false"));
+    client.print(F(",\"hprQ\":")); client.print(solQualityHPR);
+    client.print(F(",\"hprRtkLost\":")); client.print(hprRtkLost ? F("true") : F("false"));
+    client.print(F(",\"hprCutoff\":")); client.print(hprCutoffActive ? F("true") : F("false"));
     client.print(F(",\"bno\":")); client.print(useBNO08xI2C ? F("true") : F("false"));
     client.print(F(",\"tm\":")); client.print(useTMxx_IMU ? F("true") : F("false"));
     client.print(F(",\"keya\":")); client.print(keyaDetected ? F("true") : F("false"));
