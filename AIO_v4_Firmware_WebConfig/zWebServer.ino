@@ -523,7 +523,7 @@ function showTab(t, el) {
 
 function restartTick() {
   if (tickTimer) clearInterval(tickTimer);
-  var rate = (activeTab === 'live') ? 500 : 2000;
+  var rate = (activeTab === 'live') ? 1000 : 2000;
   tickTimer = setInterval(tick, rate);
 }
 
@@ -1141,11 +1141,11 @@ void handleWebClient()
     EthernetClient client = webServer.available();
     if (!client) return;
 
-    // ── Read first request line ───────────────────────────────────────────────
+    // ── Read first request line ── 50ms max (browser sends immediately on LAN)
     char reqLine[256];
     int  idx = 0;
     elapsedMillis t = 0;
-    while (client.connected() && t < 500) {
+    while (client.connected() && t < 50) {
         if (client.available()) {
             char c = client.read();
             if (c == '\n') break;
@@ -1156,11 +1156,11 @@ void handleWebClient()
 
     if (DBG_STEER) { Serial.print("WEB: "); Serial.println(reqLine); }
 
-    // ── Drain headers until blank line ────────────────────────────────────────
+    // ── Drain headers until blank line ── 50ms max
     {
         int hi = 0;
         t = 0;
-        while (client.connected() && t < 500) {
+        while (client.connected() && t < 50) {
             if (client.available()) {
                 char c = client.read();
                 if (c == '\n') { if (hi == 0) break; hi = 0; }
@@ -1170,35 +1170,42 @@ void handleWebClient()
     }
 
     // ── Route ─────────────────────────────────────────────────────────────────
-    if      (strstr(reqLine, "/api/save")   != NULL) handleApiSave(client, reqLine);
-    else if (strstr(reqLine, "/api/live")   != NULL) handleApiLive(client);
-    else if (strstr(reqLine, "/api/log")    != NULL) handleApiLog(client, reqLine);
-    else if (strstr(reqLine, "/api/status") != NULL) handleApiStatus(client);
-    else if (strstr(reqLine, "/api/gpsraw")   != NULL) handleApiGpsRaw(client, reqLine);
-    else if (strstr(reqLine, "/api/gpscmd")   != NULL) handleApiGpsCmd(client, reqLine);
-    else if (strstr(reqLine, "/api/gpsbaud")  != NULL) handleApiGpsBaud(client, reqLine);
-    else if (strstr(reqLine, "/api/keyazero")  != NULL) handleApiKeyaZero(client);
-    else if (strstr(reqLine, "/api/imuwaszero") != NULL) handleApiImuWasZero(client);
-    else if (strstr(reqLine, "/api/canraw")  != NULL) handleApiCanRaw(client, reqLine);
-    else if (strstr(reqLine, "/api/canscan") != NULL) handleApiCanScan(client, reqLine);
-    else if (strstr(reqLine, "/api/pved")    != NULL) handleApiPved(client, reqLine);
+    bool isApi = (strstr(reqLine, "/api/") != NULL);
+
+    if      (strstr(reqLine, "/api/save")        != NULL) handleApiSave(client, reqLine);
+    else if (strstr(reqLine, "/api/live")        != NULL) handleApiLive(client);
+    else if (strstr(reqLine, "/api/log")         != NULL) handleApiLog(client, reqLine);
+    else if (strstr(reqLine, "/api/status")      != NULL) handleApiStatus(client);
+    else if (strstr(reqLine, "/api/gpsraw")      != NULL) handleApiGpsRaw(client, reqLine);
+    else if (strstr(reqLine, "/api/gpscmd")      != NULL) handleApiGpsCmd(client, reqLine);
+    else if (strstr(reqLine, "/api/gpsbaud")     != NULL) handleApiGpsBaud(client, reqLine);
+    else if (strstr(reqLine, "/api/keyazero")    != NULL) handleApiKeyaZero(client);
+    else if (strstr(reqLine, "/api/imuwaszero")  != NULL) handleApiImuWasZero(client);
+    else if (strstr(reqLine, "/api/canraw")      != NULL) handleApiCanRaw(client, reqLine);
+    else if (strstr(reqLine, "/api/canscan")     != NULL) handleApiCanScan(client, reqLine);
+    else if (strstr(reqLine, "/api/pved")        != NULL) handleApiPved(client, reqLine);
     else if (Autosteer_running && watchdogTimer < WATCHDOG_THRESHOLD) {
-        // HTML page is ~7KB – blocks loop() 300-800ms. Refuse during active steering.
         client.println(F("HTTP/1.1 503 Service Unavailable\r\n"
                          "Content-Type: text/plain\r\n"
                          "Connection: close\r\n"
                          "\r\n"
                          "Autosteer active - open page when not steering."));
     }
-    else                                              handleRoot(client);
+    else { isApi = false; handleRoot(client); }
 
-    // ── Wait for browser to receive before closing ────────────────────────────
-    client.flush();
-    elapsedMillis closeTimer = 0;
-    while (client.connected() && closeTimer < 500) {
-        while (client.available()) client.read();
+    // ── Close ─────────────────────────────────────────────────────────────────
+    if (isApi) {
+        // API: TCP stack delivers buffered data after stop() — no blocking wait
+        client.stop();
+    } else {
+        // HTML page (~7KB): short wait so browser receives all chunks
+        client.flush();
+        elapsedMillis closeTimer = 0;
+        while (client.connected() && closeTimer < 100) {
+            while (client.available()) client.read();
+        }
+        client.stop();
     }
-    client.stop();
 }
 
 // ── Route handlers ─────────────────────────────────────────────────────────────
