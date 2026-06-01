@@ -2006,9 +2006,6 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"gga\":")); client.print(GGAReadyTime < 10000 ? F("true") : F("false"));
     client.print(F(",\"vtg\":")); client.print(VTGReadyTime < 10000 ? F("true") : F("false"));
     client.print(F(",\"hpr\":")); client.print(HPRReadyTime < 10000 ? F("true") : F("false"));
-    client.print(F(",\"hprQ\":")); client.print(solQualityHPR);
-    client.print(F(",\"hprRtkLost\":")); client.print(hprRtkLost ? F("true") : F("false"));
-    client.print(F(",\"hprCutoff\":")); client.print(hprCutoffActive ? F("true") : F("false"));
     client.print(F(",\"bno\":")); client.print(useBNO08xI2C ? F("true") : F("false"));
     client.print(F(",\"tm\":")); client.print(useTMxx_IMU ? F("true") : F("false"));
     client.print(F(",\"keya\":")); client.print(keyaDetected ? F("true") : F("false"));
