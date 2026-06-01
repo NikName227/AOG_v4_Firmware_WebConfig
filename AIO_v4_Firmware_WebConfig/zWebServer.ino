@@ -680,7 +680,8 @@ function renderGroup(d) {
       h += lvRow('Heading', d.tmHdg + ' °');
       h += lvRow('Roll', d.tmRoll + ' °');
       h += lvRow('Pitch', d.tmPitch + ' °');
-    } else { h += lvRow('Heading','--')+lvRow('Roll','--')+lvRow('Pitch','--'); }
+      h += lvRow('Yaw rate', d.tmYaw + ' °/s');
+    } else { h += lvRow('Heading','--')+lvRow('Roll','--')+lvRow('Pitch','--')+lvRow('Yaw rate','--'); }
   }
   else if (activeGroup === 3) {
     hdr = 'Group 3 — WAS';
@@ -1938,6 +1939,7 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"tmHdg\":\""));    client.print(useTMxx_IMU ? TM171_IMU.getYawStr()   : "0"); client.print('"');
         client.print(F(",\"tmRoll\":\""));   client.print(useTMxx_IMU ? TM171_IMU.getRollStr()  : "0"); client.print('"');
         client.print(F(",\"tmPitch\":\""));  client.print(useTMxx_IMU ? TM171_IMU.getPitchStr() : "0"); client.print('"');
+        client.print(F(",\"tmYaw\":\""));    client.print(useTMxx_IMU ? imuYawRate : "0"); client.print('"');
         client.print(F("}"));
         break;
     }

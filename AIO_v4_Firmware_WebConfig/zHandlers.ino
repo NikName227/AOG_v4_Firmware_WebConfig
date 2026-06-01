@@ -276,6 +276,35 @@ void imuHandler()
     // headingRate + wheelAngleGPS are computed in updateGpsMotion() (VTG_Handler)
 }
 
+void readTM171()
+{
+    TM171_IMU.readAngles();
+
+    // Populate NMEA strings (respect X/Y axis swap, same as BNO path)
+    if (steerConfig.IsUseY_Axis) {
+        strcpy(imuRoll,  TM171_IMU.getPitchStr());
+        strcpy(imuPitch, TM171_IMU.getRollStr());
+    } else {
+        strcpy(imuPitch, TM171_IMU.getPitchStr());
+        strcpy(imuRoll,  TM171_IMU.getRollStr());
+    }
+    strcpy(imuHeading, TM171_IMU.getYawStr());
+
+    // Yaw rate from successive yaw readings (TM171 sends no gyro/angular velocity)
+    static double        tmPrevYaw = 0;
+    static elapsedMillis tmYrTimer = 0;
+    static bool          tmYrInit  = false;
+    float  tdt = tmYrTimer / 1000.0f; tmYrTimer = 0;
+    double curY = TM171_IMU.getYaw() / 100.0;   // getYaw() is deg×100
+    double tyd = curY - tmPrevYaw;
+    tmPrevYaw = curY;
+    if (tyd > 180)  tyd -= 360;
+    if (tyd < -180) tyd += 360;
+    int16_t tyr = (tmYrInit && tdt > 0.005f) ? (int16_t)((tyd / tdt) * 10.0) : 0;
+    tmYrInit = true;
+    itoa(tyr, imuYawRate, 10);
+}
+
 void readBNO_RVC()
 {
     if (rvc.read(&bnoData)) {
