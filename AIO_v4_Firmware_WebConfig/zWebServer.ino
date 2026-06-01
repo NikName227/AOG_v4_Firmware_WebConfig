@@ -321,10 +321,28 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <p id="lvOffMsg" style="color:#64748b;font-size:13px">Live Off — select a group above to start streaming values @ 0.5s.</p>
 </div>
 
-<!-- GRAPH sub-panel (Phase 2) -->
+<!-- GRAPH sub-panel -->
 <div id="lvGraph" style="display:none">
-<div class="card"><h2>Online Graph</h2>
-<p style="color:#64748b;font-size:13px">Graph — coming in next step.</p>
+<div class="card">
+<h2>Online Graph</h2>
+<div id="gRows" style="font-size:13px"></div>
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #334155">
+<span class="lbl">Time</span><input type="number" id="gTime" value="30" min="5" max="300" step="5" class="ninput" style="width:60px"> s
+<span class="lbl">Freq</span>
+<select id="gFreq" style="min-width:80px">
+<option value="1">1 Hz</option>
+<option value="2">2 Hz</option>
+<option value="5" selected>5 Hz</option>
+<option value="10">10 Hz</option>
+</select>
+<button class="btn green" onclick="gSet()">Set</button>
+<label class="chk-row" style="padding:0"><input type="checkbox" id="gEnable" onchange="gToggle(this.checked)"> Enable logging</label>
+<button class="btn" id="gPauseBtn" onclick="gPauseToggle()">Pause</button>
+<button class="btn" onclick="gExportCsv()">⬇ Export CSV</button>
+<button class="btn sm" onclick="gResetView()">Reset view</button>
+</div>
+<canvas id="gcanvas" width="720" height="340" style="width:100%;margin-top:10px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px;cursor:crosshair"></canvas>
+<div id="gReadout" style="font-size:12px;color:#94a3b8;margin-top:6px;font-family:monospace">Paused: drag = pan, wheel = zoom, move = read</div>
 </div>
 </div>
 </div><!-- /live -->
@@ -571,6 +589,7 @@ function lvShow(m) {
   document.getElementById('lvGraph').style.display  = (m === 'graph')  ? '' : 'none';
   document.getElementById('lvValuesTab').classList.toggle('on', m === 'values');
   document.getElementById('lvGraphTab').classList.toggle('on', m === 'graph');
+  if (m === 'graph' && typeof gDraw === 'function') gDraw();
 }
 
 function setGroup(n, btn) {
@@ -900,13 +919,15 @@ function tick() {
       .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
     return;
   }
-  // Live tab: poll only the selected group (minimal payload), or nothing if Live Off
+  // Live tab: poll only what's needed (minimal payload), or nothing if Live Off
   if (activeTab === 'live') {
     if (lvMode === 'values' && activeGroup > 0) {
       fetch('/api/grp?g=' + activeGroup, { cache: 'no-store' })
         .then(function(r) { return r.json(); })
         .then(function(d) { renderGroup(d); })
         .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
+    } else if (lvMode === 'graph') {
+      gPoll();
     }
     return;
   }
@@ -1289,6 +1310,192 @@ function uploadLines() {
   sendNext();
 }
 
+// ── Graph (Live tab → Graph) ─────────────────────────────────────────────────
+var gSignals = [
+ {id:0,n:'-- none --'},
+ {id:1,n:'Gr1 GGA fixQuality'},{id:2,n:'Gr1 GGA numSats'},{id:3,n:'Gr1 GGA HDOP'},{id:4,n:'Gr1 GGA altitude'},
+ {id:5,n:'Gr1 VTG heading'},{id:6,n:'Gr1 VTG speed'},
+ {id:7,n:'Gr1 HPR heading'},{id:8,n:'Gr1 HPR roll'},{id:9,n:'Gr1 HPR quality'},
+ {id:10,n:'Gr2 BNO heading'},{id:11,n:'Gr2 BNO roll'},{id:12,n:'Gr2 BNO pitch'},{id:13,n:'Gr2 BNO yawRate'},
+ {id:14,n:'Gr2 TM171 heading'},{id:15,n:'Gr2 TM171 roll'},{id:16,n:'Gr2 TM171 pitch'},
+ {id:17,n:'Gr3 WAS ADS raw'},{id:18,n:'Gr3 WAS IMU raw'},{id:19,n:'Gr3 WAS IMU scaled'},
+ {id:20,n:'Gr3 WAS chassis yawRate'},{id:21,n:'Gr3 WAS wheelAngleGPS'},{id:22,n:'Gr3 WAS actual'},
+ {id:23,n:'Gr4 Keya encoder'},{id:24,n:'Gr4 Keya gpsOffset'},{id:25,n:'Gr4 Keya actSpeed'},{id:26,n:'Gr4 Keya setSpeed'},
+ {id:27,n:'Gr5 Steer actual'},{id:28,n:'Gr5 Steer setpoint'},{id:29,n:'Gr5 Steer error'},{id:30,n:'Gr5 PWM'},{id:31,n:'Gr5 speed'},
+ {id:32,n:'Gr6 valveReady'},{id:33,n:'Gr6 estCurve'},{id:34,n:'Gr6 setCurve'},{id:35,n:'Gr6 hitch'}
+];
+var gCol  = ['#4ade80','#38bdf8','#fbbf24','#f87171'];
+var gDef  = [27,28,22,11];
+var gMin  = [-30,-30,-30,-10];
+var gMax  = [30,30,30,10];
+var gData = [[],[],[],[]];
+var gTimes= [];
+var gClock= 0, gRateMs = 200, gLogging = false, gPaused = false, gView = null;
+var gCursorX = null, gDragging = false, gDragX = 0;
+
+function gSigName(id){ for(var i=0;i<gSignals.length;i++) if(gSignals[i].id===id) return gSignals[i].n; return ''; }
+
+function gBuildRows(){
+  var html='';
+  for(var c=0;c<4;c++){
+    var opts='';
+    for(var s=0;s<gSignals.length;s++)
+      opts+='<option value="'+gSignals[s].id+'"'+(gSignals[s].id===gDef[c]?' selected':'')+'>'+gSignals[s].n+'</option>';
+    html+='<div style="display:flex;gap:6px;align-items:center;padding:2px 0;flex-wrap:wrap">'
+      +'<span style="color:'+gCol[c]+';font-weight:bold;width:54px">Data '+(c+1)+'</span>'
+      +'<select id="gsig'+c+'" style="flex:1;min-width:150px">'+opts+'</select>'
+      +' min<input type="number" id="gmin'+c+'" value="'+gMin[c]+'" step="any" class="ninput" style="width:56px">'
+      +' max<input type="number" id="gmax'+c+'" value="'+gMax[c]+'" step="any" class="ninput" style="width:56px">'
+      +' <button class="btn sm" onclick="gAuto('+c+')">Auto</button>'
+      +' <span style="color:#64748b;font-size:11px">'+(c<2?'← left':'→ right')+'</span></div>';
+  }
+  document.getElementById('gRows').innerHTML=html;
+}
+
+function gCfgUrl(stop){
+  return '/api/graphcfg?d1='+gDef[0]+'&d2='+gDef[1]+'&d3='+gDef[2]+'&d4='+gDef[3]+'&rate='+gRateMs+(stop?'&stop':'');
+}
+
+function gSet(){
+  for(var c=0;c<4;c++){
+    gDef[c]=parseInt(document.getElementById('gsig'+c).value);
+    gMin[c]=parseFloat(document.getElementById('gmin'+c).value);
+    gMax[c]=parseFloat(document.getElementById('gmax'+c).value);
+  }
+  gRateMs=Math.round(1000/parseInt(document.getElementById('gFreq').value));
+  gData=[[],[],[],[]]; gTimes=[]; gClock=0; gView=null; gPaused=false;
+  document.getElementById('gPauseBtn').textContent='Pause';
+  fetch(gCfgUrl(!gLogging)).then(function(r){document.getElementById('sb').textContent=r.ok?'Graph set':'Graph error';});
+  gDraw();
+}
+
+function gToggle(on){
+  gLogging=on;
+  if(on){gPaused=false;document.getElementById('gPauseBtn').textContent='Pause';gView=null;}
+  fetch(gCfgUrl(!on));
+}
+
+function gPauseToggle(){
+  gPaused=!gPaused;
+  document.getElementById('gPauseBtn').textContent=gPaused?'Resume':'Pause';
+  if(gPaused){var w=parseFloat(document.getElementById('gTime').value);gView={start:Math.max(0,gClock-w),end:gClock};}
+  else gView=null;
+  gDraw();
+}
+
+function gAuto(c){
+  if(!gData[c].length)return;
+  var mn=1e9,mx=-1e9;
+  for(var i=0;i<gData[c].length;i++){var v=gData[c][i];if(v<mn)mn=v;if(v>mx)mx=v;}
+  if(mn===mx){mn-=1;mx+=1;}
+  var pad=(mx-mn)*0.1;
+  gMin[c]=+(mn-pad).toFixed(2); gMax[c]=+(mx+pad).toFixed(2);
+  document.getElementById('gmin'+c).value=gMin[c];
+  document.getElementById('gmax'+c).value=gMax[c];
+  gDraw();
+}
+
+function gResetView(){gView=null;if(gPaused){gPaused=false;document.getElementById('gPauseBtn').textContent='Pause';}gDraw();}
+
+function gPoll(){
+  if(!gLogging||gPaused)return;
+  fetch('/api/graphdata',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    var dt=d.dt/1000;
+    for(var i=0;i<d.n;i++){gClock+=dt;gTimes.push(gClock);for(var c=0;c<4;c++)gData[c].push(d.d[c][i]);}
+    var win=parseFloat(document.getElementById('gTime').value);
+    var cut=gClock-win-2;
+    while(gTimes.length&&gTimes[0]<cut){gTimes.shift();for(var c=0;c<4;c++)gData[c].shift();}
+    gDraw();
+  }).catch(function(){});
+}
+
+function gDraw(){
+  var cv=document.getElementById('gcanvas');if(!cv)return;
+  var ctx=cv.getContext('2d'),W=cv.width,H=cv.height;
+  ctx.clearRect(0,0,W,H);
+  var L=46,R=W-46,T=10,B=H-22;
+  var win=parseFloat(document.getElementById('gTime').value);
+  var vEnd=gView?gView.end:gClock, vStart=gView?gView.start:(gClock-win);
+  if(vEnd-vStart<=0)vStart=vEnd-1;
+  ctx.strokeStyle='#1e3a5f';ctx.font='10px monospace';ctx.lineWidth=1;
+  for(var g=0;g<=5;g++){
+    var y=T+(B-T)*g/5;
+    ctx.beginPath();ctx.moveTo(L,y);ctx.lineTo(R,y);ctx.stroke();
+    var lv=gMax[0]+(gMin[0]-gMax[0])*g/5, rv=gMax[2]+(gMin[2]-gMax[2])*g/5;
+    ctx.fillStyle=gCol[0];ctx.textAlign='right';ctx.fillText(lv.toFixed(1),L-3,y+3);
+    ctx.fillStyle=gCol[2];ctx.textAlign='left';ctx.fillText(rv.toFixed(1),R+3,y+3);
+  }
+  ctx.fillStyle='#64748b';ctx.textAlign='center';
+  for(var t=0;t<=4;t++){var x=L+(R-L)*t/4,tv=vStart+(vEnd-vStart)*t/4;ctx.fillText((tv-gClock).toFixed(1)+'s',x,B+14);}
+  function xt(tt){return L+(R-L)*(tt-vStart)/(vEnd-vStart);}
+  for(var c=0;c<4;c++){
+    var mn=gMin[c],mx=gMax[c];if(mx===mn)mx=mn+1;
+    ctx.strokeStyle=gCol[c];ctx.lineWidth=1.5;ctx.beginPath();var st=false;
+    for(var i=0;i<gTimes.length;i++){
+      if(gTimes[i]<vStart||gTimes[i]>vEnd)continue;
+      var x=xt(gTimes[i]),y=B-(B-T)*(gData[c][i]-mn)/(mx-mn);
+      if(y<T)y=T;if(y>B)y=B;
+      if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+  ctx.textAlign='left';ctx.font='11px monospace';
+  for(var c=0;c<4;c++){
+    var last=gData[c].length?gData[c][gData[c].length-1]:null;
+    ctx.fillStyle=gCol[c];
+    ctx.fillText('D'+(c+1)+' '+gSigName(gDef[c])+(last!==null?'  ='+last.toFixed(2):''),L+4,T+12+c*13);
+  }
+  if(gPaused&&gCursorX!==null){
+    ctx.strokeStyle='#e2e8f0';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(gCursorX,T);ctx.lineTo(gCursorX,B);ctx.stroke();
+    var tt=vStart+(vEnd-vStart)*(gCursorX-L)/(R-L);
+    var idx=-1,best=1e9;
+    for(var i=0;i<gTimes.length;i++){var dd=Math.abs(gTimes[i]-tt);if(dd<best){best=dd;idx=i;}}
+    var txt='t='+(tt-gClock).toFixed(2)+'s';
+    if(idx>=0)for(var c=0;c<4;c++)txt+='   D'+(c+1)+'='+gData[c][idx].toFixed(2);
+    document.getElementById('gReadout').textContent=txt;
+  }
+}
+
+function gCanvasInit(){
+  var cv=document.getElementById('gcanvas');if(!cv)return;
+  cv.addEventListener('mousemove',function(e){
+    if(!gPaused)return;
+    var rect=cv.getBoundingClientRect();
+    gCursorX=(e.clientX-rect.left)*cv.width/rect.width;
+    if(gDragging&&gView){var dx=(gCursorX-gDragX)/(cv.width-92)*(gView.end-gView.start);gView.start-=dx;gView.end-=dx;gDragX=gCursorX;}
+    gDraw();
+  });
+  cv.addEventListener('mousedown',function(e){if(gPaused){gDragging=true;var rect=cv.getBoundingClientRect();gDragX=(e.clientX-rect.left)*cv.width/rect.width;}});
+  cv.addEventListener('mouseup',function(){gDragging=false;});
+  cv.addEventListener('mouseleave',function(){gDragging=false;gCursorX=null;gDraw();});
+  cv.addEventListener('wheel',function(e){
+    if(!gPaused||!gView)return;e.preventDefault();
+    var rect=cv.getBoundingClientRect(),cx=(e.clientX-rect.left)*cv.width/rect.width,L=46,R=cv.width-46;
+    var frac=(cx-L)/(R-L);if(frac<0)frac=0;if(frac>1)frac=1;
+    var tAt=gView.start+(gView.end-gView.start)*frac,f=e.deltaY<0?0.8:1.25;
+    gView.start=tAt-(tAt-gView.start)*f;gView.end=tAt+(gView.end-tAt)*f;
+    gDraw();
+  },{passive:false});
+}
+
+function gExportCsv(){
+  var rows='time_s';
+  for(var c=0;c<4;c++)rows+=','+gSigName(gDef[c]).replace(/[, ]/g,'_');
+  rows+='\n';
+  var vEnd=gView?gView.end:gClock,vStart=gView?gView.start:(gClock-parseFloat(document.getElementById('gTime').value));
+  for(var i=0;i<gTimes.length;i++){
+    if(gTimes[i]<vStart||gTimes[i]>vEnd)continue;
+    rows+=gTimes[i].toFixed(3);
+    for(var c=0;c<4;c++)rows+=','+gData[c][i].toFixed(3);
+    rows+='\n';
+  }
+  var blob=new Blob([rows],{type:'text/csv'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='aio_graph_'+Date.now()+'.csv';a.click();
+}
+
+gBuildRows();
+gCanvasInit();
 tick();
 restartTick();
 </script>
@@ -1362,6 +1569,8 @@ void handleWebClient()
     bool isApi = (strstr(reqLine, "/api/") != NULL);
 
     if      (strstr(reqLine, "/api/save")        != NULL) handleApiSave(client, reqLine);
+    else if (strstr(reqLine, "/api/graphcfg")    != NULL) handleApiGraphCfg(client, reqLine);
+    else if (strstr(reqLine, "/api/graphdata")   != NULL) handleApiGraphData(client);
     else if (strstr(reqLine, "/api/grp")         != NULL) handleApiGrp(client, reqLine);
     else if (strstr(reqLine, "/api/live")        != NULL) handleApiLive(client);
     else if (strstr(reqLine, "/api/log")         != NULL) handleApiLog(client, reqLine);
@@ -1533,6 +1742,102 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"last64007\":")); client.print(pvedLastRead64007);
     client.print(F(",\"factory64007\":")); client.print(moduleConfig.pvedParam64007Factory);
     client.print(F("}}"));
+}
+
+// ── Graph: signal value lookup (IDs must match JS dropdown) ──────────────────
+float getSignalValue(uint8_t id)
+{
+    switch (id) {
+    // GPS
+    case 1:  return (float)mainFixQuality;
+    case 2:  return atof(numSats);
+    case 3:  return atof(HDOP);
+    case 4:  return atof(altitude);
+    case 5:  return (float)headingVTG;
+    case 6:  return gpsSpeed;
+    case 7:  return atof(umHeading);
+    case 8:  return atof(umRoll);
+    case 9:  return (float)solQualityHPR;
+    // IMU
+    case 10: return yaw / 10.0f;
+    case 11: return roll / 10.0f;
+    case 12: return pitch / 10.0f;
+    case 13: return atof(imuYawRate);
+    case 14: return useTMxx_IMU ? atof(TM171_IMU.getYawStr())   : 0;
+    case 15: return useTMxx_IMU ? atof(TM171_IMU.getRollStr())  : 0;
+    case 16: return useTMxx_IMU ? atof(TM171_IMU.getPitchStr()) : 0;
+    // WAS
+    case 17: return (float)steeringPosition;
+    case 18: return imuWasRawYaw;
+    case 19: return imuWasRawYaw * moduleConfig.imuWasCpdScale;
+    case 20: return (float)headingRate;
+    case 21: return wheelAngleGPS;
+    case 22: return steerAngleActual;
+    // Keya
+    case 23: return (float)keyaEncoderRaw;
+    case 24: return keyaGpsOffset;
+    case 25: return (float)keyaCurrentActualSpeed;
+    case 26: return (float)keyaCurrentSetSpeed;
+    // Steer
+    case 27: return steerAngleActual;
+    case 28: return steerAngleSetPoint;
+    case 29: return steerAngleError;
+    case 30: return (float)pwmDisplay;
+    case 31: return gpsSpeed;
+    // CAN Steer
+    case 32: return (float)steeringValveReady;
+    case 33: return (float)estCurve;
+    case 34: return (float)setCurve;
+    case 35: return (float)ISORearHitch;
+    default: return 0;
+    }
+}
+
+void graphSampleNow()
+{
+    if (graphBufCount >= GRAPH_BATCH_MAX) return;  // browser fell behind — drop until polled
+    for (uint8_t ch = 0; ch < 4; ch++)
+        graphBuf[ch][graphBufCount] = getSignalValue(graphSig[ch]);
+    graphBufCount++;
+}
+
+void handleApiGraphCfg(EthernetClient& client, const char* req)
+{
+    const char* p;
+    if ((p = strstr(req, "d1=")) != NULL) graphSig[0] = (uint8_t)atoi(p + 3);
+    if ((p = strstr(req, "d2=")) != NULL) graphSig[1] = (uint8_t)atoi(p + 3);
+    if ((p = strstr(req, "d3=")) != NULL) graphSig[2] = (uint8_t)atoi(p + 3);
+    if ((p = strstr(req, "d4=")) != NULL) graphSig[3] = (uint8_t)atoi(p + 3);
+    if ((p = strstr(req, "rate=")) != NULL) {
+        uint16_t r = (uint16_t)atoi(p + 5);
+        if (r < 50) r = 50; if (r > 2000) r = 2000;
+        graphRateMs = r;
+    }
+    graphBufCount = 0;
+    graphSampleTimer = 0;
+    graphActive = (strstr(req, "stop") == NULL);
+    sendHeaders(client, "text/plain");
+    client.print(F("OK"));
+}
+
+void handleApiGraphData(EthernetClient& client)
+{
+    sendHeaders(client, "application/json");
+    uint8_t n = graphBufCount;
+    client.print(F("{\"n\":")); client.print(n);
+    client.print(F(",\"dt\":")); client.print(graphRateMs);
+    client.print(F(",\"d\":["));
+    for (uint8_t ch = 0; ch < 4; ch++) {
+        if (ch > 0) client.print(',');
+        client.print('[');
+        for (uint8_t i = 0; i < n; i++) {
+            if (i > 0) client.print(',');
+            client.print(graphBuf[ch][i], 3);
+        }
+        client.print(']');
+    }
+    client.print(F("]}"));
+    graphBufCount = 0;  // consumed
 }
 
 // ── Live group data — compact per-group JSON for Live tab ────────────────────

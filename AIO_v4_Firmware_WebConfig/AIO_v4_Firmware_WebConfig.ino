@@ -125,6 +125,15 @@ int           mainFixQuality  = 0;      // raw fix quality from main antenna GGA
 
 bool adcConnected    = false;  // true if ADS1115 responded at boot
 bool logActive       = true;   // enabled on boot to capture setup messages
+
+// ── Graph sampling (Live tab → Graph) ────────────────────────────────────────
+#define GRAPH_BATCH_MAX 20
+bool          graphActive   = false;     // sampling enabled
+uint8_t       graphSig[4]   = {0,0,0,0}; // selected signal IDs per channel
+uint16_t      graphRateMs   = 200;       // sample interval (100=10Hz..1000=1Hz)
+float         graphBuf[4][GRAPH_BATCH_MAX];
+uint8_t       graphBufCount = 0;         // samples buffered since last poll
+elapsedMillis graphSampleTimer = 0;
 bool logAutoOffDone  = false;  // one-shot: auto-disables log after 10s
 bool gpsRawActive    = false;  // GPS raw capture enabled (web UM98x tab)
 elapsedMillis logBootTime = 0;
@@ -428,6 +437,12 @@ void loop()
     // ── Autosteer loop ──────────────────────────────────────────────────────
     if (Autosteer_running) autosteerLoop();
     else ReceiveUdp();
+
+    // ── Graph sampling (high-rate internal buffer, browser polls batches) ────
+    if (graphActive && graphSampleTimer >= graphRateMs) {
+        graphSampleTimer = 0;
+        graphSampleNow();
+    }
 
     // ── Web server (non-blocking – only active when browser connects) ────────
     handleWebClient();
