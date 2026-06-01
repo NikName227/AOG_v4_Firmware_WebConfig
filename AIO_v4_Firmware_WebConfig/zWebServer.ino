@@ -177,7 +177,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <div class="card">
 <h2>Serial port assignment <span style="color:#64748b;font-weight:normal;font-size:11px">— restart required on change</span></h2>
-<p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">Map GPS and TM171 IMU to a Teensy hardware serial port and baud rate. Avoid Serial3 (RTK radio).</p>
 <div class="lbl" style="margin:8px 0 3px">GPS receiver</div>
 <div style="display:flex;gap:8px;margin-bottom:6px">
 <select id="gpsSerial" style="min-width:0;width:38%">
