@@ -300,6 +300,7 @@ void autosteerLoop()
     //If connection lost to AgOpenGPS, the watchdog will count up and turn off steering
     if (watchdogTimer++ > 250)
     {
+        if (steerSwitch == 0) disengageLog("watchdog timeout (AgIO comm lost)");
         watchdogTimer = WATCHDOG_FORCE_VALUE;
         steerSwitch = 1; // reset values like it turned off
         currentState = 1;
@@ -319,6 +320,7 @@ void autosteerLoop()
         // Switch is off so reset ready for next switch on
         if (reading == HIGH)
         {
+            if (steerSwitch == 0) disengageLog("steer switch OFF");
             currentState = 1;
             steerSwitch = 1;
             previous = reading;
@@ -361,6 +363,7 @@ void autosteerLoop()
         }
         else
         {
+            disengageLog("steer button pressed (toggle off)");
             currentState = 1;
             steerSwitch = 1;
         }
@@ -374,6 +377,7 @@ void autosteerLoop()
             currentState = 0;
             steerSwitch = 0;
         } else {
+            disengageLog("tractor CAN engage button (toggle off)");
             currentState = 1;
             steerSwitch = 1;
         }
@@ -382,7 +386,8 @@ void autosteerLoop()
     // Encoder sensor?
     if (steerConfig.ShaftEncoder && pulseCount >= steerConfig.PulseCountMax)
     {
-      steerSwitch = 1; 
+      if (steerSwitch == 0) disengageLog("shaft encoder (wheel turned)");
+      steerSwitch = 1;
       currentState = 1;
       previous = 0;
     }
@@ -395,7 +400,8 @@ void autosteerLoop()
       sensorReading = sensorReading * 0.6 + sensorSample * 0.4;
       if (sensorReading >= steerConfig.PulseCountMax)
       {
-          steerSwitch = 1; 
+          if (steerSwitch == 0) disengageLog("pressure sensor over limit");
+          steerSwitch = 1;
           currentState = 1;
           previous = 0;
       }
@@ -408,6 +414,7 @@ void autosteerLoop()
         {
             if (sensorReading >= steerConfig.PulseCountMax)
             {
+                if (steerSwitch == 0) disengageLog("Keya current over limit");
                 steerSwitch = 1;
                 currentState = 1;
                 previous = 0;
@@ -423,8 +430,7 @@ void autosteerLoop()
             {
                 if ((steerAngleSpeedActual * steerAngleError) < 0) {
                     if (motorHandDetectionTime > moduleConfig.speedDiffTimeout) {
-                        Serial.println("Kill Autosteer PWM from speed direction");
-                        webLog("Motor: speed direction cutoff");
+                        disengageLog("motor PWM speed-direction (hand override)");
                         steerSwitch = 1;
                         currentState = 1;
                         previous = 0;
@@ -650,6 +656,8 @@ void autosteerLoop()
     //WAS fault or over 25km, cut steering
     if ((steerAngleActual < inputWAS[0]) || (steerAngleActual > inputWAS[20]) || gpsSpeed > 25)
     {
+        if (steerSwitch == 0)
+            disengageLog(gpsSpeed > 25 ? "overspeed >25 km/h" : "WAS angle out of range");
         steerSwitch = 1; // reset values like it turned off
         currentState = 1;
         previous = 0;

@@ -49,6 +49,25 @@ void webLogf(const char* fmt, ...)
     webLog(tmp);
 }
 
+// Log autosteer disengage source. Gated by DBG_DISENGAGE flag.
+// Rate-limits identical reasons (once/500ms) so continuous conditions don't flood.
+// Forces the message into the web log buffer even if live capture is off.
+void disengageLog(const char* reason)
+{
+    if (!DBG_DISENGAGE) return;
+    static uint32_t lastMs  = 0;
+    static char     lastMsg[48] = "";
+    uint32_t now = millis();
+    if ((now - lastMs) < 500 && strncmp(lastMsg, reason, sizeof(lastMsg)) == 0) return;
+    lastMs = now;
+    strncpy(lastMsg, reason, sizeof(lastMsg) - 1);
+    Serial.print("DISENGAGE: "); Serial.println(reason);
+    bool prev = logActive;
+    logActive = true;            // force into buffer regardless of capture toggle
+    webLogf("DISENGAGE: %s", reason);
+    logActive = prev;
+}
+
 // ── HTML page stored in flash ──────────────────────────────────────────────────
 static const char HTML_PAGE[] = R"AIOHTML(<!DOCTYPE html>
 <html lang="hr">
@@ -545,12 +564,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <h2>Debug flags</h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:10px">Prints to USB Serial and the log below. No restart needed.</p>
 <div class="chk-row"><input type="checkbox" id="dbg0"><label for="dbg0">GPS</label></div>
-<div class="chk-row"><input type="checkbox" id="dbg1"><label for="dbg1">IMU (roll / pitch / heading)</label></div>
-<div class="chk-row"><input type="checkbox" id="dbg2"><label for="dbg2">WAS / steer angle</label></div>
-<div class="chk-row"><input type="checkbox" id="dbg3"><label for="dbg3">Autosteer / PID</label></div>
 <div class="chk-row"><input type="checkbox" id="dbg4"><label for="dbg4">CAN bus (Keya)</label></div>
-<div class="chk-row"><input type="checkbox" id="dbg5"><label for="dbg5">Keya speedDiff disengage (ActSped / Curset / timeout — 500ms)</label></div>
-<div class="chk-row"><input type="checkbox" id="dbg6"><label for="dbg6">Motor speedDiff disengage (ActSped / AngleErr / timeout — 500ms)</label></div>
+<div class="chk-row"><input type="checkbox" id="dbg7"><label for="dbg7">Disengage trigger (logs what cut autosteer)</label></div>
 <button class="btn green" onclick="saveDbg()">&#10003; Apply debug flags</button>
 </div>
 <div class="card">
@@ -834,11 +849,8 @@ function upd(d) {
     loaded = true;
     var f = d.cfg.debugFlags;
     document.getElementById('dbg0').checked = !!(f & 1);
-    document.getElementById('dbg1').checked = !!(f & 2);
-    document.getElementById('dbg2').checked = !!(f & 4);
-    document.getElementById('dbg3').checked = !!(f & 8);
     document.getElementById('dbg4').checked = !!(f & 16);
-    document.getElementById('dbg5').checked = !!(f & 32);
+    document.getElementById('dbg7').checked = !!(f & 128);
     document.getElementById('kd0').checked = !!d.keya_dis.enable;
     document.getElementById('kd1').value   = d.keya_dis.setSpeedMin;
     document.getElementById('kd2').value   = d.keya_dis.actSpeedMin;
@@ -858,7 +870,6 @@ function upd(d) {
     document.getElementById('kwwb').value  = d.keya_was.wheelBase;
     document.getElementById('kw10').value  = d.keya_was.azTimeSlowMs;
     document.getElementById('kw11').value  = d.keya_was.azTimeFastMs;
-    document.getElementById('dbg6').checked = !!(d.cfg.debugFlags & 64);
     document.getElementById('gpsBaud').value  = d.cfg.gpsBaud || 115200;
     document.getElementById('can1Mode').value = d.cfg.can1Mode || 0;
     document.getElementById('can2Mode').value = d.cfg.can2Mode || 0;
@@ -920,12 +931,8 @@ function saveKeya() {
 function saveDbg() {
   var f = 0;
   if (document.getElementById('dbg0').checked) f |= 1;
-  if (document.getElementById('dbg1').checked) f |= 2;
-  if (document.getElementById('dbg2').checked) f |= 4;
-  if (document.getElementById('dbg3').checked) f |= 8;
   if (document.getElementById('dbg4').checked) f |= 16;
-  if (document.getElementById('dbg5').checked) f |= 32;
-  if (document.getElementById('dbg6').checked) f |= 64;
+  if (document.getElementById('dbg7').checked) f |= 128;
   fetch('/api/save?debugFlags=' + f).then(function(r) {
     document.getElementById('sb').textContent = r.ok
       ? 'Debug flags saved (no restart).' : 'ERROR saving flags.';

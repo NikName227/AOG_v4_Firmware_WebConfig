@@ -487,7 +487,7 @@ void loop()
         if (!hprCutoffActive && hprLostTimer > 10000) {
             hprCutoffActive = true;
             sendDisplayMessage("AUTOSTEER DISABLED: RTK fix lost >10s", 6, 0);
-            webLog("HPR RTK lost >10s: autosteer cutoff active");
+            disengageLog("HPR RTK lost >10s (fixQuality forced 0)");
             Serial.println("HPR RTK: cutoff active after 10s");
         }
     }

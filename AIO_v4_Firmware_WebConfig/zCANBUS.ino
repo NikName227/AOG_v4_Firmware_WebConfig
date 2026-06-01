@@ -88,8 +88,7 @@ void KeyaBus_Receive()
             {
                 if ((int32_t)keyaCurrentActualSpeed * keyaCurrentSetSpeed < 0) {
                     if (millis() - MillisKeyaHandDetection > moduleConfig.speedDiffTimeout) {
-                        Serial.println("Kill Autosteer from speed direction");
-                        webLog("Keya: speed direction cutoff");
+                        disengageLog("Keya speed-direction (hand override)");
                         steerSwitch = 1;
                         currentState = 1;
                         previous = 0;
@@ -140,6 +139,7 @@ void KeyaBus_Receive()
                 if (bitRead(msg.buf[6], 7)) Serial.print("Motor stalled\t");
 
                 Serial.println("Kill Autosteer");
+                disengageLog("Keya motor fault/error");
                 steerSwitch = 1;
                 currentState = 1;
                 previous = 0;

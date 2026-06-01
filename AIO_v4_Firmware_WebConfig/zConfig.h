@@ -124,6 +124,7 @@ extern ModuleConfig moduleConfig;
 #define DBG_CAN        (moduleConfig.debugFlags & 0x10)
 #define DBG_KEYA_DIFF  (moduleConfig.debugFlags & 0x20)
 #define DBG_MOTOR_DIFF (moduleConfig.debugFlags & 0x40)
+#define DBG_DISENGAGE  (moduleConfig.debugFlags & 0x80)   // log who triggered autosteer disengage
 
 inline void moduleConfigLoad()
 {
@@ -154,6 +155,7 @@ inline void moduleConfigSave()
 void webLog(const char* msg);
 void webLogf(const char* fmt, ...);
 void gpsRawByte(uint8_t c);
+void disengageLog(const char* reason);   // log autosteer disengage source (DBG_DISENGAGE)
 
 // SLOG – print to USB Serial AND buffer for web display
 #define SLOG(msg)  do { Serial.println(msg); webLog(msg); } while(0)
