@@ -582,22 +582,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <!-- UM98x CONFIG TAB -->
 <div id="um98x" class="panel">
 <div class="card">
-<h2>GPS serial baud rate</h2>
-<p style="color:#64748b;font-size:13px;margin-bottom:8px">UM98x def baud rate 115200. Match MCU baud to GPS config. Saved to EEPROM, applied immediately (no restart).</p>
-<div class="row"><span class="lbl">Baud rate</span>
-<select id="gpsBaud">
-<option value="9600">9600</option>
-<option value="19200">19200</option>
-<option value="38400">38400</option>
-<option value="57600">57600</option>
-<option value="115200">115200</option>
-<option value="230400">230400</option>
-<option value="460800">460800</option>
-<option value="921600">921600</option>
-</select></div>
-<button class="btn green" onclick="applyGpsBaud()" style="margin-top:8px">Apply baud rate</button>
-</div>
-<div class="card">
 <h2>Send GPS commands</h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">Paste config lines (one per line). Upload sends each with 1 s delay. Responses appear in the raw log below.</p>
 <textarea class="gps-ta" id="gpsLines" placeholder="e.g. CONFIG HEADING FIXINTERVAL 0.1"></textarea>
@@ -871,7 +855,6 @@ function upd(d) {
     document.getElementById('kwwb').value  = d.keya_was.wheelBase;
     document.getElementById('kw10').value  = d.keya_was.azTimeSlowMs;
     document.getElementById('kw11').value  = d.keya_was.azTimeFastMs;
-    document.getElementById('gpsBaud').value  = d.cfg.gpsBaud || 115200;
     document.getElementById('can1Mode').value = d.cfg.can1Mode || 0;
     document.getElementById('can2Mode').value = d.cfg.can2Mode || 0;
     document.getElementById('can3Mode').value = d.cfg.can3Mode || 0;
@@ -1150,13 +1133,6 @@ function saveImuWas() {
     + '&wheelBase='  + document.getElementById('iwwb').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'IMU WAS params saved.' : 'ERROR saving.';
-  });
-}
-
-function applyGpsBaud() {
-  var baud = document.getElementById('gpsBaud').value;
-  fetch('/api/gpsbaud?baud=' + baud).then(function(r) {
-    document.getElementById('gpsStatus').textContent = r.ok ? 'Baud set to ' + baud + ' bps' : 'Error setting baud';
   });
 }
 
