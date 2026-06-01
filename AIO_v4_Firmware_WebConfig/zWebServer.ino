@@ -178,24 +178,26 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="card">
 <h2>Serial port assignment <span style="color:#64748b;font-weight:normal;font-size:11px">— restart required on change</span></h2>
 <p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">Map GPS and TM171 IMU to a Teensy hardware serial port and baud rate. Avoid Serial3 (RTK radio).</p>
-<div class="row"><span class="lbl">GPS receiver</span>
-<select id="gpsSerial" style="flex:1">
+<div class="lbl" style="margin:8px 0 3px">GPS receiver</div>
+<div style="display:flex;gap:8px;margin-bottom:6px">
+<select id="gpsSerial" style="min-width:0;width:38%">
 <option value="1">Serial1</option><option value="2">Serial2</option><option value="3">Serial3</option>
 <option value="4">Serial4</option><option value="5">Serial5</option><option value="6">Serial6</option>
 <option value="7">Serial7</option><option value="8">Serial8</option>
 </select>
-<select id="gpsBaud2" style="flex:1;margin-left:6px">
+<select id="gpsBaud2" style="min-width:0;width:38%">
 <option value="9600">9600</option><option value="19200">19200</option><option value="38400">38400</option>
 <option value="57600">57600</option><option value="115200">115200</option><option value="230400">230400</option>
 <option value="460800">460800</option><option value="921600">921600</option>
 </select></div>
-<div class="row"><span class="lbl">TM171 IMU</span>
-<select id="tm171Serial" style="flex:1">
+<div class="lbl" style="margin:8px 0 3px">TM171 IMU</div>
+<div style="display:flex;gap:8px;margin-bottom:6px">
+<select id="tm171Serial" style="min-width:0;width:38%">
 <option value="1">Serial1</option><option value="2">Serial2</option><option value="3">Serial3</option>
 <option value="4">Serial4</option><option value="5">Serial5</option><option value="6">Serial6</option>
 <option value="7">Serial7</option><option value="8">Serial8</option>
 </select>
-<select id="tm171Baud" style="flex:1;margin-left:6px">
+<select id="tm171Baud" style="min-width:0;width:38%">
 <option value="9600">9600</option><option value="19200">19200</option><option value="38400">38400</option>
 <option value="57600">57600</option><option value="115200">115200</option><option value="230400">230400</option>
 <option value="460800">460800</option><option value="921600">921600</option>
@@ -218,7 +220,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <option value="7">CANtest (loopback)</option>
 <option value="8">Custom</option>
 </select>
-<select id="can1Baud" style="flex:1;margin-left:6px">
+<select id="can1Baud" style="flex:1;max-width:90px;min-width:0;margin-left:6px">
 <option value="125000">125k</option>
 <option value="250000">250k</option>
 <option value="500000">500k</option>
@@ -236,7 +238,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <option value="7">CANtest (loopback)</option>
 <option value="8">Custom</option>
 </select>
-<select id="can2Baud" style="flex:1;margin-left:6px">
+<select id="can2Baud" style="flex:1;max-width:90px;min-width:0;margin-left:6px">
 <option value="125000">125k</option>
 <option value="250000">250k</option>
 <option value="500000">500k</option>
@@ -254,7 +256,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <option value="7">CANtest (loopback)</option>
 <option value="8">Custom</option>
 </select>
-<select id="can3Baud" style="flex:1;margin-left:6px">
+<select id="can3Baud" style="flex:1;max-width:90px;min-width:0;margin-left:6px">
 <option value="125000">125k</option>
 <option value="250000">250k</option>
 <option value="500000">500k</option>
