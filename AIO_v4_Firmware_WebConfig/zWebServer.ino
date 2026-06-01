@@ -308,6 +308,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Max chassis yaw rate deg/s <small style="color:#64748b">(def 0.8)</small></span>
 <input type="number" id="iw5" min="0.1" max="10" step="0.1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Maximum chassis rotation rate to consider the vehicle driving straight. Lower = stricter straight detection, fewer false corrections.</p>
+<div class="row"><span class="lbl">Wheelbase (m) <small style="color:#64748b">(def 3.20, shared)</small></span>
+<input type="number" id="iwwb" min="0.5" max="6" step="0.01" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Distance between front and rear axles. Used to compute theoretical steer angle from GPS yaw rate and speed (bicycle model). Shared with Keya WAS — changing here changes it there too.</p>
 <button class="btn green" onclick="saveImuWas()" style="margin-top:8px">Save IMU WAS params</button>
 </div>
 
@@ -405,9 +408,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Enable <small style="color:#64748b">(def ON)</small></span>
 <input type="checkbox" id="kw4" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Corrects encoder drift by comparing measured angle to GPS-computed wheel angle while driving straight. First correction unlocks autosteer on boot.</p>
-<div class="row"><span class="lbl">Wheelbase (m) <small style="color:#64748b">(def 3.20)</small></span>
+<div class="row"><span class="lbl">Wheelbase (m) <small style="color:#64748b">(def 3.20, shared)</small></span>
 <input type="number" id="kwwb" min="0.5" max="6" step="0.01" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Distance between front and rear axles. Used to compute the theoretical steer angle from GPS yaw rate and speed (bicycle model). The GPS-derived wheel angle is the reference the auto-zero corrects the WAS toward — set this to your tractor's real wheelbase for accurate correction.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Distance between front and rear axles. Used to compute the theoretical steer angle from GPS yaw rate and speed (bicycle model). The GPS-derived wheel angle is the reference the auto-zero corrects the WAS toward — set this to your tractor's real wheelbase. Shared with IMU as WAS.</p>
 <div class="row"><span class="lbl">Beta / correction fraction <small style="color:#64748b">(def 0.05)</small></span>
 <input type="number" id="kw5" min="0.001" max="1" step="0.001" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Soft correction speed — 5% of error per cycle. 0.05 = slow and stable. When autosteer is active, correction is automatically reduced 5x to avoid fighting the PID.</p>
@@ -889,6 +892,7 @@ function upd(d) {
     document.getElementById('iw3').value   = d.imu_was.azBeta;
     document.getElementById('iw4').value   = d.imu_was.azSpeedMin;
     document.getElementById('iw5').value   = d.imu_was.azYawMax;
+    document.getElementById('iwwb').value  = d.imu_was.wheelBase;
   }
 
   document.getElementById('sb').textContent = 'Updated: ' + new Date().toLocaleTimeString();
@@ -1134,7 +1138,8 @@ function saveImuWas() {
     + '&imuWasAzEn=' + (document.getElementById('iw2').checked ? 1 : 0)
     + '&imuWasAzB='  + document.getElementById('iw3').value
     + '&imuWasVmin=' + document.getElementById('iw4').value
-    + '&imuWasYaw='  + document.getElementById('iw5').value;
+    + '&imuWasYaw='  + document.getElementById('iw5').value
+    + '&wheelBase='  + document.getElementById('iwwb').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'IMU WAS params saved.' : 'ERROR saving.';
   });
@@ -1752,6 +1757,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"azBeta\":")); client.print(moduleConfig.imuWasAzBeta, 4);
     client.print(F(",\"azSpeedMin\":")); client.print(moduleConfig.imuWasSpeedMin, 1);
     client.print(F(",\"azYawMax\":")); client.print(moduleConfig.imuWasYawMax, 2);
+    client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
 
     client.print(F("},\"j1939\":{"));
     client.print(F("\"srcAddr\":")); client.print(moduleConfig.j1939SrcAddr);
