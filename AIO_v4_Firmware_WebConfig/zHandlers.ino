@@ -85,6 +85,7 @@ void GGA_Handler() //Rec'd GGA
 
     blink = !blink;
     GGAReadyTime = 0;
+    { uint32_t _n = millis(); ggaIntervalMs = _n - lastGgaMs; lastGgaMs = _n; }
     if (hasFuncMode(CAN_MODE_J1939)) j1939UpdateFromGGA();
 
     // ── Source-based routing ──────────────────────────────────────────────────
@@ -165,11 +166,13 @@ void VTG_Handler()
 
     if (hasFuncMode(CAN_MODE_J1939)) j1939UpdateFromVTG();
     VTGReadyTime = 0;
+    { uint32_t _n = millis(); vtgIntervalMs = _n - lastVtgMs; lastVtgMs = _n; }
 }
 
 void HPR_Handler()
 {
     HPRReadyTime = 0;
+    { uint32_t _n = millis(); hprIntervalMs = _n - lastHprMs; lastHprMs = _n; }
     parser.getArg(1, umHeading);
     parser.getArg(2, umRoll);     rollDual      = atof(umRoll);
     parser.getArg(4, solQuality); solQualityHPR = atoi(solQuality);

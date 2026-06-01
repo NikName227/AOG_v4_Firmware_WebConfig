@@ -158,6 +158,14 @@ elapsedMillis GGAReadyTime    = 10000;
 elapsedMillis VTGReadyTime    = 10000;
 elapsedMillis HPRReadyTime    = 10000;
 elapsedMillis RELPOSReadyTime = 10000;  // reset by relPosDecode on valid fix
+
+// ── Performance / message-rate monitoring ────────────────────────────────────
+float    loopTimeMs   = 0;   // duration of one loop() iteration
+float    loopTimeMax  = 0;   // peak loop time over ~1s window
+uint32_t lastLoopMicros = 0;
+uint32_t ggaIntervalMs = 0, lastGgaMs = 0;  // time between GGA messages
+uint32_t vtgIntervalMs = 0, lastVtgMs = 0;  // time between VTG messages
+uint32_t hprIntervalMs = 0, lastHprMs = 0;  // time between HPR messages
 elapsedMillis ethernetLinkCheck = 1000;
 
 double headingcorr = 900;
@@ -353,6 +361,14 @@ void setupIMU()
 // ══════════════════════════════════════════════════════════════════════════════
 void loop()
 {
+    // ── Loop time measurement (full loop period) ─────────────────────────────
+    uint32_t _nowU = micros();
+    loopTimeMs = (_nowU - lastLoopMicros) / 1000.0f;
+    lastLoopMicros = _nowU;
+    static elapsedMillis loopMaxWin = 0;
+    if (loopMaxWin > 1000) { loopTimeMax = 0; loopMaxWin = 0; }
+    if (loopTimeMs > loopTimeMax) loopTimeMax = loopTimeMs;
+
     // ── GPS parsing ── drain full buffer each loop (prevents overflow if loop stalls)
     while (SerialGPS->available()) {
         uint8_t _gc = SerialGPS->read();

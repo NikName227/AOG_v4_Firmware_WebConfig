@@ -611,6 +611,7 @@ function renderGroup(d) {
     hdr = 'Group 1 — GPS';
     h += lvSub('GGA');
     if (d.haveGGA) {
+      h += lvRow('Msg interval', d.ggaMs + ' ms');
       h += lvRow('Fix time', d.fixT || '--');
       h += lvRow('Latitude', d.lat + ' ' + d.ns);
       h += lvRow('Longitude', d.lon + ' ' + d.ew);
@@ -622,12 +623,14 @@ function renderGroup(d) {
     } else { h += lvRow('GGA', '--'); }
     h += lvSub('VTG');
     if (d.haveVTG) {
+      h += lvRow('Msg interval', d.vtgMs + ' ms');
       h += lvRow('Heading', d.vtgHdg.toFixed(1) + ' °');
       h += lvRow('Speed', d.spd.toFixed(1) + ' km/h');
     } else { h += lvRow('VTG', '--'); }
     h += lvSub('HPR');
     if (d.haveHPR) {
       var q = parseInt(d.hprQ);
+      h += lvRow('Msg interval', d.hprMs + ' ms');
       h += lvRow('Heading', d.hprHdg + ' °');
       h += lvRow('Roll', d.hprRoll + ' °');
       h += lvRow('RTK quality', (lvQ[q] || d.hprQ) + ' (' + d.hprQ + ')');
@@ -1322,7 +1325,9 @@ var gSignals = [
  {id:20,n:'Gr3 WAS chassis yawRate'},{id:21,n:'Gr3 WAS wheelAngleGPS'},{id:22,n:'Gr3 WAS actual'},
  {id:23,n:'Gr4 Keya encoder'},{id:24,n:'Gr4 Keya gpsOffset'},{id:25,n:'Gr4 Keya actSpeed'},{id:26,n:'Gr4 Keya setSpeed'},
  {id:27,n:'Gr5 Steer actual'},{id:28,n:'Gr5 Steer setpoint'},{id:29,n:'Gr5 Steer error'},{id:30,n:'Gr5 PWM'},{id:31,n:'Gr5 speed'},
- {id:32,n:'Gr6 valveReady'},{id:33,n:'Gr6 estCurve'},{id:34,n:'Gr6 setCurve'},{id:35,n:'Gr6 hitch'}
+ {id:32,n:'Gr6 valveReady'},{id:33,n:'Gr6 estCurve'},{id:34,n:'Gr6 setCurve'},{id:35,n:'Gr6 hitch'},
+ {id:36,n:'Perf loop time ms'},{id:37,n:'Perf loop max ms'},
+ {id:38,n:'GPS GGA interval ms'},{id:39,n:'GPS VTG interval ms'},{id:40,n:'GPS HPR interval ms'}
 ];
 var gCol  = ['#4ade80','#38bdf8','#fbbf24','#f87171'];
 var gDef  = [27,28,22,11];
@@ -1796,6 +1801,12 @@ float getSignalValue(uint8_t id)
     case 33: return (float)estCurve;
     case 34: return (float)setCurve;
     case 35: return (float)ISORearHitch;
+    // Performance / message rate
+    case 36: return loopTimeMs;
+    case 37: return loopTimeMax;
+    case 38: return (float)ggaIntervalMs;
+    case 39: return (float)vtgIntervalMs;
+    case 40: return (float)hprIntervalMs;
     default: return 0;
     }
 }
@@ -1874,6 +1885,9 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"hprHdg\":\""));  client.print(umHeading);  client.print('"');
         client.print(F(",\"hprRoll\":\"")); client.print(umRoll);     client.print('"');
         client.print(F(",\"hprQ\":\""));    client.print(solQuality); client.print('"');
+        client.print(F(",\"ggaMs\":")); client.print(ggaIntervalMs);
+        client.print(F(",\"vtgMs\":")); client.print(vtgIntervalMs);
+        client.print(F(",\"hprMs\":")); client.print(hprIntervalMs);
         client.print(F("}"));
         break;
     }
