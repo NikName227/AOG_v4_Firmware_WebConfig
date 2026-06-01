@@ -608,10 +608,15 @@ function renderGroup(d) {
     } else { h += lvRow('VTG', '--'); }
     h += lvSub('HPR');
     if (d.haveHPR) {
-      h += lvRow('Heading', d.hprHdg.toFixed(2) + ' °');
-      h += lvRow('Roll', d.hprRoll.toFixed(2) + ' °');
-      h += lvRow('RTK quality', (lvQ[d.hprQ] || d.hprQ) + ' (' + d.hprQ + ')');
-    } else { h += lvRow('HPR', '--'); }
+      var q = parseInt(d.hprQ);
+      h += lvRow('Heading', d.hprHdg + ' °');
+      h += lvRow('Roll', d.hprRoll + ' °');
+      h += lvRow('RTK quality', (lvQ[q] || d.hprQ) + ' (' + d.hprQ + ')');
+    } else {
+      h += lvRow('Heading', '--');
+      h += lvRow('Roll', '--');
+      h += lvRow('RTK quality', '--');
+    }
   }
   else if (activeGroup === 2) {
     hdr = 'Group 2 — IMU';
@@ -1554,9 +1559,9 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"age\":\""));   client.print(ageDGPS);   client.print('"');
         client.print(F(",\"vtgHdg\":"));  client.print(headingVTG, 1);
         client.print(F(",\"spd\":"));     client.print(gpsSpeed, 1);
-        client.print(F(",\"hprHdg\":"));  client.print(heading, 2);
-        client.print(F(",\"hprRoll\":")); client.print(rollDual, 2);
-        client.print(F(",\"hprQ\":"));    client.print(solQualityHPR);
+        client.print(F(",\"hprHdg\":\""));  client.print(umHeading);  client.print('"');
+        client.print(F(",\"hprRoll\":\"")); client.print(umRoll);     client.print('"');
+        client.print(F(",\"hprQ\":\""));    client.print(solQuality); client.print('"');
         client.print(F("}"));
         break;
     }
