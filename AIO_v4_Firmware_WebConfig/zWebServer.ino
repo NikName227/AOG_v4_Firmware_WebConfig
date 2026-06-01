@@ -1335,6 +1335,14 @@ var gCursorX = null, gDragging = false, gDragX = 0;
 
 function gSigName(id){ for(var i=0;i<gSignals.length;i++) if(gSignals[i].id===id) return gSignals[i].n; return ''; }
 
+// Current time window [start,end] in seconds. Fill from left until window full, then scroll.
+function gWin(){
+  if(gView) return gView;
+  var win=parseFloat(document.getElementById('gTime').value);
+  if(gClock<=win) return {start:0,end:win};        // fill phase: 0..win, pen moves left→right
+  return {start:gClock-win,end:gClock};            // scroll phase
+}
+
 function gBuildRows(){
   var html='';
   for(var c=0;c<4;c++){
@@ -1378,7 +1386,7 @@ function gToggle(on){
 function gPauseToggle(){
   gPaused=!gPaused;
   document.getElementById('gPauseBtn').textContent=gPaused?'Resume':'Pause';
-  if(gPaused){var w=parseFloat(document.getElementById('gTime').value);gView={start:Math.max(0,gClock-w),end:gClock};}
+  if(gPaused){var v=gWin();gView={start:v.start,end:v.end};}
   else gView=null;
   gDraw();
 }
@@ -1414,8 +1422,7 @@ function gDraw(){
   var ctx=cv.getContext('2d'),W=cv.width,H=cv.height;
   ctx.clearRect(0,0,W,H);
   var L=46,R=W-46,T=10,B=H-22;
-  var win=parseFloat(document.getElementById('gTime').value);
-  var vEnd=gView?gView.end:gClock, vStart=gView?gView.start:(gClock-win);
+  var vw=gWin(), vStart=vw.start, vEnd=vw.end;
   if(vEnd-vStart<=0)vStart=vEnd-1;
   ctx.strokeStyle='#1e3a5f';ctx.font='10px monospace';ctx.lineWidth=1;
   for(var g=0;g<=5;g++){
@@ -1426,7 +1433,7 @@ function gDraw(){
     ctx.fillStyle=gCol[2];ctx.textAlign='left';ctx.fillText(rv.toFixed(1),R+3,y+3);
   }
   ctx.fillStyle='#64748b';ctx.textAlign='center';
-  for(var t=0;t<=4;t++){var x=L+(R-L)*t/4,tv=vStart+(vEnd-vStart)*t/4;ctx.fillText((tv-gClock).toFixed(1)+'s',x,B+14);}
+  for(var t=0;t<=4;t++){var x=L+(R-L)*t/4,tv=vStart+(vEnd-vStart)*t/4;ctx.fillText((tv-vStart).toFixed(1)+'s',x,B+14);}
   function xt(tt){return L+(R-L)*(tt-vStart)/(vEnd-vStart);}
   for(var c=0;c<4;c++){
     var mn=gMin[c],mx=gMax[c];if(mx===mn)mx=mn+1;
@@ -1450,7 +1457,7 @@ function gDraw(){
     var tt=vStart+(vEnd-vStart)*(gCursorX-L)/(R-L);
     var idx=-1,best=1e9;
     for(var i=0;i<gTimes.length;i++){var dd=Math.abs(gTimes[i]-tt);if(dd<best){best=dd;idx=i;}}
-    var txt='t='+(tt-gClock).toFixed(2)+'s';
+    var txt=idx>=0?('t='+gTimes[idx].toFixed(2)+'s'):('t='+tt.toFixed(2)+'s');
     if(idx>=0)for(var c=0;c<4;c++)txt+='   D'+(c+1)+'='+gData[c][idx].toFixed(2);
     document.getElementById('gReadout').textContent=txt;
   }
@@ -1482,7 +1489,7 @@ function gExportCsv(){
   var rows='time_s';
   for(var c=0;c<4;c++)rows+=','+gSigName(gDef[c]).replace(/[, ]/g,'_');
   rows+='\n';
-  var vEnd=gView?gView.end:gClock,vStart=gView?gView.start:(gClock-parseFloat(document.getElementById('gTime').value));
+  var vw=gWin(),vStart=vw.start,vEnd=vw.end;
   for(var i=0;i<gTimes.length;i++){
     if(gTimes[i]<vStart||gTimes[i]>vEnd)continue;
     rows+=gTimes[i].toFixed(3);
