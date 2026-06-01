@@ -289,12 +289,43 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <!-- LIVE TAB -->
 <div id="live" class="panel">
-<div class="card">
-<h2>Live data</h2>
-<div class="row"><span class="lbl">Steer angle actual</span><span class="val" id="l0">-</span></div>
-<div class="row"><span class="lbl">Steer setpoint</span><span class="val" id="l1">-</span></div>
-<div class="row"><span class="lbl">GPS speed</span><span class="val" id="l2">-</span></div>
-<div class="row"><span class="lbl">Autosteer</span><span id="l3" class="badge fail">OFF</span></div>
+<style>
+.lvtoggle{display:flex;gap:6px;margin-bottom:12px}
+.subtab{padding:6px 16px;background:#1e293b;border:1px solid #334155;color:#94a3b8;cursor:pointer;border-radius:4px;font-family:monospace;font-size:14px}
+.subtab.on{border-color:#38bdf8;color:#38bdf8;background:#0c1a2e}
+.grpbtns{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.gbtn{padding:6px 14px;background:#1e293b;border:1px solid #334155;color:#94a3b8;cursor:pointer;border-radius:4px;font-family:monospace;font-size:14px}
+.gbtn.on{border-color:#4ade80;color:#4ade80;background:#052e16}
+.lvgrp{color:#38bdf8;font-size:13px;font-weight:bold;padding:8px 0 2px;border-bottom:1px solid #334155;margin:6px 0 2px}
+</style>
+<div class="lvtoggle">
+<button class="subtab on" id="lvValuesTab" onclick="lvShow('values')">Values</button>
+<button class="subtab" id="lvGraphTab" onclick="lvShow('graph')">Graph</button>
+</div>
+
+<!-- VALUES sub-panel -->
+<div id="lvValues">
+<div class="grpbtns">
+<button class="gbtn on" onclick="setGroup(0,this)">Live Off</button>
+<button class="gbtn" onclick="setGroup(1,this)">Gr1 GPS</button>
+<button class="gbtn" onclick="setGroup(2,this)">Gr2 IMU</button>
+<button class="gbtn" onclick="setGroup(3,this)">Gr3 WAS</button>
+<button class="gbtn" onclick="setGroup(4,this)">Gr4 Keya</button>
+<button class="gbtn" onclick="setGroup(5,this)">Gr5 Steer</button>
+<button class="gbtn" onclick="setGroup(6,this)">Gr6 CAN Steer</button>
+</div>
+<div class="card" id="lvCard" style="display:none">
+<h2 id="lvHdr">Group</h2>
+<div id="lvBody"></div>
+</div>
+<p id="lvOffMsg" style="color:#64748b;font-size:13px">Live Off — select a group above to start streaming values @ 0.5s.</p>
+</div>
+
+<!-- GRAPH sub-panel (Phase 2) -->
+<div id="lvGraph" style="display:none">
+<div class="card"><h2>Online Graph</h2>
+<p style="color:#64748b;font-size:13px">Graph — coming in next step.</p>
+</div>
 </div>
 </div><!-- /live -->
 
@@ -531,6 +562,122 @@ var configLoaded = false;
 var activeTab = 'config';
 var logFetching = false;
 var tickTimer = null;
+var activeGroup = 0;       // Live tab: 0=Off, 1=GPS, 2=IMU, 3=WAS, 4=Keya, 5=Steer, 6=CAN
+var lvMode = 'values';     // Live tab sub-panel: 'values' | 'graph'
+
+function lvShow(m) {
+  lvMode = m;
+  document.getElementById('lvValues').style.display = (m === 'values') ? '' : 'none';
+  document.getElementById('lvGraph').style.display  = (m === 'graph')  ? '' : 'none';
+  document.getElementById('lvValuesTab').classList.toggle('on', m === 'values');
+  document.getElementById('lvGraphTab').classList.toggle('on', m === 'graph');
+}
+
+function setGroup(n, btn) {
+  activeGroup = n;
+  document.querySelectorAll('.gbtn').forEach(function(e){ e.classList.remove('on'); });
+  btn.classList.add('on');
+  document.getElementById('lvCard').style.display   = (n > 0) ? '' : 'none';
+  document.getElementById('lvOffMsg').style.display = (n > 0) ? 'none' : '';
+  if (n > 0) tick();   // immediate fetch
+}
+
+var lvQ = {0:'invalid',1:'GPS',2:'DGPS',4:'RTK',5:'Float RTK'};
+function lvRow(lbl, val){ return '<div class="row"><span class="lbl">'+lbl+'</span><span class="val">'+val+'</span></div>'; }
+function lvSub(t){ return '<div class="lvgrp">'+t+'</div>'; }
+
+function renderGroup(d) {
+  var h = '', hdr = '';
+  if (activeGroup === 1) {
+    hdr = 'Group 1 — GPS';
+    h += lvSub('GGA');
+    if (d.haveGGA) {
+      h += lvRow('Fix time', d.fixT || '--');
+      h += lvRow('Latitude', d.lat + ' ' + d.ns);
+      h += lvRow('Longitude', d.lon + ' ' + d.ew);
+      h += lvRow('Fix quality', (lvQ[d.fixQ] || d.fixQ) + ' (' + d.fixQ + ')');
+      h += lvRow('Satellites', d.sats);
+      h += lvRow('HDOP', d.hdop);
+      h += lvRow('Altitude', d.alt + ' m');
+      h += lvRow('DGPS age', d.age + ' s');
+    } else { h += lvRow('GGA', '--'); }
+    h += lvSub('VTG');
+    if (d.haveVTG) {
+      h += lvRow('Heading', d.vtgHdg.toFixed(1) + ' °');
+      h += lvRow('Speed', d.spd.toFixed(1) + ' km/h');
+    } else { h += lvRow('VTG', '--'); }
+    h += lvSub('HPR');
+    if (d.haveHPR) {
+      h += lvRow('Heading', d.hprHdg.toFixed(2) + ' °');
+      h += lvRow('Roll', d.hprRoll.toFixed(2) + ' °');
+      h += lvRow('RTK quality', (lvQ[d.hprQ] || d.hprQ) + ' (' + d.hprQ + ')');
+    } else { h += lvRow('HPR', '--'); }
+  }
+  else if (activeGroup === 2) {
+    hdr = 'Group 2 — IMU';
+    h += lvSub('BNO085');
+    if (d.bno) {
+      h += lvRow('Heading', d.bnoHdg.toFixed(1) + ' °');
+      h += lvRow('Roll', d.bnoRoll.toFixed(1) + ' °');
+      h += lvRow('Pitch', d.bnoPitch.toFixed(1) + ' °');
+      h += lvRow('Yaw rate', d.bnoYaw + ' °/s');
+    } else { h += lvRow('Heading','--')+lvRow('Roll','--')+lvRow('Pitch','--')+lvRow('Yaw rate','--'); }
+    h += lvSub('TM171');
+    if (d.tm) {
+      h += lvRow('Heading', d.tmHdg + ' °');
+      h += lvRow('Roll', d.tmRoll + ' °');
+      h += lvRow('Pitch', d.tmPitch + ' °');
+    } else { h += lvRow('Heading','--')+lvRow('Roll','--')+lvRow('Pitch','--'); }
+  }
+  else if (activeGroup === 3) {
+    hdr = 'Group 3 — WAS';
+    var srcN = {0:'ADS1115',1:'Keya encoder',2:'IMU via CAN',3:'CAN valve'};
+    h += lvRow('Active source', srcN[d.src] || d.src);
+    h += lvSub('ADS1115');
+    h += lvRow('Raw counts', d.adsRaw);
+    h += lvSub('IMU as WAS');
+    h += lvRow('Raw yaw', d.imuRaw.toFixed(2) + ' °');
+    h += lvRow('After scale', d.imuScaled.toFixed(2) + ' °  (×' + d.imuScale.toFixed(2) + ')');
+    h += lvRow('Chassis yaw rate', d.yawRate.toFixed(2) + ' °/s');
+    h += lvSub('GPS reference');
+    h += lvRow('Wheel angle (GPS)', d.wheelGps.toFixed(2) + ' °');
+    h += lvSub('Final');
+    h += lvRow('WAS angle actual', d.actual.toFixed(2) + ' °');
+  }
+  else if (activeGroup === 4) {
+    hdr = 'Group 4 — Keya';
+    h += lvRow('Detected', d.det ? 'YES' : 'NO');
+    h += lvRow('Initial zero', d.zero ? 'DONE' : 'PENDING');
+    h += lvRow('Encoder', d.enc + ' ticks');
+    h += lvRow('Zero offset', d.zTicks + ' ticks');
+    h += lvRow('GPS drift offset', d.off.toFixed(3) + ' °');
+    h += lvRow('Actual speed', d.act);
+    h += lvRow('Set speed', d.set);
+    h += lvRow('Final angle', d.actual.toFixed(2) + ' °');
+  }
+  else if (activeGroup === 5) {
+    hdr = 'Group 5 — Steer';
+    h += lvRow('Steer actual', d.actual.toFixed(2) + ' °');
+    h += lvRow('Steer setpoint', d.setpt.toFixed(2) + ' °');
+    h += lvRow('Steer error', d.err.toFixed(2) + ' °');
+    h += lvRow('PWM', d.pwm);
+    h += lvRow('Autosteer', d.on ? 'ACTIVE' : 'OFF');
+    h += lvRow('Steer switch', d.steerSw);
+    h += lvRow('Work switch', d.workSw);
+    h += lvRow('Speed', d.spd.toFixed(1) + ' km/h');
+  }
+  else if (activeGroup === 6) {
+    hdr = 'Group 6 — CAN Steer';
+    h += lvRow('Valve ready', d.vReady === 16 ? 'READY (16)' : d.vReady);
+    h += lvRow('estCurve', d.eCurve + ' (' + (d.eCurve - 32128) + ')');
+    h += lvRow('setCurve', d.sCurve + ' (' + (d.sCurve - 32128) + ')');
+    h += lvRow('Rear hitch', Math.round(d.hitch / 2.5) + ' %');
+    h += lvRow('Steering intend', d.intend ? 'STEERING' : 'IDLE');
+  }
+  document.getElementById('lvHdr').textContent = hdr;
+  document.getElementById('lvBody').innerHTML = h;
+  document.getElementById('sb').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+}
 
 function showTab(t, el) {
   activeTab = t;
@@ -545,7 +692,7 @@ function showTab(t, el) {
 
 function restartTick() {
   if (tickTimer) clearInterval(tickTimer);
-  var rate = (activeTab === 'live') ? 1000 : 2000;
+  var rate = (activeTab === 'live') ? 500 : 2000;
   tickTimer = setInterval(tick, rate);
 }
 
@@ -622,13 +769,6 @@ function upd(d) {
   document.getElementById('u9').textContent  = yn(d.udp.pressureSensor);
   document.getElementById('u10').textContent = yn(d.udp.currentSensor);
   document.getElementById('u11').textContent = yn(d.udp.danfoss);
-
-  document.getElementById('l0').textContent = d.live.actualAngle.toFixed(2) + ' deg';
-  document.getElementById('l1').textContent = d.live.setpoint.toFixed(2)    + ' deg';
-  document.getElementById('l2').textContent = d.live.gpsSpeed.toFixed(1)    + ' km/h';
-  var la = document.getElementById('l3');
-  la.className  = 'badge ' + (d.live.active ? 'ok' : 'fail');
-  la.textContent = d.live.active ? 'ACTIVE' : 'OFF';
 
   if (!loaded) {
     loaded = true;
@@ -753,25 +893,29 @@ function tick() {
       .then(function(r) { return r.json(); })
       .then(function(d) { upd(d); configLoaded = true; })
       .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
-  } else {
-    fetch('/api/live', { cache: 'no-store' })
-      .then(function(r) { return r.json(); })
-      .then(function(d) { updLive(d); })
-      .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
-    if (activeTab === 'debug') pollLog();
-    if (activeTab === 'um98x') pollGpsRaw();
-    if (activeTab === 'cansteer') pollCanRaw();
+    return;
   }
+  // Live tab: poll only the selected group (minimal payload), or nothing if Live Off
+  if (activeTab === 'live') {
+    if (lvMode === 'values' && activeGroup > 0) {
+      fetch('/api/grp?g=' + activeGroup, { cache: 'no-store' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) { renderGroup(d); })
+        .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
+    }
+    return;
+  }
+  // Other tabs: lightweight full live update
+  fetch('/api/live', { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { updLive(d); })
+    .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
+  if (activeTab === 'debug') pollLog();
+  if (activeTab === 'um98x') pollGpsRaw();
+  if (activeTab === 'cansteer') pollCanRaw();
 }
 
 function updLive(d) {
-  document.getElementById('l0').textContent = d.angle.toFixed(2) + ' °';
-  document.getElementById('l1').textContent = d.setpt.toFixed(2) + ' °';
-  document.getElementById('l2').textContent = d.spd.toFixed(1)   + ' km/h';
-  var la = document.getElementById('l3');
-  la.className = 'badge ' + (d.on ? 'ok' : 'fail');
-  la.textContent = d.on ? 'ACTIVE' : 'OFF';
-
   badge('d5', d.gps); badge('d_gga', d.gga); badge('d_vtg', d.vtg); badge('d_hpr', d.hpr);
   var qN = {1:'GPS',2:'DGPS',4:'RTK',5:'Float'};
   var qEl = document.getElementById('d_hprQ');
@@ -1213,6 +1357,7 @@ void handleWebClient()
     bool isApi = (strstr(reqLine, "/api/") != NULL);
 
     if      (strstr(reqLine, "/api/save")        != NULL) handleApiSave(client, reqLine);
+    else if (strstr(reqLine, "/api/grp")         != NULL) handleApiGrp(client, reqLine);
     else if (strstr(reqLine, "/api/live")        != NULL) handleApiLive(client);
     else if (strstr(reqLine, "/api/log")         != NULL) handleApiLog(client, reqLine);
     else if (strstr(reqLine, "/api/status")      != NULL) handleApiStatus(client);
@@ -1383,6 +1528,100 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"last64007\":")); client.print(pvedLastRead64007);
     client.print(F(",\"factory64007\":")); client.print(moduleConfig.pvedParam64007Factory);
     client.print(F("}}"));
+}
+
+// ── Live group data — compact per-group JSON for Live tab ────────────────────
+void handleApiGrp(EthernetClient& client, const char* req)
+{
+    const char* p = strstr(req, "g=");
+    uint8_t g = p ? (uint8_t)atoi(p + 2) : 0;
+    sendHeaders(client, "application/json");
+
+    switch (g) {
+    case 1: { // GPS
+        client.print(F("{\"haveGGA\":")); client.print(GGAReadyTime < 2000 ? F("true") : F("false"));
+        client.print(F(",\"haveVTG\":")); client.print(VTGReadyTime < 2000 ? F("true") : F("false"));
+        client.print(F(",\"haveHPR\":")); client.print(HPRReadyTime < 2000 ? F("true") : F("false"));
+        client.print(F(",\"fixT\":\""));  client.print(fixTime);   client.print('"');
+        client.print(F(",\"lat\":\""));   client.print(latitude);  client.print('"');
+        client.print(F(",\"ns\":\""));    client.print(latNS);     client.print('"');
+        client.print(F(",\"lon\":\""));   client.print(longitude); client.print('"');
+        client.print(F(",\"ew\":\""));    client.print(lonEW);     client.print('"');
+        client.print(F(",\"fixQ\":"));    client.print(mainFixQuality);
+        client.print(F(",\"sats\":\""));  client.print(numSats);   client.print('"');
+        client.print(F(",\"hdop\":\""));  client.print(HDOP);      client.print('"');
+        client.print(F(",\"alt\":\""));   client.print(altitude);  client.print('"');
+        client.print(F(",\"age\":\""));   client.print(ageDGPS);   client.print('"');
+        client.print(F(",\"vtgHdg\":"));  client.print(headingVTG, 1);
+        client.print(F(",\"spd\":"));     client.print(gpsSpeed, 1);
+        client.print(F(",\"hprHdg\":"));  client.print(heading, 2);
+        client.print(F(",\"hprRoll\":")); client.print(rollDual, 2);
+        client.print(F(",\"hprQ\":"));    client.print(solQualityHPR);
+        client.print(F("}"));
+        break;
+    }
+    case 2: { // IMU
+        client.print(F("{\"bno\":"));  client.print((useBNO08xI2C || useBNO08xRVC) ? F("true") : F("false"));
+        client.print(F(",\"tm\":"));   client.print(useTMxx_IMU ? F("true") : F("false"));
+        client.print(F(",\"bnoHdg\":"));   client.print(yaw / 10.0, 1);
+        client.print(F(",\"bnoRoll\":"));  client.print(roll / 10.0, 1);
+        client.print(F(",\"bnoPitch\":")); client.print(pitch / 10.0, 1);
+        client.print(F(",\"bnoYaw\":\""));   client.print(imuYawRate); client.print('"');
+        client.print(F(",\"tmHdg\":\""));    client.print(useTMxx_IMU ? TM171_IMU.getYawStr()   : "0"); client.print('"');
+        client.print(F(",\"tmRoll\":\""));   client.print(useTMxx_IMU ? TM171_IMU.getRollStr()  : "0"); client.print('"');
+        client.print(F(",\"tmPitch\":\""));  client.print(useTMxx_IMU ? TM171_IMU.getPitchStr() : "0"); client.print('"');
+        client.print(F("}"));
+        break;
+    }
+    case 3: { // WAS
+        client.print(F("{\"src\":")); client.print(moduleConfig.wasSource);
+        client.print(F(",\"adsRaw\":")); client.print(steeringPosition);
+        client.print(F(",\"imuRaw\":")); client.print(imuWasRawYaw, 2);
+        client.print(F(",\"imuScale\":")); client.print(moduleConfig.imuWasCpdScale, 2);
+        client.print(F(",\"imuScaled\":")); client.print(imuWasRawYaw * moduleConfig.imuWasCpdScale, 2);
+        client.print(F(",\"yawRate\":")); client.print(headingRate, 2);
+        client.print(F(",\"wheelGps\":")); client.print(wheelAngleGPS, 2);
+        client.print(F(",\"actual\":")); client.print(steerAngleActual, 2);
+        client.print(F("}"));
+        break;
+    }
+    case 4: { // Keya
+        client.print(F("{\"det\":")); client.print(keyaDetected ? F("true") : F("false"));
+        client.print(F(",\"zero\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
+        client.print(F(",\"enc\":")); client.print(keyaEncoderRaw);
+        client.print(F(",\"zTicks\":")); client.print(moduleConfig.keyaZeroTicks);
+        client.print(F(",\"off\":")); client.print(keyaGpsOffset, 3);
+        client.print(F(",\"act\":")); client.print(keyaCurrentActualSpeed);
+        client.print(F(",\"set\":")); client.print(keyaCurrentSetSpeed);
+        client.print(F(",\"actual\":")); client.print(steerAngleActual, 2);
+        client.print(F("}"));
+        break;
+    }
+    case 5: { // Steer
+        client.print(F("{\"actual\":")); client.print(steerAngleActual, 2);
+        client.print(F(",\"setpt\":")); client.print(steerAngleSetPoint, 2);
+        client.print(F(",\"err\":")); client.print(steerAngleError, 2);
+        client.print(F(",\"pwm\":")); client.print(pwmDisplay);
+        client.print(F(",\"on\":")); client.print((watchdogTimer < WATCHDOG_THRESHOLD) ? F("true") : F("false"));
+        client.print(F(",\"steerSw\":")); client.print(steerSwitch);
+        client.print(F(",\"workSw\":")); client.print(workSwitch);
+        client.print(F(",\"spd\":")); client.print(gpsSpeed, 1);
+        client.print(F("}"));
+        break;
+    }
+    case 6: { // CAN Steer
+        client.print(F("{\"vReady\":")); client.print(steeringValveReady);
+        client.print(F(",\"eCurve\":")); client.print(estCurve);
+        client.print(F(",\"sCurve\":")); client.print(setCurve);
+        client.print(F(",\"hitch\":")); client.print(ISORearHitch);
+        client.print(F(",\"intend\":")); client.print(canSteerIntend ? F("true") : F("false"));
+        client.print(F("}"));
+        break;
+    }
+    default:
+        client.print(F("{}"));
+        break;
+    }
 }
 
 void handleApiLive(EthernetClient& client)
