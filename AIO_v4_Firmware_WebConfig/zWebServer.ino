@@ -405,6 +405,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Enable <small style="color:#64748b">(def ON)</small></span>
 <input type="checkbox" id="kw4" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Corrects encoder drift by comparing measured angle to GPS-computed wheel angle while driving straight. First correction unlocks autosteer on boot.</p>
+<div class="row"><span class="lbl">Wheelbase (m) <small style="color:#64748b">(def 3.20)</small></span>
+<input type="number" id="kwwb" min="0.5" max="6" step="0.01" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Distance between front and rear axles. Used to compute the theoretical steer angle from GPS yaw rate and speed (bicycle model). The GPS-derived wheel angle is the reference the auto-zero corrects the WAS toward — set this to your tractor's real wheelbase for accurate correction.</p>
 <div class="row"><span class="lbl">Beta / correction fraction <small style="color:#64748b">(def 0.05)</small></span>
 <input type="number" id="kw5" min="0.001" max="1" step="0.001" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Soft correction speed — 5% of error per cycle. 0.05 = slow and stable. When autosteer is active, correction is automatically reduced 5x to avoid fighting the PID.</p>
@@ -849,6 +852,7 @@ function upd(d) {
     document.getElementById('kw7').value   = d.keya_was.azYawMax;
     document.getElementById('kw8').value   = d.keya_was.azSpeedSlow;
     document.getElementById('kw9').value   = d.keya_was.azSpeedFast;
+    document.getElementById('kwwb').value  = d.keya_was.wheelBase;
     document.getElementById('kw10').value  = d.keya_was.azTimeSlowMs;
     document.getElementById('kw11').value  = d.keya_was.azTimeFastMs;
     document.getElementById('dbg6').checked = !!(d.cfg.debugFlags & 64);
@@ -1109,7 +1113,8 @@ function saveKeyaWas() {
     + '&keyaAzVslow=' + document.getElementById('kw8').value
     + '&keyaAzVfast=' + document.getElementById('kw9').value
     + '&keyaAzTslow=' + document.getElementById('kw10').value
-    + '&keyaAzTfast=' + document.getElementById('kw11').value;
+    + '&keyaAzTfast=' + document.getElementById('kw11').value
+    + '&wheelBase='   + document.getElementById('kwwb').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'Keya WAS params saved.' : 'ERROR saving.';
   });
@@ -1737,6 +1742,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"emaAlpha\":")); client.print(moduleConfig.keyaEmaAlpha, 3);
     client.print(F(",\"encoderRaw\":")); client.print(keyaEncoderRaw);
     client.print(F(",\"gpsOffset\":")); client.print(keyaGpsOffset, 3);
+    client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
     client.print(F(",\"initialZeroDone\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
 
     client.print(F("},\"imu_was\":{"));
@@ -2334,6 +2340,7 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "keyaAzTslow="))  != NULL) moduleConfig.keyaAzTimeSlowMs = (uint16_t)atoi(p + 12);
     if ((p = strstr(req, "keyaAzTfast="))  != NULL) moduleConfig.keyaAzTimeFastMs = (uint16_t)atoi(p + 12);
     if ((p = strstr(req, "keyaEmaA="))     != NULL) moduleConfig.keyaEmaAlpha      = atof(p + 9);
+    if ((p = strstr(req, "wheelBase="))    != NULL) moduleConfig.wheelBase         = atof(p + 10);
     if ((p = strstr(req, "can2Baud="))     != NULL) {
         moduleConfig.can2Baud = (uint32_t)atol(p + 9);
         needRestart = true;

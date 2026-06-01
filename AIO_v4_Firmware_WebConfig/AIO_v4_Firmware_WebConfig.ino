@@ -11,17 +11,6 @@ TM171_IMU TM171_IMU(Serial2);           // TM171 on Serial2
 
 constexpr int serial_buffer_size = 1023;
 
-// Map a serial number (1-8) to its Teensy HardwareSerial port
-HardwareSerial* serialByNum(uint8_t n) {
-    switch (n) {
-        case 1: return &Serial1; case 2: return &Serial2;
-        case 3: return &Serial3; case 4: return &Serial4;
-        case 5: return &Serial5; case 6: return &Serial6;
-        case 7: return &Serial7; case 8: return &Serial8;
-        default: return &Serial7;
-    }
-}
-
 const int32_t baudGPS = 460800;
 const int32_t baudRTK = 115200;
 
@@ -73,6 +62,17 @@ BNO080         bno08x;
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_256> CanBus1;
 FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_256> CanBus2;
 FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_256> CanBus3;
+
+// Map a serial number (1-8) to its Teensy HardwareSerial port
+HardwareSerial* serialByNum(uint8_t n) {
+    switch (n) {
+        case 1: return &Serial1; case 2: return &Serial2;
+        case 3: return &Serial3; case 4: return &Serial4;
+        case 5: return &Serial5; case 6: return &Serial6;
+        case 7: return &Serial7; case 8: return &Serial8;
+        default: return &Serial7;
+    }
+}
 
 // ── CAN dispatch helpers ──────────────────────────────────────────────────────
 // Route read/write to whichever physical port is configured for a given function.
@@ -156,7 +156,6 @@ elapsedMillis imuWasTimeout     = 9999;
 bool          imuWasZeroRequest = false;
 
 // ── GPS / dual ─────────────────────────────────────────────────────────────────
-#define wheelBase 3.20
 int8_t  workingDir   = 1;
 float   wheelAngleGPS = 0;
 

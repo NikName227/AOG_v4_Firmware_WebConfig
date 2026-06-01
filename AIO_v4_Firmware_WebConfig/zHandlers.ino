@@ -193,7 +193,7 @@ void updateGpsMotion()
     if (gpsSpeed > 1.0f) {
         headingRate = dh / dt;                       // deg/s
         double ms = gpsSpeed * 0.27778;
-        wheelAngleGPS = atan(headingRate / RAD_TO_DEG * wheelBase / ms) * RAD_TO_DEG;
+        wheelAngleGPS = atan(headingRate / RAD_TO_DEG * moduleConfig.wheelBase / ms) * RAD_TO_DEG;
         if (!(wheelAngleGPS < 50 && wheelAngleGPS > -50)) wheelAngleGPS = steerAngleActual;
     } else {
         headingRate   = 0;   // VTG course is noise below ~1 km/h
