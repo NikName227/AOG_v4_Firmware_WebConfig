@@ -691,8 +691,8 @@ function renderGroup(d) {
     h += lvSub('IMU as WAS');
     h += lvRow('Raw yaw', d.imuRaw.toFixed(2) + ' °');
     h += lvRow('After scale', d.imuScaled.toFixed(2) + ' °  (×' + d.imuScale.toFixed(2) + ')');
-    h += lvRow('Chassis yaw rate', d.yawRate.toFixed(2) + ' °/s');
-    h += lvSub('GPS reference');
+    h += lvSub('GPS reference (auto-zero)');
+    h += lvRow('Yaw rate (GPS course)', d.yawRate.toFixed(2) + ' °/s');
     h += lvRow('Wheel angle (GPS)', d.wheelGps.toFixed(2) + ' °');
     h += lvSub('Final');
     h += lvRow('WAS angle actual', d.actual.toFixed(2) + ' °');

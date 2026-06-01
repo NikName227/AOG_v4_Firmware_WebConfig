@@ -167,6 +167,38 @@ void VTG_Handler()
     if (hasFuncMode(CAN_MODE_J1939)) j1939UpdateFromVTG();
     VTGReadyTime = 0;
     { uint32_t _n = millis(); vtgIntervalMs = _n - lastVtgMs; lastVtgMs = _n; }
+
+    updateGpsMotion();   // headingRate + wheelAngleGPS from course-over-ground (all modes)
+}
+
+// Compute vehicle yaw rate and GPS-derived wheel angle from VTG course over ground.
+// Works in every heading mode (IMU / HPR / RELPOS) since VTG is always present.
+// Used by Keya & IMU-WAS auto-zero and shown in Live tab Gr3 WAS.
+void updateGpsMotion()
+{
+    static double        hdgOld = 0;
+    static elapsedMillis dtT    = 0;
+    static bool          init   = false;
+
+    float dt = dtT / 1000.0f;
+    dtT = 0;
+    if (!init) { hdgOld = headingVTG; init = true; return; }
+    if (dt < 0.005f) dt = 0.005f;
+
+    double dh = headingVTG - hdgOld;
+    hdgOld = headingVTG;
+    if (dh > 180)  dh -= 360;
+    if (dh < -180) dh += 360;
+
+    if (gpsSpeed > 1.0f) {
+        headingRate = dh / dt;                       // deg/s
+        double ms = gpsSpeed * 0.27778;
+        wheelAngleGPS = atan(headingRate / RAD_TO_DEG * wheelBase / ms) * RAD_TO_DEG;
+        if (!(wheelAngleGPS < 50 && wheelAngleGPS > -50)) wheelAngleGPS = steerAngleActual;
+    } else {
+        headingRate   = 0;   // VTG course is noise below ~1 km/h
+        wheelAngleGPS = 0;
+    }
 }
 
 void HPR_Handler()
@@ -234,33 +266,14 @@ void imuHandler()
     if (moduleConfig.rollSource != ROLL_SRC_IMU)
         dtostrf(rollDual, 4, 2, imuRoll);
 
-    // Always compute heading rate, working direction, wheel angle from heading
-    if (abs((int)(headingVTG - heading) % 360) > 120 && gpsSpeed > 0.5)
-        workingDir = -1;
-    else
-        workingDir = 1;
-
-    static double headingOld = heading;
-    headingRate = (heading - headingOld) * GPS_Hz;
-    headingOld = heading;
-    if (headingRate > 360)  headingRate -= 360;
-    if (headingRate < -360) headingRate += 360;
-
-    // Write yaw rate only when source is not IMU (IMU already sets imuYawRate)
+    // NMEA yaw rate field: dual → use GPS heading rate; IMU-RVC → gyro angVel
     if (moduleConfig.headingSource != HDG_SRC_IMU) {
         int16_t yawRatex10 = (int16_t)(headingRate * 10);
         itoa(yawRatex10, imuYawRate, 10);
     } else if (useBNO08xRVC) {
-        // BNO RVC provides angular velocity
-        int16_t yawRatex10 = bnoData.angVel;
-        itoa(yawRatex10, imuYawRate, 10);
+        itoa(bnoData.angVel, imuYawRate, 10);
     }
-
-    double ms = gpsSpeed * 0.27778;
-    if (gpsSpeed > 1) {
-        wheelAngleGPS = atan(headingRate / RAD_TO_DEG * wheelBase / ms) * RAD_TO_DEG * workingDir;
-        if (!(wheelAngleGPS < 50 && wheelAngleGPS > -50)) wheelAngleGPS = steerAngleActual;
-    }
+    // headingRate + wheelAngleGPS are computed in updateGpsMotion() (VTG_Handler)
 }
 
 void readBNO_RVC()
@@ -326,7 +339,20 @@ void readBNO()
         itoa(yaw, imuHeading, 10);
         itoa(pitch, imuPitch, 10);
         itoa(roll, imuRoll, 10);
-        itoa(0, imuYawRate, 10);
+
+        // Yaw rate from successive yaw readings (I2C BNO has no gyro report)
+        static double        prevYawDeg = 0;
+        static elapsedMillis yrTimer    = 0;
+        static bool          yrInit     = false;
+        float  ydt = yrTimer / 1000.0f; yrTimer = 0;
+        double curYawDeg = yaw / 10.0;            // yaw is deg×10 (0..3600)
+        double yd = curYawDeg - prevYawDeg;
+        prevYawDeg = curYawDeg;
+        if (yd > 180)  yd -= 360;
+        if (yd < -180) yd += 360;
+        int16_t yrx10 = (yrInit && ydt > 0.005f) ? (int16_t)((yd / ydt) * 10.0) : 0;
+        yrInit = true;
+        itoa(yrx10, imuYawRate, 10);
     }
 }
 
