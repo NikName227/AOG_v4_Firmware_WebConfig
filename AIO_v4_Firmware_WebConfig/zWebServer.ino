@@ -145,33 +145,33 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="card">
 <h2>Data Source <span style="color:#64748b;font-weight:normal;font-size:11px">— restart required on change</span></h2>
 <p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">Select which sensor or message provides each data channel sent to AgIO.</p>
-<div class="row"><span class="lbl">WAS sensor</span>
-<select id="wasSource">
+<div class="lbl" style="margin:8px 0 3px">WAS sensor</div>
+<select id="wasSource" style="width:100%">
 <option value="0">ADS1115 — analog voltage sensor (default)</option>
 <option value="1">Keya encoder — brushless motor position</option>
 <option value="2">IMU via CAN — wheel-mounted IMU on CAN bus</option>
 <option value="3">CAN valve — angle from V_Bus steer valve</option>
-</select></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 8px;line-height:1.3">Wheel angle source. For CAN options the corresponding CAN port must be configured below.</p>
-<div class="row"><span class="lbl">Roll source</span>
-<select id="rollSource">
+</select>
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Wheel angle source. For CAN options the corresponding CAN port must be configured below.</p>
+<div class="lbl" style="margin:8px 0 3px">Roll source</div>
+<select id="rollSource" style="width:100%">
 <option value="0">IMU — onboard BNO085 or TM171 (default)</option>
 <option value="1">HPR — $HPR NMEA from dual GPS (UM980 / UM982)</option>
-</select></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 8px;line-height:1.3">Roll / tilt angle in the NMEA sentence to AgIO. IMU: from onboard sensor. HPR: receiver computes roll from dual antennas and sends it in the $HPR sentence.</p>
-<div class="row"><span class="lbl">Heading source</span>
-<select id="headingSource">
+</select>
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Roll / tilt angle in the NMEA sentence to AgIO. IMU: from onboard sensor. HPR: receiver computes roll from dual antennas and sends it in the $HPR sentence.</p>
+<div class="lbl" style="margin:8px 0 3px">Heading source</div>
+<select id="headingSource" style="width:100%">
 <option value="0">IMU — onboard BNO085 or TM171 (default)</option>
 <option value="1">HPR — $HPR NMEA from dual GPS (UM980 / UM982)</option>
 <option value="2">RELPOS — UBX binary from dual u-blox F9P</option>
-</select></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 8px;line-height:1.3">Heading direction source. IMU: from compass in BNO085 or TM171. HPR: receiver with two antennas sends $HPR NMEA (single cable). RELPOS: two u-blox F9P receivers connected via UBX binary protocol (older dual setup).</p>
-<div class="row"><span class="lbl">NMEA sentence to AgIO</span>
-<select id="nmeaType">
+</select>
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Heading direction source. IMU: from compass in BNO085 or TM171. HPR: receiver with two antennas sends $HPR NMEA (single cable). RELPOS: two u-blox F9P receivers connected via UBX binary protocol (older dual setup).</p>
+<div class="lbl" style="margin:8px 0 3px">NMEA sentence to AgIO</div>
+<select id="nmeaType" style="width:100%">
 <option value="0">$PANDA — single GPS or IMU heading (default)</option>
 <option value="1">$PAOGI — dual GPS heading</option>
-</select></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 8px;line-height:1.3">Sentence name in the output to AgIO. Data fields are identical — AgIO uses the name to know if dual GPS heading is available. Select PAOGI when using HPR or RELPOS heading source.</p>
+</select>
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Sentence name in the output to AgIO. Data fields are identical — AgIO uses the name to know if dual GPS heading is available. Select PAOGI when using HPR or RELPOS heading source.</p>
 <button class="btn green" onclick="saveDataSource()" style="margin-top:8px">Save Data Source (restart)</button>
 </div>
 
