@@ -9,7 +9,7 @@
 // addr 80  : ModuleConfig         (NEW)
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xC1   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xC2   // change to force EEPROM reset on next boot
 
 // IMU type
 #define IMU_AUTO    0   // auto-detect: RVC → I2C → TM171
@@ -68,6 +68,9 @@ struct ModuleConfig {
     uint8_t  rollSource     = ROLL_SRC_IMU;       // roll data source (see ROLL_SRC_*)
     uint8_t  headingSource  = HDG_SRC_IMU;        // heading data source (see HDG_SRC_*)
     uint8_t  nmeaType       = NMEA_TYPE_PANDA;    // NMEA sentence type to AgIO
+    uint8_t  gpsSerial      = 7;                  // GPS receiver hardware serial (Serial1-8)
+    uint8_t  tm171Serial    = 2;                  // TM171 IMU hardware serial (Serial1-8)
+    uint32_t tm171Baud      = 115200;             // TM171 baud rate
     uint8_t steerBrand      = 1;              // steer-ready brand: 0=Claas 1=Valtra 2=CaseIH
                                               //   3=Fendt 4=JCB 5=FendtOne 6=Lindner 7=AgOpenGPS
     uint8_t disengageType   = DIS_MOTOR_SPEED;

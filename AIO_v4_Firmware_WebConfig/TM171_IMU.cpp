@@ -1,13 +1,18 @@
 #include "TM171_IMU.h"
 
 TM171_IMU::TM171_IMU(HardwareSerial &serial, uint16_t timeout)
-    : _serial(serial), timeoutMs(timeout)
+    : _serial(&serial), timeoutMs(timeout)
 {
+}
+
+void TM171_IMU::setSerial(HardwareSerial *serial)
+{
+    if (serial) _serial = serial;
 }
 
 void TM171_IMU::begin(uint32_t baud)
 {
-    _serial.begin(baud);
+    _serial->begin(baud);
 }
 
 uint16_t TM171_IMU::crc16(uint8_t *data, uint16_t len)
@@ -91,10 +96,10 @@ bool TM171_IMU::parsePacket()
 
 void TM171_IMU::readAngles()
 {
-    while (_serial.available())
+    while (_serial->available())
     {
         if (bufferLen < sizeof(buffer))
-            buffer[bufferLen++] = _serial.read();
+            buffer[bufferLen++] = _serial->read();
         else
             bufferLen = 0;
     }

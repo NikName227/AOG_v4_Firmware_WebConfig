@@ -9,6 +9,7 @@ public:
 
     TM171_IMU(HardwareSerial &serial, uint16_t timeout = 500);
 
+    void setSerial(HardwareSerial *serial);   // override port before begin()
     void begin(uint32_t baud);
 
     void readAngles();              // čita nove podatke
@@ -25,7 +26,7 @@ public:
 
 private:
 
-    HardwareSerial &_serial;
+    HardwareSerial *_serial;
 
     uint16_t timeoutMs;
     uint32_t lastUpdate = 0;

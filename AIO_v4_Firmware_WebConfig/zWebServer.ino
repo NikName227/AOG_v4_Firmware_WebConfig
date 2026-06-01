@@ -114,11 +114,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row sub"><span class="lbl">GGA</span><span id="d_gga" class="badge fail">?</span></div>
 <div class="row sub"><span class="lbl">VTG</span><span id="d_vtg" class="badge fail">?</span></div>
 <div class="row sub"><span class="lbl">HPR <small style="color:#64748b">(dual heading)</small></span><span id="d_hpr" class="badge fail">?</span></div>
-<div class="row sub"><span class="lbl">HPR RTK quality</span><span id="d_hprQ" class="val" style="font-size:13px">-</span></div>
-<div class="row sub" id="hprCutoffRow" style="display:none"><span class="lbl" style="color:#f87171;font-weight:bold">⚠ HEADING CUTOFF</span><span class="val" style="color:#f87171;font-size:12px" id="d_hprCut">-</span></div>
 <div class="row" style="padding-top:8px"><span class="lbl grp">IMU</span><span></span></div>
 <div class="row sub"><span class="lbl">BNO085 I2C</span><span id="d1" class="badge fail">?</span></div>
-<div class="row sub"><span class="lbl">TM171 (Serial2)</span><span id="d2" class="badge fail">?</span></div>
+<div class="row sub"><span class="lbl">TM171</span><span id="d2" class="badge fail">?</span></div>
 <div class="row" style="padding-top:8px"><span class="lbl grp">WAS</span><span></span></div>
 <div class="row sub"><span class="lbl">ADS1115</span><span id="d_ads" class="badge fail">?</span></div>
 <div class="row sub"><span class="lbl">IMU as WAS (CAN)</span><span id="d_imuWas" class="badge fail">?</span></div>
@@ -156,6 +154,34 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </select></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 8px;line-height:1.3">Sentence name in the output to AgIO. Data fields are identical — AgIO uses the name to know if dual GPS heading is available. Select PAOGI when using HPR or RELPOS heading source.</p>
 <button class="btn green" onclick="saveDataSource()" style="margin-top:8px">Save Data Source (restart)</button>
+</div>
+
+<div class="card">
+<h2>Serial port assignment <span style="color:#64748b;font-weight:normal;font-size:11px">— restart required on change</span></h2>
+<p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">Map GPS and TM171 IMU to a Teensy hardware serial port and baud rate. Avoid Serial3 (RTK radio).</p>
+<div class="row"><span class="lbl">GPS receiver</span>
+<select id="gpsSerial" style="flex:1">
+<option value="1">Serial1</option><option value="2">Serial2</option><option value="3">Serial3</option>
+<option value="4">Serial4</option><option value="5">Serial5</option><option value="6">Serial6</option>
+<option value="7">Serial7</option><option value="8">Serial8</option>
+</select>
+<select id="gpsBaud2" style="flex:1;margin-left:6px">
+<option value="9600">9600</option><option value="19200">19200</option><option value="38400">38400</option>
+<option value="57600">57600</option><option value="115200">115200</option><option value="230400">230400</option>
+<option value="460800">460800</option><option value="921600">921600</option>
+</select></div>
+<div class="row"><span class="lbl">TM171 IMU</span>
+<select id="tm171Serial" style="flex:1">
+<option value="1">Serial1</option><option value="2">Serial2</option><option value="3">Serial3</option>
+<option value="4">Serial4</option><option value="5">Serial5</option><option value="6">Serial6</option>
+<option value="7">Serial7</option><option value="8">Serial8</option>
+</select>
+<select id="tm171Baud" style="flex:1;margin-left:6px">
+<option value="9600">9600</option><option value="19200">19200</option><option value="38400">38400</option>
+<option value="57600">57600</option><option value="115200">115200</option><option value="230400">230400</option>
+<option value="460800">460800</option><option value="921600">921600</option>
+</select></div>
+<button class="btn green" onclick="saveSerial()" style="margin-top:8px">Save Serial assignment (restart)</button>
 </div>
 
 <div class="card">
@@ -836,6 +862,10 @@ function upd(d) {
     document.getElementById('rollSource').value    = d.cfg.rollSource    || 0;
     document.getElementById('headingSource').value = d.cfg.headingSource || 0;
     document.getElementById('nmeaType').value      = d.cfg.nmeaType      || 0;
+    document.getElementById('gpsSerial').value     = d.cfg.gpsSerial     || 7;
+    document.getElementById('gpsBaud2').value      = d.cfg.gpsBaud       || 115200;
+    document.getElementById('tm171Serial').value   = d.cfg.tm171Serial   || 2;
+    document.getElementById('tm171Baud').value     = d.cfg.tm171Baud     || 115200;
     if (document.getElementById('csBrand')) document.getElementById('csBrand').value = d.cfg.steerBrand || 0;
     if (d.j1939) {
       document.getElementById('j19Addr').value      = d.j1939.srcAddr;
@@ -946,14 +976,6 @@ function tick() {
 
 function updLive(d) {
   badge('d5', d.gps); badge('d_gga', d.gga); badge('d_vtg', d.vtg); badge('d_hpr', d.hpr);
-  var qN = {1:'GPS',2:'DGPS',4:'RTK',5:'Float'};
-  var qEl = document.getElementById('d_hprQ');
-  if (qEl) {
-    qEl.textContent = d.hpr ? (qN[d.hprQ] || 'Q='+d.hprQ) : '-';
-    qEl.style.color = d.hprRtkLost ? '#f87171' : '#4ade80';
-  }
-  var cr = document.getElementById('hprCutoffRow');
-  if (cr) cr.style.display = d.hprCutoff ? '' : 'none';
   badge('d1', d.bno); badge('d2', d.tm);
   badge('d_ads', d.ads); badge('d_imuWas', d.iWas); badge('d3', d.keya);
 
@@ -1051,6 +1073,18 @@ function saveDataSource() {
     + '&nmeaType='      + document.getElementById('nmeaType').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'Data source saved – restarting...' : 'Error saving data source.';
+    configLoaded = false;
+  });
+}
+
+function saveSerial() {
+  var url = '/api/save'
+    + '?gpsSerial='   + document.getElementById('gpsSerial').value
+    + '&gpsBaudR='    + document.getElementById('gpsBaud2').value
+    + '&tm171Serial=' + document.getElementById('tm171Serial').value
+    + '&tm171Baud='   + document.getElementById('tm171Baud').value;
+  fetch(url).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'Serial assignment saved – restarting...' : 'Error saving serial assignment.';
     configLoaded = false;
   });
 }
@@ -1742,6 +1776,9 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"rollSource\":")); client.print(moduleConfig.rollSource);
     client.print(F(",\"headingSource\":")); client.print(moduleConfig.headingSource);
     client.print(F(",\"nmeaType\":")); client.print(moduleConfig.nmeaType);
+    client.print(F(",\"gpsSerial\":")); client.print(moduleConfig.gpsSerial);
+    client.print(F(",\"tm171Serial\":")); client.print(moduleConfig.tm171Serial);
+    client.print(F(",\"tm171Baud\":")); client.print(moduleConfig.tm171Baud);
     client.print(F(",\"steerBrand\":")); client.print(moduleConfig.steerBrand);
     client.print(F(",\"disengageType\":")); client.print(moduleConfig.disengageType);
     client.print(F(",\"debugFlags\":")); client.print(moduleConfig.debugFlags);
@@ -2310,6 +2347,10 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "rollSource="))    != NULL) { moduleConfig.rollSource     = (uint8_t)atoi(p + 11); needRestart = true; }
     if ((p = strstr(req, "headingSource=")) != NULL) { moduleConfig.headingSource  = (uint8_t)atoi(p + 14); needRestart = true; }
     if ((p = strstr(req, "nmeaType="))      != NULL) { moduleConfig.nmeaType       = (uint8_t)atoi(p + 9);  needRestart = true; }
+    if ((p = strstr(req, "gpsSerial="))     != NULL) { moduleConfig.gpsSerial      = (uint8_t)atoi(p + 10); needRestart = true; }
+    if ((p = strstr(req, "tm171Serial="))   != NULL) { moduleConfig.tm171Serial    = (uint8_t)atoi(p + 12); needRestart = true; }
+    if ((p = strstr(req, "tm171Baud="))     != NULL) { moduleConfig.tm171Baud      = (uint32_t)atol(p + 10); needRestart = true; }
+    if ((p = strstr(req, "gpsBaudR="))      != NULL) { moduleConfig.gpsBaud        = (uint32_t)atol(p + 9);  needRestart = true; }
     if ((p = strstr(req, "j19Addr="))     != NULL) moduleConfig.j1939SrcAddr    = (uint8_t)atoi(p + 9);
     if ((p = strstr(req, "j19En65267="))  != NULL) moduleConfig.j1939En65267    = (uint8_t)atoi(p + 12);
     if ((p = strstr(req, "j19R65267="))   != NULL) moduleConfig.j1939Rate65267  = (uint16_t)atoi(p + 11);
