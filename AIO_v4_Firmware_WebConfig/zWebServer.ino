@@ -507,11 +507,11 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <select id="cePort" style="width:62px;min-width:0">
 <option value="1">CAN1</option><option value="2">CAN2</option><option value="3">CAN3</option>
 </select>
-<select id="ceExt" style="width:50%;min-width:0;margin-left:6px">
-<option value="1">Extended 29-bit</option><option value="0">Standard 11-bit</option>
+<select id="ceExt" style="width:84px;min-width:0;margin-left:6px">
+<option value="1">29-bit</option><option value="0">11-bit</option>
 </select>
 <div class="row" style="margin-top:6px"><span class="lbl">CAN ID (hex)</span>
-<input type="text" id="ceId" placeholder="18EF1C32" class="ninput" style="width:72px;text-align:left"></div>
+<input type="text" id="ceId" placeholder="18EF1C32" class="ninput" style="width:110px;text-align:left"></div>
 <div class="row"><span class="lbl">Engage mode</span>
 <select id="ceMode" style="flex:1;max-width:220px">
 <option value="0">Toggle — momentary button</option>
