@@ -722,9 +722,16 @@ function renderGroup(d) {
     h += lvRow('Steer error', d.err.toFixed(2) + ' °');
     h += lvRow('PWM', d.pwm);
     h += lvRow('Autosteer', d.on ? 'ACTIVE' : 'OFF');
-    h += lvRow('Steer switch', d.steerSw);
-    h += lvRow('Work switch', d.workSw);
     h += lvRow('Speed', d.spd.toFixed(1) + ' km/h');
+    var sw = function(v){ return v === 0 ? 'PRESSED' : 'open'; };
+    h += lvSub('AOG switches');
+    h += lvRow('Steer button', sw(d.steerPin));
+    h += lvRow('Work switch', sw(d.workPin));
+    h += lvRow('Remote', sw(d.remotePin));
+    h += lvSub('PCB sensors');
+    h += lvRow('Current sensor (A17)', d.curRaw);
+    h += lvRow('Pressure sensor (A10)', d.presRaw);
+    h += lvRow('Sensor reading (to AOG)', d.sensorRd);
   }
   else if (activeGroup === 6) {
     hdr = 'Group 6 — CAN Steer';
@@ -1356,7 +1363,8 @@ var gSignals = [
  {id:27,n:'Gr5 Steer actual'},{id:28,n:'Gr5 Steer setpoint'},{id:29,n:'Gr5 Steer error'},{id:30,n:'Gr5 PWM'},{id:31,n:'Gr5 speed'},
  {id:32,n:'Gr6 valveReady'},{id:33,n:'Gr6 estCurve'},{id:34,n:'Gr6 setCurve'},{id:35,n:'Gr6 hitch'},
  {id:36,n:'Perf loop time ms'},{id:37,n:'Perf loop max ms'},
- {id:38,n:'GPS GGA interval ms'},{id:39,n:'GPS VTG interval ms'},{id:40,n:'GPS HPR interval ms'}
+ {id:38,n:'GPS GGA interval ms'},{id:39,n:'GPS VTG interval ms'},{id:40,n:'GPS HPR interval ms'},
+ {id:41,n:'Gr5 current sensor (A17)'},{id:42,n:'Gr5 pressure sensor (A10)'},{id:43,n:'Gr5 sensor reading'}
 ];
 var gCol  = ['#4ade80','#38bdf8','#fbbf24','#f87171'];
 var gDef  = [27,28,22,11];
@@ -1841,6 +1849,10 @@ float getSignalValue(uint8_t id)
     case 38: return (float)ggaIntervalMs;
     case 39: return (float)vtgIntervalMs;
     case 40: return (float)hprIntervalMs;
+    // PCB sensors
+    case 41: return (float)analogRead(CURRENT_SENSOR_PIN);
+    case 42: return (float)analogRead(PRESSURE_SENSOR_PIN);
+    case 43: return sensorReading;
     default: return 0;
     }
 }
@@ -1969,9 +1981,15 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"err\":")); client.print(steerAngleError, 2);
         client.print(F(",\"pwm\":")); client.print(pwmDisplay);
         client.print(F(",\"on\":")); client.print((watchdogTimer < WATCHDOG_THRESHOLD) ? F("true") : F("false"));
-        client.print(F(",\"steerSw\":")); client.print(steerSwitch);
-        client.print(F(",\"workSw\":")); client.print(workSwitch);
         client.print(F(",\"spd\":")); client.print(gpsSpeed, 1);
+        // AOG switches — raw pin reads (active-low: 0 = pressed/closed, 1 = open)
+        client.print(F(",\"steerPin\":")); client.print(digitalRead(STEERSW_PIN));
+        client.print(F(",\"workPin\":"));  client.print(digitalRead(WORKSW_PIN));
+        client.print(F(",\"remotePin\":"));client.print(digitalRead(REMOTE_PIN));
+        // On-PCB analog sensors
+        client.print(F(",\"curRaw\":"));  client.print(analogRead(CURRENT_SENSOR_PIN));
+        client.print(F(",\"presRaw\":")); client.print(analogRead(PRESSURE_SENSOR_PIN));
+        client.print(F(",\"sensorRd\":")); client.print(sensorReading, 0);
         client.print(F("}"));
         break;
     }
