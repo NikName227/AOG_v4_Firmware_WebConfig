@@ -504,14 +504,14 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 <p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">For tractors not covered by a brand preset. Matches an engage button/switch in a CAN frame. Restart required when enabling or changing port/ID.</p>
 <div class="lbl" style="margin:6px 0 3px">Listen on CAN</div>
-<select id="cePort" style="width:38%;min-width:0">
+<select id="cePort" style="width:22%;min-width:0">
 <option value="1">CAN1</option><option value="2">CAN2</option><option value="3">CAN3</option>
 </select>
-<select id="ceExt" style="width:55%;min-width:0;margin-left:6px">
+<select id="ceExt" style="width:50%;min-width:0;margin-left:6px">
 <option value="1">Extended 29-bit</option><option value="0">Standard 11-bit</option>
 </select>
 <div class="row" style="margin-top:6px"><span class="lbl">CAN ID (hex)</span>
-<input type="text" id="ceId" placeholder="18EF1C32" class="ninput" style="width:120px;text-align:left"></div>
+<input type="text" id="ceId" placeholder="18EF1C32" class="ninput" style="width:90px;text-align:left"></div>
 <div class="row"><span class="lbl">Engage mode</span>
 <select id="ceMode" style="flex:1;max-width:220px">
 <option value="0">Toggle — momentary button</option>
