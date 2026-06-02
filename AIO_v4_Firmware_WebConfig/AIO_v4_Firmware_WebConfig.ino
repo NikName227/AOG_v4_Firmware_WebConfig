@@ -82,6 +82,13 @@ inline bool canRead(uint8_t mode, CAN_message_t& msg) {
     if (moduleConfig.can3Mode == mode) return CanBus3.read(msg);
     return false;
 }
+// Read directly from a physical CAN port (1/2/3) regardless of assigned mode
+inline bool canReadPort(uint8_t port, CAN_message_t& msg) {
+    if (port == 1) return CanBus1.read(msg);
+    if (port == 2) return CanBus2.read(msg);
+    if (port == 3) return CanBus3.read(msg);
+    return false;
+}
 inline void canWrite(uint8_t mode, CAN_message_t& msg) {
     if      (moduleConfig.can1Mode == mode) CanBus1.write(msg);
     else if (moduleConfig.can2Mode == mode) CanBus2.write(msg);
@@ -134,7 +141,11 @@ bool          hprCutoffActive = false;  // true when lost >10s, fixQuality force
 elapsedMillis hprLostTimer    = 0;      // time since RTK fix was lost
 int           mainFixQuality  = 0;      // raw fix quality from main antenna GGA (before override)
 
-bool adcConnected    = false;  // true if ADS1115 responded at boot
+// ── Custom CAN engage runtime state ──────────────────────────────────────────
+uint8_t  customEngLastBuf[8] = {0};  // last frame seen on configured ID (for Learn)
+bool     customEngSeen   = false;    // a frame with the configured ID has arrived
+bool     customEngMatch  = false;    // mask+match currently satisfied
+bool     adcConnected    = false;  // true if ADS1115 responded at boot
 bool logActive       = true;   // enabled on boot to capture setup messages
 
 // ── Graph sampling (Live tab → Graph) ────────────────────────────────────────

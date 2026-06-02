@@ -47,6 +47,50 @@ void CAN_Setup()
         CanBus3.begin(); CanBus3.setBaudRate(moduleConfig.can3Baud);
         Serial.printf("CAN3: %s  %lu kbps\n", modeNames[moduleConfig.can3Mode], moduleConfig.can3Baud/1000);
     }
+
+    // Custom engage: ensure its listen port is started even if its mode is OFF
+    if (moduleConfig.customEngageEnable) {
+        uint8_t p = moduleConfig.customEngageCanPort;
+        if (p == 1 && moduleConfig.can1Mode == CAN_MODE_OFF) { CanBus1.begin(); CanBus1.setBaudRate(moduleConfig.can1Baud); }
+        if (p == 2 && moduleConfig.can2Mode == CAN_MODE_OFF) { CanBus2.begin(); CanBus2.setBaudRate(moduleConfig.can2Baud); }
+        if (p == 3 && moduleConfig.can3Mode == CAN_MODE_OFF) { CanBus3.begin(); CanBus3.setBaudRate(moduleConfig.can3Baud); }
+        Serial.printf("Custom engage: listening CAN%u id=0x%lX\n", p, (unsigned long)moduleConfig.customEngageId);
+    }
+}
+
+// ── Custom CAN engage — mask+match on a user-defined frame ───────────────────
+// Toggle mode: rising edge of match toggles engage (momentary button).
+// Level mode:  both edges toggle (latched switch ON→engage, OFF→disengage).
+void CustomEngage_Receive()
+{
+    if (!moduleConfig.customEngageEnable) return;
+    CAN_message_t msg;
+    static bool prevMatch = false;
+    while (canReadPort(moduleConfig.customEngageCanPort, msg)) {
+        bool idOk = (msg.id == moduleConfig.customEngageId)
+                 && (msg.flags.extended == (moduleConfig.customEngageExt ? 1 : 0));
+        if (!idOk) continue;
+
+        // store last frame for Learn capture
+        for (uint8_t i = 0; i < 8; i++) customEngLastBuf[i] = msg.buf[i];
+        customEngSeen = true;
+
+        bool match = true;
+        for (uint8_t i = 0; i < 8; i++) {
+            uint8_t m = moduleConfig.customEngageMask[i];
+            if (m && ((msg.buf[i] & m) != (moduleConfig.customEngageMatch[i] & m))) { match = false; break; }
+        }
+        customEngMatch = match;
+
+        if (moduleConfig.customEngageMode == 0) {
+            // toggle: pulse engage on rising edge only
+            if (match && !prevMatch) { engageCAN = true; disengageLog("custom CAN engage (toggle)"); }
+        } else {
+            // level: pulse on both edges (engage on press, disengage on release)
+            if (match != prevMatch) { engageCAN = true; disengageLog("custom CAN engage (level edge)"); }
+        }
+        prevMatch = match;
+    }
 }
 
 void KeyaBus_Receive()

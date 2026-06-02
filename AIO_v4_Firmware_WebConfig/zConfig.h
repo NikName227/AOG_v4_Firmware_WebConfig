@@ -9,7 +9,7 @@
 // addr 80  : ModuleConfig         (NEW)
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xC3   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xC4   // change to force EEPROM reset on next boot
 
 // IMU type
 #define IMU_AUTO    0   // auto-detect: RVC → I2C → TM171
@@ -113,6 +113,14 @@ struct ModuleConfig {
     float    imuWasYawMax    = 0.8f;    // max chassis yaw rate deg/s for straight detection
     // ── PVED tool ────────────────────────────────────────────────────────────
     uint16_t pvedParam64007Factory = 0xFFFF;  // original tractor value (0xFFFF = never read)
+    // ── Custom CAN engage (mask+match on a user-defined frame) ──────────────────
+    uint8_t  customEngageEnable  = 0;          // 0=off 1=on
+    uint8_t  customEngageCanPort = 1;          // physical CAN 1/2/3 to listen on
+    uint8_t  customEngageExt     = 1;          // 1=extended 29-bit, 0=standard 11-bit
+    uint8_t  customEngageMode    = 0;          // 0=toggle (momentary button), 1=level (latched switch)
+    uint32_t customEngageId      = 0;          // CAN ID to match
+    uint8_t  customEngageMatch[8] = {0,0,0,0,0,0,0,0};  // expected byte values
+    uint8_t  customEngageMask[8]  = {0,0,0,0,0,0,0,0};   // per-byte mask (0=ignore byte)
 };
 extern ModuleConfig moduleConfig;
 

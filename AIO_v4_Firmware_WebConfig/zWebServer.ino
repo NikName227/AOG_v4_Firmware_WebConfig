@@ -498,6 +498,50 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 
 <div class="card">
+<h2>Custom CAN engage</h2>
+<div class="chk-row" style="margin-bottom:8px">
+<input type="checkbox" id="ceEnable"><label for="ceEnable" style="cursor:pointer">Enable custom engage (mask + match on a CAN frame)</label>
+</div>
+<p style="color:#64748b;font-size:12px;margin-bottom:8px;line-height:1.4">For tractors not covered by a brand preset. Matches an engage button/switch in a CAN frame. Restart required when enabling or changing port/ID.</p>
+<div class="lbl" style="margin:6px 0 3px">Listen on CAN</div>
+<select id="cePort" style="width:38%;min-width:0">
+<option value="1">CAN1</option><option value="2">CAN2</option><option value="3">CAN3</option>
+</select>
+<select id="ceExt" style="width:55%;min-width:0;margin-left:6px">
+<option value="1">Extended 29-bit</option><option value="0">Standard 11-bit</option>
+</select>
+<div class="row" style="margin-top:6px"><span class="lbl">CAN ID (hex)</span>
+<input type="text" id="ceId" placeholder="18EF1C32" class="ninput" style="width:120px;text-align:left"></div>
+<div class="row"><span class="lbl">Engage mode</span>
+<select id="ceMode" style="flex:1;max-width:220px">
+<option value="0">Toggle — momentary button</option>
+<option value="1">Level — latched switch</option>
+</select></div>
+<div style="border-top:1px solid #334155;margin:10px 0 6px"></div>
+<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Learn (auto-fill)</div>
+<p style="color:#94a3b8;font-size:12px;margin:0 0 6px;line-height:1.3">Set CAN ID and Save first. Then: capture with button released, then capture while holding engage. Changed bits become the mask automatically. You can edit below afterwards.</p>
+<button class="btn" onclick="ceCaptureIdle()">1. Capture IDLE</button>
+<button class="btn" onclick="ceCapturePressed()" style="margin-left:6px">2. Capture PRESSED</button>
+<span id="ceLearnMsg" style="margin-left:8px;font-size:12px;color:#64748b"></span>
+<div style="font-size:12px;color:#64748b;margin-top:6px">IDLE: <span id="ceIdleHex" style="color:#94a3b8;font-family:monospace">—</span> &nbsp; PRESSED: <span id="cePressHex" style="color:#94a3b8;font-family:monospace">—</span></div>
+<div style="border-top:1px solid #334155;margin:10px 0 6px"></div>
+<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Match pattern (hex per byte)</div>
+<div style="display:flex;gap:3px;align-items:center;font-size:11px;color:#64748b;margin-bottom:2px"><span style="width:42px">Byte</span>
+<span style="width:34px;text-align:center">0</span><span style="width:34px;text-align:center">1</span><span style="width:34px;text-align:center">2</span><span style="width:34px;text-align:center">3</span><span style="width:34px;text-align:center">4</span><span style="width:34px;text-align:center">5</span><span style="width:34px;text-align:center">6</span><span style="width:34px;text-align:center">7</span></div>
+<div style="display:flex;gap:3px;align-items:center;margin-bottom:3px"><span style="width:42px;font-size:12px;color:#cbd5e1">Value</span><span id="ceValRow"></span></div>
+<div style="display:flex;gap:3px;align-items:center"><span style="width:42px;font-size:12px;color:#cbd5e1">Mask</span><span id="ceMskRow"></span></div>
+<p style="color:#94a3b8;font-size:11px;margin:4px 0 0;line-height:1.3">Mask FF = whole byte, 01 = only bit 0, 00 = ignore byte. Engage triggers when (frame &amp; mask) == (value &amp; mask) for every byte.</p>
+<button class="btn green" onclick="ceSave()" style="margin-top:10px">Save Custom Engage (restart)</button>
+<div style="border-top:1px solid #334155;margin:10px 0 6px"></div>
+<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Live — AOG steer state</div>
+<div class="row"><span class="lbl">Frame on ID</span><span class="val" id="ceFrameHex" style="font-family:monospace;font-size:12px">—</span></div>
+<div class="row"><span class="lbl">Pattern match now</span><span id="ceMatchBadge" class="badge fail">--</span></div>
+<div class="row"><span class="lbl">Engage toggle (steerSwitch)</span><span id="ceEngBadge" class="badge fail">OFF</span></div>
+<div class="row"><span class="lbl">AOG guidance command</span><span id="ceGuidBadge" class="badge fail">OFF</span></div>
+<div class="row"><span class="lbl">Autosteer active</span><span id="ceAutoBadge" class="badge fail">OFF</span></div>
+</div>
+
+<div class="card">
 <h2>Live status</h2>
 <div class="row"><span class="lbl">Valve ready state</span><span class="val" id="cs0">—</span></div>
 <div class="row"><span class="lbl">estCurve (valve angle)</span><span class="val" id="cs1">—</span></div>
@@ -877,6 +921,17 @@ function upd(d) {
     document.getElementById('tm171Serial').value   = d.cfg.tm171Serial   || 2;
     document.getElementById('tm171Baud').value     = d.cfg.tm171Baud     || 115200;
     if (document.getElementById('csBrand')) document.getElementById('csBrand').value = d.cfg.steerBrand || 0;
+    if (d.custEng) {
+      document.getElementById('ceEnable').checked = !!d.custEng.enable;
+      document.getElementById('cePort').value = d.custEng.port || 1;
+      document.getElementById('ceExt').value  = d.custEng.ext;
+      document.getElementById('ceMode').value = d.custEng.mode;
+      document.getElementById('ceId').value   = (d.custEng.id || 0).toString(16).toUpperCase();
+      for (var ci = 0; ci < 8; ci++) {
+        document.getElementById('ceVal'+ci).value = ceHex(d.custEng.match[ci]);
+        document.getElementById('ceMsk'+ci).value = ceHex(d.custEng.mask[ci]);
+      }
+    }
     if (d.j1939) {
       document.getElementById('j19Addr').value      = d.j1939.srcAddr;
       document.getElementById('j19En65267').checked  = !!d.j1939.en65267;
@@ -1002,6 +1057,21 @@ function updLive(d) {
   ci.textContent = d.intend ? 'STEERING' : 'IDLE';
   var pb = document.getElementById('canPlotBtn');
   if (pb && d.showData) pb.textContent = 'Disable CAN log';
+
+  // Custom engage live + AOG steer state
+  if (d.ceBuf) {
+    ceLastBuf = d.ceBuf;
+    var fh = document.getElementById('ceFrameHex');
+    if (fh) fh.textContent = d.ceSeen ? d.ceBuf.map(ceHex).join(' ') : '— (no frame on ID)';
+    var mb = document.getElementById('ceMatchBadge');
+    if (mb) { mb.className = 'badge ' + (d.ceMatch ? 'ok' : 'fail'); mb.textContent = d.ceMatch ? 'MATCH' : 'no'; }
+    var eb = document.getElementById('ceEngBadge');
+    if (eb) { eb.className = 'badge ' + (d.aogSteerSw === 0 ? 'ok' : 'fail'); eb.textContent = d.aogSteerSw === 0 ? 'ENGAGED' : 'OFF'; }
+    var gb = document.getElementById('ceGuidBadge');
+    if (gb) { gb.className = 'badge ' + (d.aogGuidance ? 'ok' : 'fail'); gb.textContent = d.aogGuidance ? 'ON' : 'OFF'; }
+    var ab = document.getElementById('ceAutoBadge');
+    if (ab) { ab.className = 'badge ' + (d.on ? 'ok' : 'fail'); ab.textContent = d.on ? 'ACTIVE' : 'OFF'; }
+  }
 
   document.getElementById('u0').textContent  = d.kp;
   document.getElementById('u1').textContent  = d.hiPWM;
@@ -1184,6 +1254,64 @@ function saveCanBrand() {
   var v = document.getElementById('csBrand').value;
   fetch('/api/save?brand=' + v).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'Brand saved – restarting...' : 'Error saving brand.';
+  });
+}
+
+// ── Custom CAN engage ─────────────────────────────────────────────────────────
+var ceLastBuf = [0,0,0,0,0,0,0,0];
+var ceIdle = null, cePress = null;
+function ceHex(v){ return ('0' + (v & 0xFF).toString(16).toUpperCase()).slice(-2); }
+function ceMsg(t){ document.getElementById('ceLearnMsg').textContent = t; }
+
+function ceBuildRows(){
+  var st='width:34px;text-align:center;background:#0f172a;border:1px solid #334155;color:#e2e8f0;font-family:monospace;font-size:12px;padding:3px 0;border-radius:3px;margin-right:3px';
+  var vr='', mr='';
+  for(var i=0;i<8;i++){
+    vr+='<input type="text" id="ceVal'+i+'" maxlength="2" value="00" style="'+st+'">';
+    mr+='<input type="text" id="ceMsk'+i+'" maxlength="2" value="00" style="'+st+'">';
+  }
+  document.getElementById('ceValRow').innerHTML=vr;
+  document.getElementById('ceMskRow').innerHTML=mr;
+}
+
+function ceCaptureIdle(){
+  ceIdle = ceLastBuf.slice();
+  document.getElementById('ceIdleHex').textContent = ceIdle.map(ceHex).join(' ');
+  ceMsg('IDLE captured'); ceTryLearn();
+}
+function ceCapturePressed(){
+  cePress = ceLastBuf.slice();
+  document.getElementById('cePressHex').textContent = cePress.map(ceHex).join(' ');
+  ceMsg('PRESSED captured'); ceTryLearn();
+}
+function ceTryLearn(){
+  if(!ceIdle || !cePress) return;
+  var any=0;
+  for(var i=0;i<8;i++){
+    var mask = ceIdle[i] ^ cePress[i];
+    any |= mask;
+    document.getElementById('ceMsk'+i).value = ceHex(mask);
+    document.getElementById('ceVal'+i).value = ceHex(cePress[i] & mask);
+  }
+  ceMsg(any ? 'Auto-filled from changed bits — review and Save' : 'No bit changed — hold engage during PRESSED capture');
+}
+
+function ceSave(){
+  var vals=[], msks=[];
+  for(var i=0;i<8;i++){
+    vals.push(document.getElementById('ceVal'+i).value || '0');
+    msks.push(document.getElementById('ceMsk'+i).value || '0');
+  }
+  var url='/api/save?ceEnable='+(document.getElementById('ceEnable').checked?1:0)
+    +'&cePort='+document.getElementById('cePort').value
+    +'&ceExt='+document.getElementById('ceExt').value
+    +'&ceMode='+document.getElementById('ceMode').value
+    +'&ceId='+(document.getElementById('ceId').value||'0')
+    +'&ceVal='+vals.join(',')
+    +'&ceMsk='+msks.join(',');
+  fetch(url).then(function(r){
+    document.getElementById('sb').textContent = r.ok ? 'Custom engage saved – restarting...' : 'Error saving custom engage.';
+    configLoaded = false;
   });
 }
 
@@ -1545,6 +1673,7 @@ function gExportCsv(){
 
 gBuildRows();
 gCanvasInit();
+ceBuildRows();
 tick();
 restartTick();
 </script>
@@ -1795,7 +1924,18 @@ void handleApiStatus(EthernetClient& client)
     client.print(F("\"detected\":")); client.print(pvedValveDetected ? F("true") : F("false"));
     client.print(F(",\"last64007\":")); client.print(pvedLastRead64007);
     client.print(F(",\"factory64007\":")); client.print(moduleConfig.pvedParam64007Factory);
-    client.print(F("}}"));
+
+    client.print(F("},\"custEng\":{"));
+    client.print(F("\"enable\":")); client.print(moduleConfig.customEngageEnable);
+    client.print(F(",\"port\":")); client.print(moduleConfig.customEngageCanPort);
+    client.print(F(",\"ext\":")); client.print(moduleConfig.customEngageExt);
+    client.print(F(",\"mode\":")); client.print(moduleConfig.customEngageMode);
+    client.print(F(",\"id\":")); client.print(moduleConfig.customEngageId);
+    client.print(F(",\"match\":["));
+    for (uint8_t i = 0; i < 8; i++) { if (i) client.print(','); client.print(moduleConfig.customEngageMatch[i]); }
+    client.print(F("],\"mask\":["));
+    for (uint8_t i = 0; i < 8; i++) { if (i) client.print(','); client.print(moduleConfig.customEngageMask[i]); }
+    client.print(F("]}}"));
 }
 
 // ── Graph: signal value lookup (IDs must match JS dropdown) ──────────────────
@@ -2036,6 +2176,14 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"hitch\":")); client.print(ISORearHitch);
     client.print(F(",\"intend\":")); client.print(canSteerIntend ? F("true") : F("false"));
     client.print(F(",\"showData\":")); client.print(showCANData ? F("true") : F("false"));
+    // Custom engage live + AOG steer state
+    client.print(F(",\"ceMatch\":")); client.print(customEngMatch ? F("true") : F("false"));
+    client.print(F(",\"ceSeen\":")); client.print(customEngSeen ? F("true") : F("false"));
+    client.print(F(",\"ceBuf\":["));
+    for (uint8_t i = 0; i < 8; i++) { if (i) client.print(','); client.print(customEngLastBuf[i]); }
+    client.print(F("]"));
+    client.print(F(",\"aogGuidance\":")); client.print(guidanceStatus);
+    client.print(F(",\"aogSteerSw\":")); client.print(steerSwitch);
     client.print(F(",\"kp\":")); client.print(steerSettings.Kp);
     client.print(F(",\"hiPWM\":")); client.print(steerSettings.highPWM);
     client.print(F(",\"loPWM\":")); client.print(steerSettings.lowPWM);
@@ -2365,6 +2513,25 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "tm171Serial="))   != NULL) { moduleConfig.tm171Serial    = (uint8_t)atoi(p + 12); needRestart = true; }
     if ((p = strstr(req, "tm171Baud="))     != NULL) { moduleConfig.tm171Baud      = (uint32_t)atol(p + 10); needRestart = true; }
     if ((p = strstr(req, "gpsBaudR="))      != NULL) { moduleConfig.gpsBaud        = (uint32_t)atol(p + 9);  needRestart = true; }
+    if ((p = strstr(req, "ceEnable="))      != NULL) { moduleConfig.customEngageEnable  = (uint8_t)atoi(p + 9);  needRestart = true; }
+    if ((p = strstr(req, "cePort="))        != NULL) { moduleConfig.customEngageCanPort = (uint8_t)atoi(p + 7);  needRestart = true; }
+    if ((p = strstr(req, "ceExt="))         != NULL) moduleConfig.customEngageExt  = (uint8_t)atoi(p + 6);
+    if ((p = strstr(req, "ceMode="))        != NULL) moduleConfig.customEngageMode = (uint8_t)atoi(p + 7);
+    if ((p = strstr(req, "ceId="))          != NULL) moduleConfig.customEngageId   = (uint32_t)strtoul(p + 5, NULL, 16);
+    if ((p = strstr(req, "ceVal=")) != NULL) {        // 8 hex bytes, comma-separated
+        const char* q = p + 6;
+        for (uint8_t i = 0; i < 8 && q && *q; i++) {
+            moduleConfig.customEngageMatch[i] = (uint8_t)strtoul(q, NULL, 16);
+            q = strchr(q, ','); if (q) q++;
+        }
+    }
+    if ((p = strstr(req, "ceMsk=")) != NULL) {
+        const char* q = p + 6;
+        for (uint8_t i = 0; i < 8 && q && *q; i++) {
+            moduleConfig.customEngageMask[i] = (uint8_t)strtoul(q, NULL, 16);
+            q = strchr(q, ','); if (q) q++;
+        }
+    }
     if ((p = strstr(req, "j19Addr="))     != NULL) moduleConfig.j1939SrcAddr    = (uint8_t)atoi(p + 9);
     if ((p = strstr(req, "j19En65267="))  != NULL) moduleConfig.j1939En65267    = (uint8_t)atoi(p + 12);
     if ((p = strstr(req, "j19R65267="))   != NULL) moduleConfig.j1939Rate65267  = (uint16_t)atoi(p + 11);

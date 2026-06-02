@@ -286,6 +286,7 @@ void autosteerLoop()
       ISO_Receive();
       KBus_Receive();
   }
+  CustomEngage_Receive();
 
   // Loop triggers every 100 msec and sends back gyro heading, and roll, steer angle etc
   currentTime = systick_millis_count;
