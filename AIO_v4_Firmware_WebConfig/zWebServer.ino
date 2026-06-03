@@ -473,7 +473,10 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed auto-zero is completely blocked. Prevents false corrections when stationary.</p>
 <div class="row"><span class="lbl">Max yaw rate deg/s <small style="color:#64748b">(def 0.3)</small></span>
 <input type="number" id="kw7" min="0.05" max="5" step="0.05" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">GPS heading rate threshold. If heading changes faster than this, the tractor is considered turning — auto-zero pauses. Lower = stricter straight detection.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Yaw rate threshold for "driving straight". Applies to GPS course rate, and to the chassis IMU rate if enabled below. Lower = stricter.</p>
+<div class="chk-row" style="padding:2px 0">
+<input type="checkbox" id="kwImu"><label for="kwImu" style="cursor:pointer">Also require chassis IMU yaw rate stable</label></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Adds the onboard IMU gyro as a second "straight" check (in addition to GPS course). Helps at low speed where GPS course is noisy. Requires an active IMU.</p>
 <div class="row"><span class="lbl">Speed slow threshold km/h <small style="color:#64748b">(def 3)</small></span>
 <input type="number" id="kw8" min="0" max="25" step="1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed the slow straight-time applies. Longer wait at low speed reduces false corrections on headland turns.</p>
@@ -937,6 +940,7 @@ function upd(d) {
     document.getElementById('kw7').value   = d.keya_was.azYawMax;
     document.getElementById('kw8').value   = d.keya_was.azSpeedSlow;
     document.getElementById('kw9').value   = d.keya_was.azSpeedFast;
+    document.getElementById('kwImu').checked = !!d.keya_was.azUseImu;
     document.getElementById('kwwb').value  = d.keya_was.wheelBase;
     document.getElementById('ksgDz').value = d.keya_was.deadZone;
     document.getElementById('ksgL').value  = d.keya_was.ticksLeft;
@@ -1252,6 +1256,7 @@ function saveKeyaWas() {
     + '&keyaAzYawMax='+ document.getElementById('kw7').value
     + '&keyaAzVslow=' + document.getElementById('kw8').value
     + '&keyaAzVfast=' + document.getElementById('kw9').value
+    + '&keyaAzUseImu=' + (document.getElementById('kwImu').checked ? 1 : 0)
     + '&keyaAzTslow=' + document.getElementById('kw10').value
     + '&keyaAzTfast=' + document.getElementById('kw11').value
     + '&wheelBase='   + document.getElementById('kwwb').value;
@@ -1932,6 +1937,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"azYawMax\":")); client.print(moduleConfig.keyaAzYawMax, 2);
     client.print(F(",\"azSpeedSlow\":")); client.print(moduleConfig.keyaAzSpeedSlow);
     client.print(F(",\"azSpeedFast\":")); client.print(moduleConfig.keyaAzSpeedFast, 1);
+    client.print(F(",\"azUseImu\":")); client.print(moduleConfig.keyaAzUseImu);
     client.print(F(",\"azTimeSlowMs\":")); client.print(moduleConfig.keyaAzTimeSlowMs);
     client.print(F(",\"azTimeFastMs\":")); client.print(moduleConfig.keyaAzTimeFastMs);
     client.print(F(",\"emaAlpha\":")); client.print(moduleConfig.keyaEmaAlpha, 3);
@@ -2590,6 +2596,7 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "keyaAzYawMax=")) != NULL) moduleConfig.keyaAzYawMax    = atof(p + 13);
     if ((p = strstr(req, "keyaAzVslow="))  != NULL) moduleConfig.keyaAzSpeedSlow = (uint8_t)atoi(p + 12);
     if ((p = strstr(req, "keyaAzVfast="))  != NULL) moduleConfig.keyaAzSpeedFast = atof(p + 12);
+    if ((p = strstr(req, "keyaAzUseImu=")) != NULL) moduleConfig.keyaAzUseImu    = (uint8_t)atoi(p + 13);
     if ((p = strstr(req, "keyaAzTslow="))  != NULL) moduleConfig.keyaAzTimeSlowMs = (uint16_t)atoi(p + 12);
     if ((p = strstr(req, "keyaAzTfast="))  != NULL) moduleConfig.keyaAzTimeFastMs = (uint16_t)atoi(p + 12);
     if ((p = strstr(req, "keyaEmaA="))     != NULL) moduleConfig.keyaEmaAlpha      = atof(p + 9);

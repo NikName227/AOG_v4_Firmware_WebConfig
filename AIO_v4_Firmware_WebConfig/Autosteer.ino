@@ -594,7 +594,25 @@ void autosteerLoop()
 
         if (moduleConfig.keyaAzEnable && gpsSpeed >= moduleConfig.keyaAzSpeedMin)
         {
-            bool isStable = ((float)abs(headingRate) <= moduleConfig.keyaAzYawMax);
+            // GPS course yaw rate (always) + optional chassis IMU gyro yaw rate
+            bool gpsStable = ((float)abs(headingRate) <= moduleConfig.keyaAzYawMax);
+
+            bool imuStable = true;
+            if (moduleConfig.keyaAzUseImu) {
+                // IMU yaw rate (deg/s) from chassis heading (yaw global, deg x10)
+                static float        azImuLastYaw = 0;
+                static elapsedMillis azImuTimer  = 0;
+                static bool         azImuInit    = false;
+                float dt = azImuTimer / 1000.0f; azImuTimer = 0;
+                if (dt < 0.005f) dt = 0.005f;
+                float curYaw = yaw / 10.0f;
+                float dY = curYaw - azImuLastYaw; azImuLastYaw = curYaw;
+                if (dY > 180) dY -= 360; if (dY < -180) dY += 360;
+                float imuYawRate = azImuInit ? fabs(dY) / dt : 0.0f;
+                azImuInit = true;
+                imuStable = (imuYawRate <= moduleConfig.keyaAzYawMax);
+            }
+            bool isStable = gpsStable && imuStable;
 
             // Linear time interpolation (Flodu model)
             float azTimeMs;
@@ -609,17 +627,26 @@ void autosteerLoop()
                          + t * ((float)moduleConfig.keyaAzTimeFastMs - (float)moduleConfig.keyaAzTimeSlowMs);
             }
 
+            // Average the WAS-vs-GPS difference over the whole stable window (Flodu model),
+            // then apply ONE correction from the mean → much less noise than instantaneous.
+            static double azDiffSum = 0;
+            static uint32_t azDiffCnt = 0;
             if (isStable) {
-                if (keyaStraightTimer > azTimeMs) {
-                    // Guidance-aware: slower correction when autosteer active (Flodu model)
+                if (keyaStraightTimer == 0 || azDiffCnt == 0) { azDiffSum = 0; azDiffCnt = 0; }
+                azDiffSum += (double)((rawAngle + keyaGpsOffset) - wheelAngleGPS);
+                azDiffCnt++;
+                if (keyaStraightTimer > azTimeMs && azDiffCnt > 0) {
+                    float meanDiff = (float)(azDiffSum / azDiffCnt);
                     float beta = (watchdogTimer < WATCHDOG_THRESHOLD)
                                  ? moduleConfig.keyaAzBeta * 0.2f
                                  : moduleConfig.keyaAzBeta;
-                    float wasDiff = (rawAngle + keyaGpsOffset) - wheelAngleGPS;
-                    keyaGpsOffset -= wasDiff * beta;
+                    keyaGpsOffset -= meanDiff * beta;
+                    azDiffSum = 0; azDiffCnt = 0;
+                    keyaStraightTimer = 0;   // restart window (acts as cooldown)
                 }
             } else {
                 keyaStraightTimer = 0;
+                azDiffSum = 0; azDiffCnt = 0;
             }
         }
 

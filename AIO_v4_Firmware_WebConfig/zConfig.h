@@ -9,7 +9,7 @@
 // addr 80  : ModuleConfig         (NEW)
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xC6   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xC7   // change to force EEPROM reset on next boot
 
 // IMU type
 #define IMU_AUTO    0   // auto-detect: RVC → I2C → TM171
@@ -94,6 +94,7 @@ struct ModuleConfig {
     float    keyaAzYawMax     = 0.3f;   // Flodu default — stricter straight detection
     uint8_t  keyaAzSpeedSlow  = 3;
     float    keyaAzSpeedFast  = 12.0f;  // above this → fast (timeFast) applies
+    uint8_t  keyaAzUseImu     = 0;      // also require chassis IMU yaw rate stable for auto-zero
     float    wheelBase        = 3.20f;  // tractor wheelbase (m) for GPS bicycle-model wheel angle
     uint16_t keyaAzTimeSlowMs = 500;
     uint16_t keyaAzTimeFastMs = 200;
