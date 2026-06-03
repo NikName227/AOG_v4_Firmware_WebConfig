@@ -830,7 +830,8 @@ function renderGroup(d) {
     h += lvRow('Detected', d.det ? 'YES' : 'NO');
     h += lvRow('Initial zero', d.zero ? 'DONE' : 'PENDING');
     h += lvRow('Encoder', d.enc + ' ticks');
-    h += '<div class="row"><span class="lbl">Rel position <button class="btn sm" onclick="fetch(\'/api/keyaposzero\')">Zero</button></span><span class="val">' + d.relPos.toFixed(2) + ' ° (' + d.relTicks + ' ticks)</span></div>';
+    h += '<div class="row"><span class="lbl">Rel position <button class="btn sm" onclick="fetch(\'/api/keyaposzero\')">Zero</button></span><span class="val">' + d.relPos.toFixed(2) + ' ° wheel (' + d.relTicks + ' ticks)</span></div>';
+    h += lvRow('Steering wheel pos', d.swPos.toFixed(1) + ' ° (1:1 motor)');
     h += lvRow('Zero offset', d.zTicks + ' ticks');
     h += lvRow('GPS drift offset', d.off.toFixed(3) + ' °');
     h += lvRow('Actual speed', d.act);
@@ -1655,7 +1656,8 @@ var gSignals = [
  {id:36,n:'Perf loop time ms'},{id:37,n:'Perf loop max ms'},
  {id:38,n:'GPS GGA interval ms'},{id:39,n:'GPS VTG interval ms'},{id:40,n:'GPS HPR interval ms'},
  {id:41,n:'Gr5 current sensor (A17)'},{id:42,n:'Gr5 pressure sensor (A10)'},{id:43,n:'Gr5 sensor reading'},
- {id:44,n:'Gr4 Keya rel position (deg)'}
+ {id:44,n:'Gr4 Keya wheel pos (deg)'},
+ {id:45,n:'Gr4 Keya steering-wheel pos (deg)'}
 ];
 var gCol  = ['#4ade80','#38bdf8','#fbbf24','#f87171'];
 var gDef  = [27,28,22,11];
@@ -1704,8 +1706,8 @@ function gSet(){
     gMax[c]=parseFloat(document.getElementById('gmax'+c).value);
   }
   gRateMs=Math.round(1000/parseInt(document.getElementById('gFreq').value));
-  // zero Keya relative position if any channel plots it (signal 44)
-  if (gDef.indexOf(44) >= 0) fetch('/api/keyaposzero');
+  // zero Keya relative position if any channel plots it (signal 44/45)
+  if (gDef.indexOf(44) >= 0 || gDef.indexOf(45) >= 0) fetch('/api/keyaposzero');
   gData=[[],[],[],[]]; gTimes=[]; gClock=0; gView=null; gPaused=false;
   document.getElementById('gPauseBtn').textContent='Pause';
   fetch(gCfgUrl(!gLogging)).then(function(r){document.getElementById('sb').textContent=r.ok?'Graph set':'Graph error';});
@@ -2166,11 +2168,13 @@ float getSignalValue(uint8_t id)
     case 41: return (float)analogRead(CURRENT_SENSOR_PIN);
     case 42: return (float)analogRead(PRESSURE_SENSOR_PIN);
     case 43: return sensorReading;
-    // Keya relative position (since reference zeroed on view/graph start), degrees
+    // Keya relative position (since reference zeroed on view/graph start), wheel degrees
     case 44: {
         float tpd = (moduleConfig.keyaTicksPerDeg > 1.0f) ? moduleConfig.keyaTicksPerDeg : 24.0f;
         return (float)(keyaEncoderRaw - keyaPosRef) / tpd;
     }
+    // Keya steering-wheel position (relative), degrees — 65536 ticks = 1 motor turn = 360°
+    case 45: return (float)(keyaEncoderRaw - keyaPosRef) * 360.0f / 65536.0f;
     default: return 0;
     }
 }
@@ -2287,6 +2291,7 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"enc\":")); client.print(keyaEncoderRaw);
         client.print(F(",\"relTicks\":")); client.print(keyaEncoderRaw - keyaPosRef);
         client.print(F(",\"relPos\":")); client.print((keyaEncoderRaw - keyaPosRef) / ((moduleConfig.keyaTicksPerDeg > 1.0f) ? moduleConfig.keyaTicksPerDeg : 24.0f), 2);
+        client.print(F(",\"swPos\":")); client.print((keyaEncoderRaw - keyaPosRef) * 360.0f / 65536.0f, 1);
         client.print(F(",\"zTicks\":")); client.print(moduleConfig.keyaZeroTicks);
         client.print(F(",\"off\":")); client.print(keyaGpsOffset, 3);
         client.print(F(",\"act\":")); client.print(keyaCurrentActualSpeed);
