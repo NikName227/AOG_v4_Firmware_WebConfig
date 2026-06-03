@@ -425,6 +425,14 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 
 <div class="card">
+<h2>Keya WAS — auto-calibration <span style="color:#64748b;font-weight:normal;font-size:11px">(reference IMU)</span></h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Uses a wheel-mounted reference IMU (TM171 on ESP32, via the laptop bridge app) to auto-measure dead zone and per-side ticks/deg. The Teensy turns the steering motor itself — vehicle must be stationary, stands clear.</p>
+<div class="row"><span class="lbl">Reference IMU link</span><span id="calRefBadge" class="badge fail">--</span></div>
+<div class="row"><span class="lbl">Reference angle</span><span class="val" id="calRefAngle">—</span></div>
+<p style="color:#94a3b8;font-size:12px;margin:6px 0 0;line-height:1.3">Start the bridge app on the laptop (connect to ESP32 WiFi). When "Reference IMU link" shows OK, the motorized calibration can run. (Calibration controls added next step.)</p>
+</div>
+
+<div class="card">
 <h2>Keya encoder as WAS — parameters</h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">Activate by setting WAS source to "Keya encoder" above. Autosteer is locked until the first auto-zero completes (drive straight at &gt;2.5 km/h). ADS1115 settings in AgIO have no effect.</p>
 <div class="row"><span class="lbl">Ticks per degree <small style="color:#64748b">(def 24)</small></span>
@@ -1069,6 +1077,10 @@ function updLive(d) {
   badge('d_ads', d.ads); badge('d_imuWas', d.iWas); badge('d3', d.keya);
 
   badge('k_det',  d.keya); badge('k_zero', d.kZero);
+  var rb = document.getElementById('calRefBadge');
+  if (rb) { rb.className = 'badge ' + (d.refFresh ? 'ok' : 'fail'); rb.textContent = d.refFresh ? 'OK' : '--'; }
+  var ra = document.getElementById('calRefAngle');
+  if (ra) ra.textContent = d.refFresh ? (d.refAngle.toFixed(2) + ' °') : '—';
   document.getElementById('k_enc').textContent  = d.kEnc + ' ticks';
   document.getElementById('k_off').textContent  = d.kOff.toFixed(3) + ' °';
   document.getElementById('kw_off').textContent = d.kOff.toFixed(3) + ' °';
@@ -2214,6 +2226,9 @@ void handleApiLive(EthernetClient& client)
     client.print(F("]"));
     client.print(F(",\"aogGuidance\":")); client.print(guidanceStatus);
     client.print(F(",\"aogSteerSw\":")); client.print(steerSwitch);
+    // Reference IMU (calib bridge)
+    client.print(F(",\"refAngle\":")); client.print(refWheelAngle, 2);
+    client.print(F(",\"refFresh\":")); client.print((refAngleTime < 1000 && refAngleValid) ? F("true") : F("false"));
     client.print(F(",\"kp\":")); client.print(steerSettings.Kp);
     client.print(F(",\"hiPWM\":")); client.print(steerSettings.highPWM);
     client.print(F(",\"loPWM\":")); client.print(steerSettings.lowPWM);

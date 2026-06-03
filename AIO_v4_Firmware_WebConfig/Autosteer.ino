@@ -983,6 +983,13 @@ void ReceiveUdp()
                 steerConfigInit();
 
             }//end FB
+            else if (autoSteerUdpData[3] == 0xD6)  // 214 — reference wheel angle (calib bridge)
+            {
+                int16_t a = (int16_t)(autoSteerUdpData[5] | (autoSteerUdpData[6] << 8));
+                refWheelAngle = a * 0.01f;            // deg
+                refAngleValid = (autoSteerUdpData[7] != 0);
+                refAngleTime  = 0;
+            }
             else if (autoSteerUdpData[3] == 200) // Hello from AgIO
             {
                 if(Autosteer_running)

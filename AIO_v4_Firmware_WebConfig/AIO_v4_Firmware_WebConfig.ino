@@ -141,6 +141,11 @@ bool          hprCutoffActive = false;  // true when lost >10s, fixQuality force
 elapsedMillis hprLostTimer    = 0;      // time since RTK fix was lost
 int           mainFixQuality  = 0;      // raw fix quality from main antenna GGA (before override)
 
+// ── Reference wheel angle (external IMU via calib bridge, PGN 0xD6) ───────────
+float         refWheelAngle = 0.0f;   // degrees from bridge
+bool          refAngleValid = false;
+elapsedMillis refAngleTime  = 9999;   // ms since last reference packet
+
 // ── Custom CAN engage runtime state ──────────────────────────────────────────
 uint8_t  customEngLastBuf[8] = {0};  // last frame seen on configured ID (for Learn)
 bool     customEngSeen   = false;    // a frame with the configured ID has arrived
