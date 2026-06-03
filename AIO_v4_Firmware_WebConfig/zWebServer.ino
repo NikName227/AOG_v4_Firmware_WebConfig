@@ -750,6 +750,7 @@ function setGroup(n, btn) {
   btn.classList.add('on');
   document.getElementById('lvCard').style.display   = (n > 0) ? '' : 'none';
   document.getElementById('lvOffMsg').style.display = (n > 0) ? 'none' : '';
+  if (n === 4) fetch('/api/keyaposzero');   // zero relative position when entering Keya group
   if (n > 0) tick();   // immediate fetch
 }
 
@@ -829,6 +830,7 @@ function renderGroup(d) {
     h += lvRow('Detected', d.det ? 'YES' : 'NO');
     h += lvRow('Initial zero', d.zero ? 'DONE' : 'PENDING');
     h += lvRow('Encoder', d.enc + ' ticks');
+    h += '<div class="row"><span class="lbl">Rel position <button class="btn sm" onclick="fetch(\'/api/keyaposzero\')">Zero</button></span><span class="val">' + d.relPos.toFixed(2) + ' ° (' + d.relTicks + ' ticks)</span></div>';
     h += lvRow('Zero offset', d.zTicks + ' ticks');
     h += lvRow('GPS drift offset', d.off.toFixed(3) + ' °');
     h += lvRow('Actual speed', d.act);
@@ -1652,7 +1654,8 @@ var gSignals = [
  {id:32,n:'Gr6 valveReady'},{id:33,n:'Gr6 estCurve'},{id:34,n:'Gr6 setCurve'},{id:35,n:'Gr6 hitch'},
  {id:36,n:'Perf loop time ms'},{id:37,n:'Perf loop max ms'},
  {id:38,n:'GPS GGA interval ms'},{id:39,n:'GPS VTG interval ms'},{id:40,n:'GPS HPR interval ms'},
- {id:41,n:'Gr5 current sensor (A17)'},{id:42,n:'Gr5 pressure sensor (A10)'},{id:43,n:'Gr5 sensor reading'}
+ {id:41,n:'Gr5 current sensor (A17)'},{id:42,n:'Gr5 pressure sensor (A10)'},{id:43,n:'Gr5 sensor reading'},
+ {id:44,n:'Gr4 Keya rel position (deg)'}
 ];
 var gCol  = ['#4ade80','#38bdf8','#fbbf24','#f87171'];
 var gDef  = [27,28,22,11];
@@ -1701,6 +1704,8 @@ function gSet(){
     gMax[c]=parseFloat(document.getElementById('gmax'+c).value);
   }
   gRateMs=Math.round(1000/parseInt(document.getElementById('gFreq').value));
+  // zero Keya relative position if any channel plots it (signal 44)
+  if (gDef.indexOf(44) >= 0) fetch('/api/keyaposzero');
   gData=[[],[],[],[]]; gTimes=[]; gClock=0; gView=null; gPaused=false;
   document.getElementById('gPauseBtn').textContent='Pause';
   fetch(gCfgUrl(!gLogging)).then(function(r){document.getElementById('sb').textContent=r.ok?'Graph set':'Graph error';});
@@ -1917,6 +1922,7 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/gpsraw")      != NULL) handleApiGpsRaw(client, reqLine);
     else if (strstr(reqLine, "/api/gpscmd")      != NULL) handleApiGpsCmd(client, reqLine);
     else if (strstr(reqLine, "/api/gpsbaud")     != NULL) handleApiGpsBaud(client, reqLine);
+    else if (strstr(reqLine, "/api/keyaposzero") != NULL) { keyaPosRef = keyaEncoderRaw; sendHeaders(client, "text/plain"); client.print(F("OK")); }
     else if (strstr(reqLine, "/api/keyazero")    != NULL) handleApiKeyaZero(client);
     else if (strstr(reqLine, "/api/imuwaszero")  != NULL) handleApiImuWasZero(client);
     else if (strstr(reqLine, "/api/canraw")      != NULL) handleApiCanRaw(client, reqLine);
@@ -2160,6 +2166,11 @@ float getSignalValue(uint8_t id)
     case 41: return (float)analogRead(CURRENT_SENSOR_PIN);
     case 42: return (float)analogRead(PRESSURE_SENSOR_PIN);
     case 43: return sensorReading;
+    // Keya relative position (since reference zeroed on view/graph start), degrees
+    case 44: {
+        float tpd = (moduleConfig.keyaTicksPerDeg > 1.0f) ? moduleConfig.keyaTicksPerDeg : 24.0f;
+        return (float)(keyaEncoderRaw - keyaPosRef) / tpd;
+    }
     default: return 0;
     }
 }
@@ -2274,6 +2285,8 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F("{\"det\":")); client.print(keyaDetected ? F("true") : F("false"));
         client.print(F(",\"zero\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
         client.print(F(",\"enc\":")); client.print(keyaEncoderRaw);
+        client.print(F(",\"relTicks\":")); client.print(keyaEncoderRaw - keyaPosRef);
+        client.print(F(",\"relPos\":")); client.print((keyaEncoderRaw - keyaPosRef) / ((moduleConfig.keyaTicksPerDeg > 1.0f) ? moduleConfig.keyaTicksPerDeg : 24.0f), 2);
         client.print(F(",\"zTicks\":")); client.print(moduleConfig.keyaZeroTicks);
         client.print(F(",\"off\":")); client.print(keyaGpsOffset, 3);
         client.print(F(",\"act\":")); client.print(keyaCurrentActualSpeed);
@@ -2334,6 +2347,8 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"keya\":")); client.print(keyaDetected ? F("true") : F("false"));
     client.print(F(",\"kZero\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
     client.print(F(",\"kEnc\":")); client.print(keyaEncoderRaw);
+    client.print(F(",\"kRelTicks\":")); client.print(keyaEncoderRaw - keyaPosRef);
+    client.print(F(",\"kRelPos\":")); client.print((keyaEncoderRaw - keyaPosRef) / ((moduleConfig.keyaTicksPerDeg > 1.0f) ? moduleConfig.keyaTicksPerDeg : 24.0f), 2);
     client.print(F(",\"kOff\":")); client.print(keyaGpsOffset, 3);
     client.print(F(",\"ads\":")); client.print(adcConnected ? F("true") : F("false"));
     client.print(F(",\"iWas\":")); client.print((imuWasReceived && imuWasTimeout < 500) ? F("true") : F("false"));

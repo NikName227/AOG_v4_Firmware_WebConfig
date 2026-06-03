@@ -130,6 +130,7 @@ int16_t keyaCurrentActualSpeed = 0;
 
 // ── Keya encoder accumulator ──────────────────────────────────────────────────
 int32_t  keyaEncoderRaw      = 0;
+int32_t  keyaPosRef          = 0;   // reference for relative position (zeroed on view/graph start)
 uint16_t keyaEncPrev         = 0;
 bool     keyaEncInitDone     = false;
 bool     keyaInitialZeroDone = false;  // autosteer blocked until first auto-zero done
