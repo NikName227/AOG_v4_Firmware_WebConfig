@@ -56,6 +56,10 @@ void CAN_Setup()
         if (p == 3 && moduleConfig.can3Mode == CAN_MODE_OFF) { CanBus3.begin(); CanBus3.setBaudRate(moduleConfig.can3Baud); }
         Serial.printf("Custom engage: listening CAN%u id=0x%lX\n", p, (unsigned long)moduleConfig.customEngageId);
     }
+
+    // J1939 address claim for steer-ready tractors (announce module on the bus)
+    delay(300);
+    sendAddressClaim();
 }
 
 // ── Custom CAN engage — mask+match on a user-defined frame ───────────────────

@@ -54,6 +54,38 @@ static const uint32_t ISO_ENGAGE_ID[10] = {
     0,            // 9 Cat MT Early  — V_Bus
 };
 
+// ── J1939 address claim (steer-ready tractors expect the module to announce) ──
+// Source address per brand; NAME broadcast on V_Bus + ISO_Bus at startup.
+static const uint8_t BRAND_SRC_ADDR[10] = {
+    0x1E,  // 0 Claas
+    0x1C,  // 1 Valtra/Massey/McCormick/MF
+    0xAA,  // 2 CaseIH/New Holland
+    0x2C,  // 3 Fendt
+    0xAB,  // 4 JCB
+    0x2C,  // 5 FendtOne
+    0xF0,  // 6 Lindner
+    0x1C,  // 7 AgOpenGPS
+    0x1C,  // 8 Cat MT Late
+    0x2C,  // 9 Cat MT Early
+};
+
+void sendAddressClaim()
+{
+    if (moduleConfig.steerBrand > 9) return;
+    if (!hasFuncMode(CAN_MODE_VBUS) && !hasFuncMode(CAN_MODE_ISO)) return;  // steer-ready only
+
+    CAN_message_t msg;
+    msg.id = 0x18EEFF00UL | BRAND_SRC_ADDR[moduleConfig.steerBrand];
+    msg.flags.extended = true;
+    msg.len = 8;
+    static const uint8_t name[8] = { 0x00, 0x00, 0xC0, 0x0C, 0x00, 0x17, 0x02, 0x20 };
+    memcpy(msg.buf, name, 8);
+
+    if (hasFuncMode(CAN_MODE_VBUS)) canWrite(CAN_MODE_VBUS, msg);
+    if (hasFuncMode(CAN_MODE_ISO))  canWrite(CAN_MODE_ISO,  msg);
+    Serial.printf("J1939 address claim sent: SA=0x%02X\n", BRAND_SRC_ADDR[moduleConfig.steerBrand]);
+}
+
 // ── PVED tool runtime state ────────────────────────────────────────────────────
 bool     pvedValveDetected = false;
 uint16_t pvedLastRead64007 = 0xFFFF;  // most recent value received from valve
