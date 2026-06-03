@@ -540,7 +540,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <h2>Keya wheel test <span style="color:#64748b;font-weight:normal;font-size:11px">— stationary only</span></h2>
 <p style="color:#f59e0b;font-size:12px;margin-bottom:8px;line-height:1.3">&#9888; Turns the wheel. Vehicle stationary, hand ready. <b>Hold</b> a button to turn, release to stop. Speed-controlled motor — the wheel keeps turning while held, so use a low speed.</p>
 <div class="row"><span class="lbl">Speed <small style="color:#64748b">(0-250, slow=30-60)</small></span>
-<input type="number" id="kcTestSpeed" min="0" max="250" step="10" value="40" class="ninput"></div>
+<input type="number" id="kcTestSpeed" min="0" max="250" step="10" value="50" class="ninput"></div>
 <div style="display:flex;gap:8px;margin-top:8px">
 <button class="btn" id="kcLeftBtn">◀ Left (hold)</button>
 <button class="btn" id="kcRightBtn">Right ▶ (hold)</button>
