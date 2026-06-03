@@ -98,6 +98,9 @@ void KeyaBus_Receive()
     CAN_message_t msg;
     while (canRead(CAN_MODE_KEYA, msg))
     {
+        // Keya config response (param dump on enter config)
+        if (msg.id == 0x181) { keyaCfgParse(msg); continue; }
+
         // Heartbeat
         if (msg.id == 0x07000001)
         {

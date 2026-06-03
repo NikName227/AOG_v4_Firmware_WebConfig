@@ -398,7 +398,12 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <!-- KEYA TAB -->
 <div id="keya" class="panel">
+<div class="lvtoggle">
+<button class="subtab on" id="kyTuningTab" onclick="kyShow('tuning')">Tuning</button>
+<button class="subtab" id="kyMotorTab" onclick="kyShow('motor')">Motor Config</button>
+</div>
 
+<div id="keyaTuning">
 <div class="card">
 <h2>Keya status</h2>
 <div class="row"><span class="lbl">Detected</span><span id="k_det" class="badge fail">--</span></div>
@@ -509,6 +514,40 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How long set and actual motor speed must disagree in direction before autosteer is cut. Shorter = more sensitive.</p>
 <button class="btn green" onclick="saveKeya()" style="margin-top:8px">Save Keya params</button>
 </div>
+</div><!-- /keyaTuning -->
+
+<div id="keyaMotorCfg" style="display:none">
+<div class="card">
+<h2>Keya motor parameters <span style="color:#64748b;font-weight:normal;font-size:11px">— writes to the motor over CAN</span></h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Reads/writes parameters in the Keya drive. Requires a CAN port set to "Keya motor". Click <b>Read</b> first, edit a value, <b>Write</b> (to RAM), then <b>Store EEPROM</b> to make it permanent.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+<button class="btn" onclick="kcCmd('enter')">Read params</button>
+<button class="btn green" onclick="kcCmd('store')">Store EEPROM</button>
+<button class="btn" onclick="kcCmd('exit')">Exit config</button>
+<span id="kcMode" class="badge fail" style="align-self:center">OUT</span>
+</div>
+<table style="width:100%;border-collapse:collapse;font-size:13px">
+<tr style="color:#64748b;font-size:11px"><th style="text-align:left;padding:3px 6px">Parameter</th><th style="padding:3px 6px">RAM</th><th style="padding:3px 6px">ROM</th><th style="padding:3px 6px">New</th><th></th></tr>
+<tr style="border-top:1px solid #1e293b"><td style="padding:4px 6px">Max Current (A)</td><td style="text-align:center" id="kcRam0">-</td><td style="text-align:center" id="kcRom0">-</td><td style="text-align:center"><input type="number" id="kcNew0" min="1" max="60" class="ninput" style="width:60px"></td><td><button class="btn sm" onclick="kcWrite(3,'kcNew0')">Write</button></td></tr>
+<tr style="border-top:1px solid #1e293b"><td style="padding:4px 6px">Speed Kp</td><td style="text-align:center" id="kcRam1">-</td><td style="text-align:center" id="kcRom1">-</td><td style="text-align:center"><input type="number" id="kcNew1" min="0" max="255" class="ninput" style="width:60px"></td><td><button class="btn sm" onclick="kcWrite(7,'kcNew1')">Write</button></td></tr>
+<tr style="border-top:1px solid #1e293b"><td style="padding:4px 6px">Speed Ki</td><td style="text-align:center" id="kcRam2">-</td><td style="text-align:center" id="kcRom2">-</td><td style="text-align:center"><input type="number" id="kcNew2" min="0" max="255" class="ninput" style="width:60px"></td><td><button class="btn sm" onclick="kcWrite(8,'kcNew2')">Write</button></td></tr>
+<tr style="border-top:1px solid #1e293b"><td style="padding:4px 6px">CAN bitrate</td><td style="text-align:center" id="kcRam3">-</td><td style="text-align:center" id="kcRom3">-</td><td style="text-align:center"><select id="kcNew3" style="min-width:0;width:80px"><option value="1">125k</option><option value="2">250k</option><option value="3">500k</option><option value="4">1M</option></select></td><td><button class="btn sm" onclick="kcWriteSel(21,'kcNew3')">Write</button></td></tr>
+</table>
+<p style="color:#f59e0b;font-size:12px;margin:8px 0 0;line-height:1.3">&#9888; CAN bitrate: after Store + motor reboot the drive talks at the new speed — set the matching baud in Config → CAN port assignment, or you lose comms.</p>
+</div>
+
+<div class="card">
+<h2>Keya wheel test <span style="color:#64748b;font-weight:normal;font-size:11px">— stationary only</span></h2>
+<p style="color:#f59e0b;font-size:12px;margin-bottom:8px;line-height:1.3">&#9888; Turns the wheel. Vehicle stationary, hand ready. Each press sends one short command (motor stops on no-command).</p>
+<div class="row"><span class="lbl">Speed <small style="color:#64748b">(0-250)</small></span>
+<input type="number" id="kcTestSpeed" min="0" max="250" step="10" value="100" class="ninput"></div>
+<div style="display:flex;gap:8px;margin-top:8px">
+<button class="btn" onclick="kcTest('L')">◀ Left</button>
+<button class="btn" onclick="kcTest('R')">Right ▶</button>
+<button class="btn red" onclick="kcCmd('disable')">Disable</button>
+</div>
+</div>
+</div><!-- /keyaMotorCfg -->
 
 </div><!-- /keya -->
 
@@ -1014,6 +1053,26 @@ function saveKeyaGeom() {
   });
 }
 
+function kyShow(m) {
+  document.getElementById('keyaTuning').style.display   = (m === 'tuning') ? '' : 'none';
+  document.getElementById('keyaMotorCfg').style.display = (m === 'motor')  ? '' : 'none';
+  document.getElementById('kyTuningTab').classList.toggle('on', m === 'tuning');
+  document.getElementById('kyMotorTab').classList.toggle('on', m === 'motor');
+}
+function kcCmd(c) { fetch('/api/keyacfg?cmd=' + c); }
+function kcWrite(id, fld) {
+  var v = document.getElementById(fld).value;
+  if (v === '') return;
+  fetch('/api/keyacfg?cmd=write&id=' + id + '&val=' + v);
+}
+function kcWriteSel(id, fld) {
+  fetch('/api/keyacfg?cmd=write&id=' + id + '&val=' + document.getElementById(fld).value);
+}
+function kcTest(dir) {
+  var sp = document.getElementById('kcTestSpeed').value;
+  fetch('/api/keyacfg?cmd=test&dir=' + dir + '&speed=' + sp);
+}
+
 function calStartBtn() {
   if (!confirm('The steering motor will turn by itself. Vehicle stationary, stand clear, hand on wheel. Start calibration?')) return;
   var sp = document.getElementById('calSpeed').value;
@@ -1113,6 +1172,15 @@ function updLive(d) {
     document.getElementById('calTpd').textContent = d.calTpd > 0 ? d.calTpd.toFixed(1) : '—';
     var ab = document.getElementById('calApplyBtn');
     if (ab) ab.style.display = (d.calState === 6) ? '' : 'none';
+  }
+  // Keya motor config
+  if (d.kcRam) {
+    var km = document.getElementById('kcMode');
+    if (km) { km.className = 'badge ' + (d.kcMode ? 'ok' : 'fail'); km.textContent = d.kcMode ? 'CONFIG' : 'OUT'; }
+    for (var ki = 0; ki < 4; ki++) {
+      var er = document.getElementById('kcRam' + ki); if (er) er.textContent = (d.kcRam[ki] < 0) ? '-' : d.kcRam[ki];
+      var eo = document.getElementById('kcRom' + ki); if (eo) eo.textContent = (d.kcRom[ki] < 0) ? '-' : d.kcRom[ki];
+    }
   }
   document.getElementById('k_enc').textContent  = d.kEnc + ' ticks';
   document.getElementById('k_off').textContent  = d.kOff.toFixed(3) + ' °';
@@ -1835,6 +1903,7 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/canscan")     != NULL) handleApiCanScan(client, reqLine);
     else if (strstr(reqLine, "/api/pved")        != NULL) handleApiPved(client, reqLine);
     else if (strstr(reqLine, "/api/calib")       != NULL) handleApiCalib(client, reqLine);
+    else if (strstr(reqLine, "/api/keyacfg")     != NULL) handleApiKeyaCfg(client, reqLine);
     else if (Autosteer_running && watchdogTimer < WATCHDOG_THRESHOLD) {
         client.println(F("HTTP/1.1 503 Service Unavailable\r\n"
                          "Content-Type: text/plain\r\n"
@@ -2272,6 +2341,12 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"calTL\":")); client.print(calResTL, 1);
     client.print(F(",\"calTR\":")); client.print(calResTR, 1);
     client.print(F(",\"calTpd\":")); client.print(calResTpd, 1);
+    client.print(F(",\"kcMode\":")); client.print(keyaCfgMode ? F("true") : F("false"));
+    client.print(F(",\"kcRam\":["));
+    for (uint8_t i = 0; i < 4; i++) { if (i) client.print(','); client.print(keyaCfgRam[i]); }
+    client.print(F("],\"kcRom\":["));
+    for (uint8_t i = 0; i < 4; i++) { if (i) client.print(','); client.print(keyaCfgRom[i]); }
+    client.print(F("]"));
     client.print(F(",\"kp\":")); client.print(steerSettings.Kp);
     client.print(F(",\"hiPWM\":")); client.print(steerSettings.highPWM);
     client.print(F(",\"loPWM\":")); client.print(steerSettings.lowPWM);
@@ -2535,6 +2610,29 @@ void handleApiCalib(EthernetClient& client, const char* req)
     if      (strstr(req, "start") != NULL) calStart();
     else if (strstr(req, "abort") != NULL) calAbort();
     else if (strstr(req, "apply") != NULL) calApply();
+    sendHeaders(client, "text/plain");
+    client.print(F("OK"));
+}
+
+void handleApiKeyaCfg(EthernetClient& client, const char* req)
+{
+    const char* p;
+    if      (strstr(req, "cmd=enter")   != NULL) keyaCfgEnter();
+    else if (strstr(req, "cmd=exit")    != NULL) keyaCfgExit();
+    else if (strstr(req, "cmd=store")   != NULL) keyaCfgStore();
+    else if (strstr(req, "cmd=disable") != NULL) keyaCfgTestStop();
+    else if (strstr(req, "cmd=write")   != NULL) {
+        uint8_t id = 0, val = 0;
+        if ((p = strstr(req, "id="))  != NULL) id  = (uint8_t)atoi(p + 3);
+        if ((p = strstr(req, "val=")) != NULL) val = (uint8_t)atoi(p + 4);
+        if (id) keyaCfgWrite(id, val);
+    }
+    else if (strstr(req, "cmd=test")    != NULL) {
+        int8_t dir = (strstr(req, "dir=L") != NULL) ? -1 : +1;
+        int16_t sp = 0;
+        if ((p = strstr(req, "speed=")) != NULL) sp = (int16_t)atoi(p + 6);
+        keyaCfgTest(dir, sp);
+    }
     sendHeaders(client, "text/plain");
     client.print(F("OK"));
 }
