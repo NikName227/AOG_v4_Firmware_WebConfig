@@ -9,7 +9,7 @@
 // addr 80  : ModuleConfig         (NEW)
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xC4   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xC5   // change to force EEPROM reset on next boot
 
 // IMU type
 #define IMU_AUTO    0   // auto-detect: RVC → I2C → TM171
@@ -98,6 +98,10 @@ struct ModuleConfig {
     uint16_t keyaAzTimeSlowMs = 500;
     uint16_t keyaAzTimeFastMs = 200;
     float    keyaEmaAlpha     = 0.0f;
+    // ── Keya steering geometry (hydraulic backlash + asymmetry) ─────────────────
+    float    keyaDeadZone     = 0.0f;   // backlash on direction reversal (steering-wheel deg)
+    float    keyaLeftRatio    = 1.0f;   // angle scale when steering left
+    float    keyaRightRatio   = 1.0f;   // angle scale when steering right
     // ── J1939 / NMEA 2000 GPS broadcast ─────────────────────────────────────
     uint8_t  j1939SrcAddr    = 0x1E;  // J1939 source address (30 = default AIO)
     uint8_t  j1939En65267    = 1;     // enable PGN 65267/65256 (position + direction)

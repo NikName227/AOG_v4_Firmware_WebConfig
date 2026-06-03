@@ -565,8 +565,23 @@ void autosteerLoop()
 
         // Cumulative int32 encoder — invert then subtract zero
         int32_t deltaTicks = keyaEncoderRaw - moduleConfig.keyaZeroTicks;
-        float rawAngle = (moduleConfig.keyaEncInvert ? -(float)deltaTicks : (float)deltaTicks)
+        float encAngle = (moduleConfig.keyaEncInvert ? -(float)deltaTicks : (float)deltaTicks)
                          / moduleConfig.keyaTicksPerDeg;
+
+        // ── Hydraulic backlash (dead zone) — freeze output during reversal play ──
+        static float backOut = 0.0f;
+        float dz = moduleConfig.keyaDeadZone;
+        if (dz > 0.01f) {
+            if      (encAngle > backOut + dz * 0.5f) backOut = encAngle - dz * 0.5f;
+            else if (encAngle < backOut - dz * 0.5f) backOut = encAngle + dz * 0.5f;
+            // else: within backlash band → backOut unchanged (output frozen)
+        } else {
+            backOut = encAngle;
+        }
+
+        // ── Left/right asymmetry compensation ──────────────────────────────────
+        float rawAngle = (backOut >= 0.0f) ? backOut * moduleConfig.keyaRightRatio
+                                           : backOut * moduleConfig.keyaLeftRatio;
 
         if (moduleConfig.keyaAzEnable && gpsSpeed >= moduleConfig.keyaAzSpeedMin)
         {
