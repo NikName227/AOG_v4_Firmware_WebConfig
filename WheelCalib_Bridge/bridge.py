@@ -32,7 +32,7 @@ TEENSY_PORT    = 8888          # Teensy autosteer UDP port
 TEENSY_IP_DEF  = "192.168.5.126"
 PGN_REF        = 0xD6          # reference wheel angle PGN
 
-state = {"roll": 0.0, "pitch": 0.0, "yaw": 0.0, "fresh": 0, "last": 0.0}
+state = {"roll": 0.0, "pitch": 0.0, "yaw": 0.0, "imuOk": 0, "last": 0.0}
 running = True
 
 
@@ -54,7 +54,7 @@ def rx_thread():
                 state["roll"]  = float(p[0])
                 state["pitch"] = float(p[1])
                 state["yaw"]   = float(p[2])
-                state["fresh"] = int(p[3])
+                state["imuOk"] = int(p[3])     # 1=real TM171, 0=simulated/no IMU
                 state["last"]  = time.time()
         except socket.timeout:
             pass
@@ -94,6 +94,8 @@ class App:
 
         self.link = tk.Label(f, text="ESP link: --", font=("Consolas", 11))
         self.link.pack(anchor="w")
+        self.imu = tk.Label(f, text="IMU: --", font=("Consolas", 11, "bold"))
+        self.imu.pack(anchor="w")
 
         box = ttk.LabelFrame(f, text="Reference IMU (mount flat: roll & pitch ~ 0)", padding=8)
         box.pack(fill="x", pady=8)
@@ -120,17 +122,29 @@ class App:
 
     def update(self):
         age = time.time() - state["last"]
-        ok = age < 0.5 and state["fresh"]
-        self.link.config(text="ESP link: " + ("OK" if ok else "-- (connect to WheelCalib WiFi)"),
-                         fg=("#0a0" if ok else "#a00"))
+        link = age < 0.5                              # ESP packets arriving
+        imu  = link and state["imuOk"] == 1
+        self.link.config(text="ESP link: " + ("OK" if link else "-- (connect to WheelCalib WiFi)"),
+                         fg=("#0a0" if link else "#a00"))
+        if not link:
+            self.imu.config(text="IMU: --", fg="#a00")
+        elif imu:
+            self.imu.config(text="IMU: TM171 OK", fg="#0a0")
+        else:
+            self.imu.config(text="no IMU detected (simulated values)", fg="#c60")
+
         self.lr.config(text=f"Roll  : {state['roll']:+7.2f}")
         self.lp.config(text=f"Pitch : {state['pitch']:+7.2f}")
         relyaw = state["yaw"] - self.zero
         self.ly.config(text=f"Yaw   : {relyaw:+7.2f}  (ref)")
 
-        if self.fwd.get() and ok:
+        # Forward whenever the ESP link is up (real OR simulated). Send valid=1 so
+        # the AIO web GUI shows the value and the whole chain is verifiable even
+        # without an IMU; the bridge label above tells you if it's real or sim.
+        if self.fwd.get() and link:
             if send_to_teensy(self.ip.get().strip(), relyaw, True):
-                self.tx.config(text=f"TX: {relyaw:+.2f} deg -> {self.ip.get().strip()}")
+                self.tx.config(text=f"TX: {relyaw:+.2f} deg -> {self.ip.get().strip()}"
+                                    + ("" if imu else "  [SIM]"))
             else:
                 self.tx.config(text="TX: send error")
         else:

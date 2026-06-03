@@ -9,7 +9,12 @@
 // Board: any ESP32 dev board.
 // TM171: UART2  RX=GPIO16  TX=GPIO17  @115200  (adjust pins below if needed)
 // WiFi:  soft-AP  SSID "WheelCalib"  PASS "calib1234"  →  ESP IP 192.168.4.1
-// UDP:   broadcasts "roll,pitch,yaw,fresh\n" to 192.168.4.255:9000 @50 Hz
+// UDP:   broadcasts "roll,pitch,yaw,imuOk\n" to 192.168.4.255:9000 @50 Hz
+//        imuOk: 1 = real TM171, 0 = no IMU (slowly-varying simulated test values)
+//
+// No IMU yet? It streams simulated values so you can verify the whole pipeline
+// (ESP → bridge → Teensy → web GUI). To add a BNO085 instead of TM171, replace
+// parseTM() with a BNO reader and set roll/pitch/yaw + lastPkt.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <WiFi.h>
@@ -83,14 +88,32 @@ void setup() {
 }
 
 uint32_t lastSend = 0;
+bool     simNotified = false;
+
 void loop() {
     parseTM();
+    bool imuOk = (lastPkt != 0) && (millis() - lastPkt < 1000);
+
     if (millis() - lastSend >= 20) {        // 50 Hz
         lastSend = millis();
-        bool fresh = (millis() - lastPkt) < 500;
+
+        float oRoll = roll, oPitch = pitch, oYaw = yaw;
+        if (!imuOk) {
+            // No TM171 → emit slowly-varying test values so the whole pipeline
+            // (ESP → bridge → Teensy → web GUI) can be verified without an IMU.
+            float t = millis() / 1000.0f;
+            oRoll  =  2.0f * sinf(t * 0.50f);     // small wobble
+            oPitch =  1.5f * sinf(t * 0.30f);
+            oYaw   = 15.0f * sinf(t * 0.20f);     // bigger swing, easy to see
+            if (!simNotified) { Serial.println("no IMU detected - sending simulated values"); simNotified = true; }
+        } else {
+            simNotified = false;
+        }
+
         char msg[64];
+        // roll,pitch,yaw,imuOk   (imuOk 1=real TM171, 0=simulated/none)
         int n = snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f,%d\n",
-                         roll, pitch, yaw, fresh ? 1 : 0);
+                         oRoll, oPitch, oYaw, imuOk ? 1 : 0);
         udp.beginPacket(bcastIP, UDP_PORT);
         udp.write((const uint8_t*)msg, n);
         udp.endPacket();

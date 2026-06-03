@@ -29,7 +29,14 @@ python bridge.py
 
 Standard library only (uses `tkinter`). No pip installs.
 
+## No IMU yet?
+The ESP32 streams **simulated** slowly-varying values when no TM171 is detected,
+so you can verify the whole chain (ESP → bridge → Teensy → AIO web GUI) without an
+IMU. The bridge shows **"no IMU detected (simulated values)"** and the AIO reference
+field still moves. Connect a real TM171 (or add a BNO085 reader) for real data.
+
 ## Protocol
-- ESP32 → app (UDP :9000, broadcast): text `roll,pitch,yaw,fresh\n` at 50 Hz.
+- ESP32 → app (UDP :9000, broadcast): text `roll,pitch,yaw,imuOk\n` at 50 Hz
+  (`imuOk` 1 = real TM171, 0 = simulated / no IMU).
 - app → Teensy (UDP :8888): PGN `0xD6` = `80 81 7F D6 03 <angleLo> <angleHi> <valid> <crc>`,
   angle = int16 `yaw*100` (deg), crc = sum of bytes [2..N-2] & 0xFF.
