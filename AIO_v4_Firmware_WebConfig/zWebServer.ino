@@ -538,13 +538,13 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <div class="card">
 <h2>Keya wheel test <span style="color:#64748b;font-weight:normal;font-size:11px">— stationary only</span></h2>
-<p style="color:#f59e0b;font-size:12px;margin-bottom:8px;line-height:1.3">&#9888; Turns the wheel. Vehicle stationary, hand ready. Each press sends one short command (motor stops on no-command).</p>
-<div class="row"><span class="lbl">Speed <small style="color:#64748b">(0-250)</small></span>
-<input type="number" id="kcTestSpeed" min="0" max="250" step="10" value="100" class="ninput"></div>
+<p style="color:#f59e0b;font-size:12px;margin-bottom:8px;line-height:1.3">&#9888; Turns the wheel. Vehicle stationary, hand ready. <b>Hold</b> a button to turn, release to stop. Speed-controlled motor — the wheel keeps turning while held, so use a low speed.</p>
+<div class="row"><span class="lbl">Speed <small style="color:#64748b">(0-250, slow=30-60)</small></span>
+<input type="number" id="kcTestSpeed" min="0" max="250" step="10" value="40" class="ninput"></div>
 <div style="display:flex;gap:8px;margin-top:8px">
-<button class="btn" onclick="kcTest('L')">◀ Left</button>
-<button class="btn" onclick="kcTest('R')">Right ▶</button>
-<button class="btn red" onclick="kcCmd('disable')">Disable</button>
+<button class="btn" id="kcLeftBtn">◀ Left (hold)</button>
+<button class="btn" id="kcRightBtn">Right ▶ (hold)</button>
+<button class="btn red" onclick="kcStop()">Stop</button>
 </div>
 </div>
 </div><!-- /keyaMotorCfg -->
@@ -1068,9 +1068,28 @@ function kcWrite(id, fld) {
 function kcWriteSel(id, fld) {
   fetch('/api/keyacfg?cmd=write&id=' + id + '&val=' + document.getElementById(fld).value);
 }
-function kcTest(dir) {
-  var sp = document.getElementById('kcTestSpeed').value;
-  fetch('/api/keyacfg?cmd=test&dir=' + dir + '&speed=' + sp);
+var kcHoldTimer = null;
+function kcHoldStart(dir) {
+  kcHoldStop();
+  var send = function(){ fetch('/api/keyacfg?cmd=test&dir=' + dir + '&speed=' + document.getElementById('kcTestSpeed').value); };
+  send();
+  kcHoldTimer = setInterval(send, 100);   // refresh so the Keya keeps moving while held
+}
+function kcHoldStop() {
+  if (kcHoldTimer) { clearInterval(kcHoldTimer); kcHoldTimer = null; }
+}
+function kcStop() { kcHoldStop(); fetch('/api/keyacfg?cmd=disable'); }
+function kcBindHold() {
+  var l = document.getElementById('kcLeftBtn'), r = document.getElementById('kcRightBtn');
+  if (!l || !r) return;
+  [['L', l], ['R', r]].forEach(function(p) {
+    var dir = p[0], btn = p[1];
+    btn.addEventListener('mousedown',  function(e){ e.preventDefault(); kcHoldStart(dir); });
+    btn.addEventListener('touchstart', function(e){ e.preventDefault(); kcHoldStart(dir); }, {passive:false});
+    btn.addEventListener('mouseup',    function(){ kcStop(); });
+    btn.addEventListener('mouseleave', function(){ kcStop(); });
+    btn.addEventListener('touchend',   function(){ kcStop(); });
+  });
 }
 
 function calStartBtn() {
@@ -1815,6 +1834,7 @@ function gExportCsv(){
 gBuildRows();
 gCanvasInit();
 ceBuildRows();
+kcBindHold();
 tick();
 restartTick();
 </script>
