@@ -288,6 +288,12 @@ void autosteerLoop()
   }
   CustomEngage_Receive();
 
+  // Motorized calibration takes over the motor during active phases (sensors read above)
+  if (calState != CAL_IDLE && calState != CAL_DONE && calState != CAL_FAIL) {
+      calibrationLoop();
+      return;
+  }
+
   // Loop triggers every 100 msec and sends back gyro heading, and roll, steer angle etc
   currentTime = systick_millis_count;
 

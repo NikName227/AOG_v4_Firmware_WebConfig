@@ -429,7 +429,18 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">Uses a wheel-mounted reference IMU (TM171 on ESP32, via the laptop bridge app) to auto-measure dead zone and per-side ticks/deg. The Teensy turns the steering motor itself — vehicle must be stationary, stands clear.</p>
 <div class="row"><span class="lbl">Reference IMU link</span><span id="calRefBadge" class="badge fail">--</span></div>
 <div class="row"><span class="lbl">Reference angle</span><span class="val" id="calRefAngle">—</span></div>
-<p style="color:#94a3b8;font-size:12px;margin:6px 0 0;line-height:1.3">Start the bridge app on the laptop (connect to ESP32 WiFi). When "Reference IMU link" shows OK, the motorized calibration can run. (Calibration controls added next step.)</p>
+<p style="color:#f59e0b;font-size:12px;margin:6px 0 8px;line-height:1.3">&#9888; The Teensy turns the steering motor by itself. Vehicle stationary, stand clear, hand ready on the wheel. Aborts on steer switch / motion / lost reference.</p>
+<div class="row"><span class="lbl">Motor speed <small style="color:#64748b">(slow, def 25)</small></span>
+<input type="number" id="calSpeed" min="5" max="80" step="1" value="25" class="ninput"></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+<button class="btn green" onclick="calStartBtn()">Start calibration</button>
+<button class="btn red" onclick="calAbortBtn()">Abort</button>
+</div>
+<div class="row" style="margin-top:8px"><span class="lbl">State</span><span class="val" id="calState">idle</span></div>
+<div class="row"><span class="lbl">Measured dead zone</span><span class="val" id="calDz">—</span></div>
+<div class="row"><span class="lbl">Measured ticks/deg L | R</span><span class="val" id="calLR">—</span></div>
+<div class="row"><span class="lbl">Measured base ticks/deg</span><span class="val" id="calTpd">—</span></div>
+<button class="btn" id="calApplyBtn" onclick="calApplyBtn()" style="margin-top:8px;display:none">Apply &amp; save results</button>
 </div>
 
 <div class="card">
@@ -999,6 +1010,14 @@ function saveKeyaGeom() {
   });
 }
 
+function calStartBtn() {
+  if (!confirm('The steering motor will turn by itself. Vehicle stationary, stand clear, hand on wheel. Start calibration?')) return;
+  var sp = document.getElementById('calSpeed').value;
+  fetch('/api/calib?speed=' + sp + '&start');
+}
+function calAbortBtn() { fetch('/api/calib?abort'); }
+function calApplyBtn() { fetch('/api/calib?apply').then(function(){ configLoaded = false; }); }
+
 function saveKeya() {
   var url = '/api/save?keyaDis=' + (document.getElementById('kd0').checked ? 1 : 0)
           + '&keyaSet=' + document.getElementById('kd1').value
@@ -1081,6 +1100,16 @@ function updLive(d) {
   if (rb) { rb.className = 'badge ' + (d.refFresh ? 'ok' : 'fail'); rb.textContent = d.refFresh ? 'OK' : '--'; }
   var ra = document.getElementById('calRefAngle');
   if (ra) ra.textContent = d.refFresh ? (d.refAngle.toFixed(2) + ' °') : '—';
+  var csv = document.getElementById('calState');
+  if (csv && d.calMsg !== undefined) {
+    csv.textContent = d.calMsg;
+    csv.style.color = (d.calState === 7) ? '#f87171' : (d.calState === 6) ? '#4ade80' : '#e2e8f0';
+    document.getElementById('calDz').textContent  = d.calDz > 0 ? d.calDz.toFixed(2) + ' °' : '—';
+    document.getElementById('calLR').textContent  = (d.calTL > 0 || d.calTR > 0) ? (d.calTL.toFixed(1) + ' | ' + d.calTR.toFixed(1)) : '—';
+    document.getElementById('calTpd').textContent = d.calTpd > 0 ? d.calTpd.toFixed(1) : '—';
+    var ab = document.getElementById('calApplyBtn');
+    if (ab) ab.style.display = (d.calState === 6) ? '' : 'none';
+  }
   document.getElementById('k_enc').textContent  = d.kEnc + ' ticks';
   document.getElementById('k_off').textContent  = d.kOff.toFixed(3) + ' °';
   document.getElementById('kw_off').textContent = d.kOff.toFixed(3) + ' °';
@@ -1800,6 +1829,7 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/canraw")      != NULL) handleApiCanRaw(client, reqLine);
     else if (strstr(reqLine, "/api/canscan")     != NULL) handleApiCanScan(client, reqLine);
     else if (strstr(reqLine, "/api/pved")        != NULL) handleApiPved(client, reqLine);
+    else if (strstr(reqLine, "/api/calib")       != NULL) handleApiCalib(client, reqLine);
     else if (Autosteer_running && watchdogTimer < WATCHDOG_THRESHOLD) {
         client.println(F("HTTP/1.1 503 Service Unavailable\r\n"
                          "Content-Type: text/plain\r\n"
@@ -2229,6 +2259,13 @@ void handleApiLive(EthernetClient& client)
     // Reference IMU (calib bridge)
     client.print(F(",\"refAngle\":")); client.print(refWheelAngle, 2);
     client.print(F(",\"refFresh\":")); client.print((refAngleTime < 1000 && refAngleValid) ? F("true") : F("false"));
+    client.print(F(",\"calState\":")); client.print(calState);
+    client.print(F(",\"calMsg\":\"")); client.print(calMsg); client.print('"');
+    client.print(F(",\"calSpeed\":")); client.print(calSpeed);
+    client.print(F(",\"calDz\":")); client.print(calResDz, 2);
+    client.print(F(",\"calTL\":")); client.print(calResTL, 1);
+    client.print(F(",\"calTR\":")); client.print(calResTR, 1);
+    client.print(F(",\"calTpd\":")); client.print(calResTpd, 1);
     client.print(F(",\"kp\":")); client.print(steerSettings.Kp);
     client.print(F(",\"hiPWM\":")); client.print(steerSettings.highPWM);
     client.print(F(",\"loPWM\":")); client.print(steerSettings.lowPWM);
@@ -2477,6 +2514,21 @@ void handleApiPved(EthernetClient& client, const char* req)
     } else if (strstr(req, "cmd=restore") != NULL) {
         pvedRestoreParam64007();
     }
+    sendHeaders(client, "text/plain");
+    client.print(F("OK"));
+}
+
+void handleApiCalib(EthernetClient& client, const char* req)
+{
+    const char* p;
+    if ((p = strstr(req, "speed=")) != NULL) {
+        uint8_t s = (uint8_t)atoi(p + 6);
+        if (s < 5) s = 5; if (s > 80) s = 80;
+        calSpeed = s;
+    }
+    if      (strstr(req, "start") != NULL) calStart();
+    else if (strstr(req, "abort") != NULL) calAbort();
+    else if (strstr(req, "apply") != NULL) calApply();
     sendHeaders(client, "text/plain");
     client.print(F("OK"));
 }

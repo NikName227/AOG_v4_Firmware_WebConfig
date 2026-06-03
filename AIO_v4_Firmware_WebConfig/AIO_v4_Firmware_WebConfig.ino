@@ -146,6 +146,16 @@ float         refWheelAngle = 0.0f;   // degrees from bridge
 bool          refAngleValid = false;
 elapsedMillis refAngleTime  = 9999;   // ms since last reference packet
 
+// ── Keya WAS motorized auto-calibration ──────────────────────────────────────
+enum { CAL_IDLE=0, CAL_REACT, CAL_DEADZONE, CAL_RANGE_RIGHT, CAL_RETURN, CAL_RANGE_LEFT, CAL_DONE, CAL_FAIL };
+uint8_t  calState = CAL_IDLE;
+char     calMsg[48] = "idle";
+uint8_t  calSpeed   = 25;             // Keya drive speed during calibration (slow)
+float    calResDz   = 0.0f;           // measured results (review before apply)
+float    calResTL   = 0.0f;
+float    calResTR   = 0.0f;
+float    calResTpd  = 0.0f;
+
 // ── Custom CAN engage runtime state ──────────────────────────────────────────
 uint8_t  customEngLastBuf[8] = {0};  // last frame seen on configured ID (for Learn)
 bool     customEngSeen   = false;    // a frame with the configured ID has arrived
