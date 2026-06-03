@@ -417,7 +417,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Backlash on direction reversal — the WAS reading is frozen for this many degrees of free play, then resumes. On good tractors this is near zero. 0 = off. (Applied in WAS output degrees.)</p>
 <div class="row"><span class="lbl">Ticks/deg left <small style="color:#64748b">(0 = same as base)</small></span>
 <input type="number" id="ksgL" min="0" max="500" step="0.1" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Encoder ticks per degree when steering left. Leave 0 to use the base "Ticks per degree". Set only if left turns read differently than right (asymmetric cylinder). Measure: turn left a known angle, count tick change, divide.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Encoder ticks per degree when steering left. Leave 0 to use the base "Ticks per degree". Set only if left turns read differently than right (asymmetric cylinder). Measure: turn left a known angle, count tick change, divide. <b>Set Invert encoder first</b> — left/right follow the inverted direction.</p>
 <div class="row"><span class="lbl">Ticks/deg right <small style="color:#64748b">(0 = same as base)</small></span>
 <input type="number" id="ksgR" min="0" max="500" step="0.1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Encoder ticks per degree when steering right. Leave 0 to use the base value.</p>
@@ -432,7 +432,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Mechanical ratio: encoder ticks per degree of wheel steering. Turn wheel a known angle and count ticks to calibrate.</p>
 <div class="row"><span class="lbl">Invert encoder <small style="color:#64748b">(def OFF)</small></span>
 <input type="checkbox" id="kw2" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Flip encoder direction. Enable if turning right shows a negative angle.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Flips the Keya encoder direction. Enable if turning right shows a negative angle. <b>Note:</b> AgOpenGPS "Invert WAS" has NO effect on Keya — use this instead. Acts on the raw sensor (before left/right ticks), so set this FIRST; if you change it after setting per-side ticks, swap Ticks/deg left and right.</p>
 <div class="row"><span class="lbl">EMA filter alpha <small style="color:#64748b">(def 0.0 = off, 0.3 = medium)</small></span>
 <input type="number" id="kwema" min="0" max="0.99" step="0.01" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Exponential smoothing on WAS output. 0 = off, 0.3 = medium, 0.8 = heavy. Higher values reduce noise but add lag.</p>
