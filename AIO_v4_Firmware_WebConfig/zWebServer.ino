@@ -412,15 +412,15 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="card">
 <h2>Keya WAS — steering geometry</h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">Compensates hydraulic backlash on direction reversal and unequal left/right steering. Tune manually here, or use auto-calibration (coming next) with a wheel-mounted reference IMU.</p>
-<div class="row"><span class="lbl">Dead zone <small style="color:#64748b">(steering wheel °, def 0)</small></span>
-<input type="number" id="ksgDz" min="0" max="180" step="0.5" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Free play on the steering wheel when reversing direction — the wheels don't move until this much rotation is taken up. The WAS reading is frozen during this travel, then resumes. Mark the steering wheel and estimate how far it turns on reversal before the front wheels move. 0 = off.</p>
-<div class="row"><span class="lbl">Left steer ratio <small style="color:#64748b">(def 1.00)</small></span>
-<input type="number" id="ksgL" min="0.2" max="3" step="0.01" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Angle scale applied when steering left. Increase if left turns read too small. Compensates asymmetric cylinders.</p>
-<div class="row"><span class="lbl">Right steer ratio <small style="color:#64748b">(def 1.00)</small></span>
-<input type="number" id="ksgR" min="0.2" max="3" step="0.01" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Angle scale applied when steering right. Increase if right turns read too small.</p>
+<div class="row"><span class="lbl">Dead zone <small style="color:#64748b">(°, def 0)</small></span>
+<input type="number" id="ksgDz" min="0" max="180" step="0.01" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Backlash on direction reversal — the WAS reading is frozen for this many degrees of free play, then resumes. On good tractors this is near zero. 0 = off. (Applied in WAS output degrees.)</p>
+<div class="row"><span class="lbl">Ticks/deg left <small style="color:#64748b">(0 = same as base)</small></span>
+<input type="number" id="ksgL" min="0" max="500" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Encoder ticks per degree when steering left. Leave 0 to use the base "Ticks per degree". Set only if left turns read differently than right (asymmetric cylinder). Measure: turn left a known angle, count tick change, divide.</p>
+<div class="row"><span class="lbl">Ticks/deg right <small style="color:#64748b">(0 = same as base)</small></span>
+<input type="number" id="ksgR" min="0" max="500" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Encoder ticks per degree when steering right. Leave 0 to use the base value.</p>
 <button class="btn green" onclick="saveKeyaGeom()" style="margin-top:8px">Save geometry</button>
 </div>
 
@@ -920,8 +920,8 @@ function upd(d) {
     document.getElementById('kw9').value   = d.keya_was.azSpeedFast;
     document.getElementById('kwwb').value  = d.keya_was.wheelBase;
     document.getElementById('ksgDz').value = d.keya_was.deadZone;
-    document.getElementById('ksgL').value  = d.keya_was.leftRatio;
-    document.getElementById('ksgR').value  = d.keya_was.rightRatio;
+    document.getElementById('ksgL').value  = d.keya_was.ticksLeft;
+    document.getElementById('ksgR').value  = d.keya_was.ticksRight;
     document.getElementById('kw10').value  = d.keya_was.azTimeSlowMs;
     document.getElementById('kw11').value  = d.keya_was.azTimeFastMs;
     document.getElementById('can1Mode').value = d.cfg.can1Mode || 0;
@@ -984,8 +984,8 @@ function saveMotor() {
 
 function saveKeyaGeom() {
   var url = '/api/save?keyaDeadZone=' + document.getElementById('ksgDz').value
-          + '&keyaLeftRatio='  + document.getElementById('ksgL').value
-          + '&keyaRightRatio=' + document.getElementById('ksgR').value;
+          + '&keyaTicksLeft='  + document.getElementById('ksgL').value
+          + '&keyaTicksRight=' + document.getElementById('ksgR').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'Steering geometry saved.' : 'ERROR saving.';
   });
@@ -1897,8 +1897,8 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"gpsOffset\":")); client.print(keyaGpsOffset, 3);
     client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
     client.print(F(",\"deadZone\":")); client.print(moduleConfig.keyaDeadZone, 2);
-    client.print(F(",\"leftRatio\":")); client.print(moduleConfig.keyaLeftRatio, 3);
-    client.print(F(",\"rightRatio\":")); client.print(moduleConfig.keyaRightRatio, 3);
+    client.print(F(",\"ticksLeft\":")); client.print(moduleConfig.keyaTicksLeft, 1);
+    client.print(F(",\"ticksRight\":")); client.print(moduleConfig.keyaTicksRight, 1);
     client.print(F(",\"initialZeroDone\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
 
     client.print(F("},\"imu_was\":{"));
@@ -2527,9 +2527,9 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "keyaAzTfast="))  != NULL) moduleConfig.keyaAzTimeFastMs = (uint16_t)atoi(p + 12);
     if ((p = strstr(req, "keyaEmaA="))     != NULL) moduleConfig.keyaEmaAlpha      = atof(p + 9);
     if ((p = strstr(req, "wheelBase="))    != NULL) moduleConfig.wheelBase         = atof(p + 10);
-    if ((p = strstr(req, "keyaDeadZone=")) != NULL) moduleConfig.keyaDeadZone      = atof(p + 13);
-    if ((p = strstr(req, "keyaLeftRatio=")) != NULL) moduleConfig.keyaLeftRatio    = atof(p + 14);
-    if ((p = strstr(req, "keyaRightRatio=")) != NULL) moduleConfig.keyaRightRatio  = atof(p + 15);
+    if ((p = strstr(req, "keyaDeadZone=")) != NULL) moduleConfig.keyaDeadZone     = atof(p + 13);
+    if ((p = strstr(req, "keyaTicksLeft=")) != NULL) moduleConfig.keyaTicksLeft    = atof(p + 14);
+    if ((p = strstr(req, "keyaTicksRight=")) != NULL) moduleConfig.keyaTicksRight  = atof(p + 15);
     if ((p = strstr(req, "can2Baud="))     != NULL) {
         moduleConfig.can2Baud = (uint32_t)atol(p + 9);
         needRestart = true;
