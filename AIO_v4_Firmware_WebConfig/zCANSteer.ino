@@ -72,7 +72,11 @@ static const uint8_t BRAND_SRC_ADDR[10] = {
 void sendAddressClaim()
 {
     if (moduleConfig.steerBrand > 9) return;
-    if (!hasFuncMode(CAN_MODE_VBUS) && !hasFuncMode(CAN_MODE_ISO)) return;  // steer-ready only
+    // Only a true steer-ready setup (we drive the valve) announces itself as the
+    // navigation controller. With Keya/listen-only we must NOT claim — it would
+    // collide with the tractor's own controller address.
+    if (moduleConfig.wasSource != WAS_SOURCE_CAN_VALVE) return;
+    if (!hasFuncMode(CAN_MODE_VBUS) && !hasFuncMode(CAN_MODE_ISO)) return;
 
     CAN_message_t msg;
     msg.id = 0x18EEFF00UL | BRAND_SRC_ADDR[moduleConfig.steerBrand];
