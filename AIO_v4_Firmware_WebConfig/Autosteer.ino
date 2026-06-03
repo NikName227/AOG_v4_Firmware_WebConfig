@@ -281,11 +281,11 @@ void autosteerLoop()
 
   ReceiveUdp();
   KeyaBus_Receive();
-  if (hasFuncMode(CAN_MODE_VBUS)) {
-      VBus_Receive();
-      ISO_Receive();
-      KBus_Receive();
-  }
+  // Brand engage/curve receivers run per configured bus — so a tractor's native
+  // engage button works even with a Keya motor (no V_Bus valve required).
+  if (hasFuncMode(CAN_MODE_VBUS)) VBus_Receive();
+  if (hasFuncMode(CAN_MODE_ISO))  ISO_Receive();
+  if (hasFuncMode(CAN_MODE_KBUS)) KBus_Receive();
   CustomEngage_Receive();
 
   // Motorized calibration takes over the motor during active phases (sensors read above)
@@ -744,7 +744,9 @@ void autosteerLoop()
 
       keyaIntendToSteer = true;
       calcSteeringPID();
-      if (hasFuncMode(CAN_MODE_VBUS)) {
+      // Drive the CAN valve only for true steer-ready (WAS = CAN valve).
+      // Otherwise the motor (Keya/PWM) steers — even if a V_Bus port is present for engage.
+      if (hasFuncMode(CAN_MODE_VBUS) && moduleConfig.wasSource == WAS_SOURCE_CAN_VALVE) {
           canSteerIntend = true;
           float curveCmd = steerAngleSetPoint * steerSettings.steerSensorCounts;
           if (steerConfig.InvertWAS) curveCmd = -curveCmd;
@@ -784,7 +786,7 @@ void autosteerLoop()
       canSteerIntend = false;
       setCurve = 32128;
       pwmDrive = 0;
-      if (hasFuncMode(CAN_MODE_VBUS)) {
+      if (hasFuncMode(CAN_MODE_VBUS) && moduleConfig.wasSource == WAS_SOURCE_CAN_VALVE) {
           VBus_Send();
       } else {
           motorDrive();
