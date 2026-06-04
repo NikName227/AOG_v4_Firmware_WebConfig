@@ -179,7 +179,7 @@ Pick up to 4 signals (dual Y-axis). IDs below are the firmware signal IDs.
 | ID | Signal | Unit | Source |
 |---|---|---|---|
 | 36 | loop time ms | ms | `loopTimeMs` (current main-loop period) |
-| 37 | loop max ms | ms | `loopTimeMax` (worst-case since boot) |
+| 37 | loop max ms | ms | `loopTimeMax` (peak loop time over a rolling ~1 s window — reset every second) |
 
 ---
 
