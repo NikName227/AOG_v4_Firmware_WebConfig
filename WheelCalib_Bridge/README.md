@@ -8,8 +8,12 @@ ESP32 (TM171, soft-AP 192.168.4.1) --WiFi UDP :9000--> bridge.py --Ethernet UDP 
 ```
 
 ## Hardware
-- ESP32 dev board + TM171 IMU on UART2 (RX=GPIO16, TX=GPIO17, 115200) — flash `WheelCalib_ESP32`.
-- Mount the TM171 **flat on the steered wheel** so roll & pitch ≈ 0; the steer angle is then the **yaw**.
+- ESP32 dev board + a wheel-mounted IMU — flash `WheelCalib_ESP32`. The ESP
+  **auto-detects** which sensor is connected:
+  - **BNO085** on I2C (SDA=GPIO21, SCL=GPIO22) — preferred if present
+  - **TM171** on UART2 (RX=GPIO16, TX=GPIO17, 115200)
+- Mount the IMU **flat on the steered wheel** so roll & pitch ≈ 0; the steer angle is then the **yaw**.
+- BNO085 needs the "SparkFun BNO080 Cortex Based IMU" library (Arduino Library Manager).
 
 ## Network (no static IP needed)
 1. Connect the **laptop WiFi** to the ESP32 access point:
@@ -30,13 +34,14 @@ python bridge.py
 Standard library only (uses `tkinter`). No pip installs.
 
 ## No IMU yet?
-The ESP32 streams **simulated** slowly-varying values when no TM171 is detected,
+The ESP32 streams **simulated** slowly-varying values when no IMU is detected,
 so you can verify the whole chain (ESP → bridge → Teensy → AIO web GUI) without an
 IMU. The bridge shows **"no IMU detected (simulated values)"** and the AIO reference
-field still moves. Connect a real TM171 (or add a BNO085 reader) for real data.
+field still moves. Connect a BNO085 or TM171 for real data — the bridge then shows
+which one is in use (e.g. **"IMU: BNO085 OK"**).
 
 ## Protocol
-- ESP32 → app (UDP :9000, broadcast): text `roll,pitch,yaw,imuOk\n` at 50 Hz
-  (`imuOk` 1 = real TM171, 0 = simulated / no IMU).
+- ESP32 → app (UDP :9000, broadcast): text `roll,pitch,yaw,imuOk,sensor\n` at 50 Hz
+  (`imuOk` 1 = real IMU, 0 = simulated; `sensor` 0 = none/sim, 1 = TM171, 2 = BNO085).
 - app → Teensy (UDP :8888): PGN `0xD6` = `80 81 7F D6 03 <angleLo> <angleHi> <valid> <crc>`,
   angle = int16 `yaw*100` (deg), crc = sum of bytes [2..N-2] & 0xFF.

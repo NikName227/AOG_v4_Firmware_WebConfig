@@ -1,0 +1,1 @@
+python -m PyInstaller --onefile --windowed --name WheelCalibBridge bridge.py

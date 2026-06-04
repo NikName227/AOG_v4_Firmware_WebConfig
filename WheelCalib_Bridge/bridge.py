@@ -32,7 +32,8 @@ TEENSY_PORT    = 8888          # Teensy autosteer UDP port
 TEENSY_IP_DEF  = "192.168.5.126"
 PGN_REF        = 0xD6          # reference wheel angle PGN
 
-state = {"roll": 0.0, "pitch": 0.0, "yaw": 0.0, "imuOk": 0, "last": 0.0}
+state = {"roll": 0.0, "pitch": 0.0, "yaw": 0.0, "imuOk": 0, "sensor": 0, "last": 0.0}
+SENSOR_NAME = {0: "none", 1: "TM171", 2: "BNO085"}
 running = True
 
 
@@ -54,7 +55,9 @@ def rx_thread():
                 state["roll"]  = float(p[0])
                 state["pitch"] = float(p[1])
                 state["yaw"]   = float(p[2])
-                state["imuOk"] = int(p[3])     # 1=real TM171, 0=simulated/no IMU
+                state["imuOk"] = int(p[3])     # 1=real IMU, 0=simulated/no IMU
+                if len(p) >= 5:
+                    state["sensor"] = int(p[4])  # 0=none 1=TM171 2=BNO085
                 state["last"]  = time.time()
         except socket.timeout:
             pass
@@ -87,7 +90,7 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title("Wheel Calib Bridge")
-        root.geometry("360x300")
+        root.geometry("360x320")
 
         f = ttk.Frame(root, padding=12)
         f.pack(fill="both", expand=True)
@@ -129,7 +132,7 @@ class App:
         if not link:
             self.imu.config(text="IMU: --", fg="#a00")
         elif imu:
-            self.imu.config(text="IMU: TM171 OK", fg="#0a0")
+            self.imu.config(text="IMU: " + SENSOR_NAME.get(state["sensor"], "?") + " OK", fg="#0a0")
         else:
             self.imu.config(text="no IMU detected (simulated values)", fg="#c60")
 
