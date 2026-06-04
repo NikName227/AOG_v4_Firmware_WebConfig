@@ -148,10 +148,12 @@ bool          refAngleValid = false;
 elapsedMillis refAngleTime  = 9999;   // ms since last reference packet
 
 // ── Keya WAS motorized auto-calibration ──────────────────────────────────────
-enum { CAL_IDLE=0, CAL_REACT, CAL_DEADZONE, CAL_RANGE_RIGHT, CAL_RETURN, CAL_RANGE_LEFT, CAL_DONE, CAL_FAIL };
+// NB: keep CAL_DONE=6 / CAL_FAIL=7 stable (the web JS checks those numbers).
+enum { CAL_IDLE=0, CAL_REACT, CAL_DEADZONE, CAL_RANGE_RIGHT, CAL_RETURN, CAL_RANGE_LEFT, CAL_DONE, CAL_FAIL, CAL_MANUAL_RANGE };
 uint8_t  calState = CAL_IDLE;
 char     calMsg[48] = "idle";
 uint8_t  calSpeed   = 25;             // Keya drive speed during calibration (slow)
+uint8_t  calManCap  = 0;              // manual-range capture flags: bit0 centre, bit1 left, bit2 right
 float    calResDz   = 0.0f;           // measured results (review before apply)
 float    calResTL   = 0.0f;
 float    calResTR   = 0.0f;

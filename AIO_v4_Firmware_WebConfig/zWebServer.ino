@@ -431,7 +431,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <div class="card">
 <h2>Keya WAS — auto-calibration <span style="color:#64748b;font-weight:normal;font-size:11px">(reference IMU)</span></h2>
-<p style="color:#64748b;font-size:13px;margin-bottom:8px">Uses a wheel-mounted reference IMU (TM171 on ESP32, via the laptop bridge app) to auto-measure dead zone and per-side ticks/deg. The Teensy turns the steering motor itself — vehicle must be stationary, stands clear.</p>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Uses a wheel-mounted reference IMU (BNO085/TM171 on ESP32, via the laptop bridge). <b>Dead zone</b> is measured automatically (the motor turns itself); then you measure the <b>range</b> by hand — turn the wheel to centre/left/right and capture each, so the operator defines absolute centre (more precise). Vehicle stationary, stand clear.</p>
 <div class="row"><span class="lbl">Reference IMU link</span><span id="calRefBadge" class="badge fail">--</span></div>
 <div class="row"><span class="lbl">Reference angle</span><span class="val" id="calRefAngle">—</span></div>
 <p style="color:#f59e0b;font-size:12px;margin:6px 0 8px;line-height:1.3">&#9888; The Teensy turns the steering motor by itself. Vehicle stationary, stand clear, hand ready on the wheel. Aborts on steer switch / motion / lost reference.</p>
@@ -442,6 +442,15 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <button class="btn red" onclick="calAbortBtn()">Abort</button>
 </div>
 <div class="row" style="margin-top:8px"><span class="lbl">State</span><span class="val" id="calState">idle</span></div>
+<div id="calManual" style="display:none;margin-top:8px;padding:8px;border:1px solid #334155;border-radius:6px">
+<p style="color:#94a3b8;font-size:12px;margin:0 0 6px;line-height:1.3">Motor is OFF — turn the wheel <b>by hand</b> to each position and capture. Centre defines absolute 0. Order: centre &rarr; full left &rarr; (back to centre) &rarr; full right &rarr; Compute.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button class="btn" onclick="calCap('c')">Capture centre <span id="capC"></span></button>
+<button class="btn" onclick="calCap('l')">Capture left <span id="capL"></span></button>
+<button class="btn" onclick="calCap('r')">Capture right <span id="capR"></span></button>
+<button class="btn green" onclick="calCompute()">Compute</button>
+</div>
+</div>
 <div class="row"><span class="lbl">Measured dead zone</span><span class="val" id="calDz">—</span></div>
 <div class="row"><span class="lbl">Measured ticks/deg L | R</span><span class="val" id="calLR">—</span></div>
 <div class="row"><span class="lbl">Measured base ticks/deg</span><span class="val" id="calTpd">—</span></div>
@@ -1105,6 +1114,8 @@ function calStartBtn() {
 }
 function calAbortBtn() { fetch('/api/calib?abort'); }
 function calApplyBtn() { fetch('/api/calib?apply').then(function(){ configLoaded = false; }); }
+function calCap(w)    { fetch('/api/calib?cap=' + w); }
+function calCompute() { fetch('/api/calib?compute'); }
 
 function saveKeya() {
   var url = '/api/save?keyaDis=' + (document.getElementById('kd0').checked ? 1 : 0)
@@ -1197,6 +1208,13 @@ function updLive(d) {
     document.getElementById('calTpd').textContent = d.calTpd > 0 ? d.calTpd.toFixed(1) : '—';
     var ab = document.getElementById('calApplyBtn');
     if (ab) ab.style.display = (d.calState === 6) ? '' : 'none';
+    var cm = document.getElementById('calManual');
+    if (cm) cm.style.display = (d.calState === 8) ? '' : 'none';   // CAL_MANUAL_RANGE
+    if (d.calCap !== undefined) {
+      document.getElementById('capC').textContent = (d.calCap & 1) ? '✓' : '';
+      document.getElementById('capL').textContent = (d.calCap & 2) ? '✓' : '';
+      document.getElementById('capR').textContent = (d.calCap & 4) ? '✓' : '';
+    }
   }
   // Keya motor config
   if (d.kcRam) {
@@ -2391,6 +2409,7 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"calState\":")); client.print(calState);
     client.print(F(",\"calMsg\":\"")); client.print(calMsg); client.print('"');
     client.print(F(",\"calSpeed\":")); client.print(calSpeed);
+    client.print(F(",\"calCap\":")); client.print(calManCap);
     client.print(F(",\"calDz\":")); client.print(calResDz, 2);
     client.print(F(",\"calTL\":")); client.print(calResTL, 1);
     client.print(F(",\"calTR\":")); client.print(calResTR, 1);
@@ -2661,9 +2680,13 @@ void handleApiCalib(EthernetClient& client, const char* req)
         if (s < 5) s = 5; if (s > 80) s = 80;
         calSpeed = s;
     }
-    if      (strstr(req, "start") != NULL) calStart();
-    else if (strstr(req, "abort") != NULL) calAbort();
-    else if (strstr(req, "apply") != NULL) calApply();
+    if      (strstr(req, "start")     != NULL) calStart();
+    else if (strstr(req, "abort")     != NULL) calAbort();
+    else if (strstr(req, "apply")     != NULL) calApply();
+    else if (strstr(req, "cap=c")     != NULL) calCapCentre();
+    else if (strstr(req, "cap=l")     != NULL) calCapLeft();
+    else if (strstr(req, "cap=r")     != NULL) calCapRight();
+    else if (strstr(req, "compute")   != NULL) calComputeRange();
     sendHeaders(client, "text/plain");
     client.print(F("OK"));
 }

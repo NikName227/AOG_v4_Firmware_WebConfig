@@ -1,10 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Keya WAS motorized auto-calibration
 //
-// Uses a wheel-mounted reference IMU (yaw via the bridge → PGN 0xD6 → refWheelAngle)
-// while the Teensy slowly turns the Keya motor itself. Measures:
-//   - dead zone (hydraulic backlash on direction reversal)
-//   - ticks/deg per side (left/right)  +  base ticks/deg
+// Uses a wheel-mounted reference IMU (yaw via the bridge → PGN 0xD6 → refWheelAngle).
+// Two phases:
+//   1. DEAD ZONE — automatic: the Teensy slowly turns the Keya motor and reverses
+//      it a few times to measure the hydraulic backlash on direction change.
+//   2. RANGE — manual: the motor is OFF and the operator turns the wheel by hand to
+//      centre / full-left / full-right, capturing each (calCapCentre/Left/Right).
+//      The operator defines absolute centre, which is more precise than relying on
+//      the motor's stall detection. calComputeRange() then derives ticks/deg/side.
 //
 // Safety: only runs stationary, autosteer off, reference link fresh. Aborts on
 // steer switch, vehicle motion, or lost reference. Keya current limit (≈5 A)
@@ -63,6 +67,7 @@ void calStart() {
     calRefCenter = refWheelAngle;
     calDzSum = 0; calDzDone = 0;
     calResDz = calResTL = calResTR = calResTpd = 0;
+    calManCap = 0;
     calDir = +1;
     calSet(CAL_REACT, "reaction check: sweeping +");
 }
@@ -137,10 +142,10 @@ void calibrationLoop()
                 if (calDzDone >= CAL_DZ_CYCLES) {
                     calStop();
                     calResDz = calDzSum / calDzDone;
-                    char m[48]; snprintf(m, sizeof(m), "dead zone = %.2f deg, now range R", calResDz);
-                    // prepare range right
-                    calRefCenter = refWheelAngle; calEncCenter = keyaEncoderRaw;
-                    calSet(CAL_RANGE_RIGHT, m);
+                    // dead zone done → hand over to MANUAL range capture (operator
+                    // turns the wheel by hand and clicks Capture centre/left/right).
+                    calManCap = 0;
+                    calSet(CAL_MANUAL_RANGE, "dead zone done. Turn to CENTRE, click Capture centre");
                 } else {
                     calCycleStartRef = refWheelAngle;
                     calPhase = 0;       // next cycle drive in current (new) dir to +AMPL
@@ -152,50 +157,56 @@ void calibrationLoop()
         break;
     }
 
-    // ── Range right: drive + to mechanical stop ───────────────────────────────
-    case CAL_RANGE_RIGHT: {
-        calMotor(+calSpeed);
-        if (abs(keyaCurrentActualSpeed) < CAL_STOP_SPEED) {
-            if (calStallTimer > CAL_STOP_HOLD) {
-                calStop();
-                calEncRight = keyaEncoderRaw; calRefRight = refWheelAngle;
-                calSet(CAL_RETURN, "returning to centre");
-            }
-        } else calStallTimer = 0;
-        if (calStateTimer > CAL_RANGE_TIMEOUT) { calStop(); calSet(CAL_FAIL, "range R timeout"); }
+    // ── Manual range: motor OFF, operator turns by hand and clicks captures ────
+    // Captures happen in calCapCentre/Left/Right (web handler). Here we just keep
+    // the motor stopped and let the safety guards (ref link) keep running.
+    case CAL_MANUAL_RANGE: {
+        calStop();
         break;
     }
+    }
+}
 
-    // ── Return to centre (ref ~ centre) then go left ──────────────────────────
-    case CAL_RETURN: {
-        calMotor(-calSpeed);
-        if (refDelta <= 0.2f) { calStop(); calStallTimer = 0; calSet(CAL_RANGE_LEFT, "range L: to stop"); }
-        else if (calStateTimer > CAL_RANGE_TIMEOUT) { calStop(); calSet(CAL_FAIL, "return timeout"); }
-        break;
-    }
+// ── Manual range capture (called from the web handler) ───────────────────────
+// The operator turns the steered wheel by hand to centre / full-left / full-right
+// and clicks the matching button. Captures the encoder + reference IMU angle at
+// each point; absolute centre is defined by the operator (more precise than the
+// motor's stall detection).
+void calCapCentre() {
+    if (calState != CAL_MANUAL_RANGE) return;
+    calEncCenter = keyaEncoderRaw; calRefCenter = refWheelAngle;
+    calManCap |= 0x01;
+    strncpy(calMsg, "centre captured. Turn full LEFT, click Capture left", sizeof(calMsg) - 1);
+}
 
-    // ── Range left: drive - to mechanical stop, then compute ──────────────────
-    case CAL_RANGE_LEFT: {
-        calMotor(-calSpeed);
-        if (abs(keyaCurrentActualSpeed) < CAL_STOP_SPEED) {
-            if (calStallTimer > CAL_STOP_HOLD) {
-                calStop();
-                calEncLeft = keyaEncoderRaw; calRefLeft = refWheelAngle;
-                // compute ticks/deg per side relative to centre
-                float degR = fabs(calRefRight - calRefCenter);
-                float degL = fabs(calRefLeft  - calRefCenter);
-                float tickR = fabs((float)(calEncRight - calEncCenter));
-                float tickL = fabs((float)(calEncLeft  - calEncCenter));
-                calResTR = (degR > 1.0f) ? tickR / degR : 0;
-                calResTL = (degL > 1.0f) ? tickL / degL : 0;
-                calResTpd = ((calResTR > 0) + (calResTL > 0)) ?
-                            ((calResTR + calResTL) / ((calResTR > 0) + (calResTL > 0))) : 0;
-                char m[48]; snprintf(m, sizeof(m), "done: L %.1f R %.1f t/deg", calResTL, calResTR);
-                calSet(CAL_DONE, m);
-            }
-        } else calStallTimer = 0;
-        if (calStateTimer > CAL_RANGE_TIMEOUT) { calStop(); calSet(CAL_FAIL, "range L timeout"); }
-        break;
+void calCapLeft() {
+    if (calState != CAL_MANUAL_RANGE) return;
+    calEncLeft = keyaEncoderRaw; calRefLeft = refWheelAngle;
+    calManCap |= 0x02;
+    strncpy(calMsg, "left captured. Back to centre, then full RIGHT + Capture right", sizeof(calMsg) - 1);
+}
+
+void calCapRight() {
+    if (calState != CAL_MANUAL_RANGE) return;
+    calEncRight = keyaEncoderRaw; calRefRight = refWheelAngle;
+    calManCap |= 0x04;
+    strncpy(calMsg, "right captured. Click Compute when all three are done", sizeof(calMsg) - 1);
+}
+
+void calComputeRange() {
+    if (calState != CAL_MANUAL_RANGE) return;
+    if ((calManCap & 0x07) != 0x07) {
+        strncpy(calMsg, "capture centre + left + right first", sizeof(calMsg) - 1);
+        return;
     }
-    }
+    float degR  = fabs(calRefRight - calRefCenter);
+    float degL  = fabs(calRefLeft  - calRefCenter);
+    float tickR = fabs((float)(calEncRight - calEncCenter));
+    float tickL = fabs((float)(calEncLeft  - calEncCenter));
+    calResTR = (degR > 1.0f) ? tickR / degR : 0;
+    calResTL = (degL > 1.0f) ? tickL / degL : 0;
+    calResTpd = ((calResTR > 0) + (calResTL > 0)) ?
+                ((calResTR + calResTL) / ((calResTR > 0) + (calResTL > 0))) : 0;
+    char m[48]; snprintf(m, sizeof(m), "done: L %.1f R %.1f t/deg", calResTL, calResTR);
+    calSet(CAL_DONE, m);
 }
