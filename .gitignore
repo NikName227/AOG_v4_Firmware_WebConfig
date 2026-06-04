@@ -15,6 +15,11 @@ build/
 *.txt
 !doc/*.txt
 
+# PyInstaller (bridge exe build)
+dist/
+*.spec
+__pycache__/
+
 # Windows
 Thumbs.db
 desktop.ini
