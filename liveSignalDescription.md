@@ -72,6 +72,8 @@ Shows every WAS source plus the final angle, so you can compare them.
 | **Actual speed** | Motor speed reported by the drive | drive units |
 | **Set speed** | Speed command sent to the motor | drive units |
 | **Final angle** | Resulting WAS angle when Keya is the source | ° |
+| **Reference IMU › Ref IMU link** | Calibration bridge link alive (ESP32 wheel-IMU via PGN 0xD6) | OK/-- |
+| **Reference IMU › Reference angle** | `refWheelAngle` from the wheel-mounted IMU (relative to the bridge's *Zero yaw*); calibration uses its **change**, not the absolute value | ° |
 
 ### Group 5 — Steer (autosteer + switches + PCB sensors)
 
