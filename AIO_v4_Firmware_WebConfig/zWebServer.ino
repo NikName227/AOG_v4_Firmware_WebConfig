@@ -837,6 +837,9 @@ function renderGroup(d) {
     h += lvRow('Actual speed', d.act);
     h += lvRow('Set speed', d.set);
     h += lvRow('Final angle', d.actual.toFixed(2) + ' °');
+    h += lvSub('Reference IMU (calibration)');
+    h += lvRow('Ref IMU link', d.refLink ? 'OK' : '-- (no bridge)');
+    h += lvRow('Reference angle', d.refLink ? (d.refAngle.toFixed(2) + ' °') : '—');
   }
   else if (activeGroup === 5) {
     hdr = 'Group 5 — Steer';
@@ -2303,6 +2306,8 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"act\":")); client.print(keyaCurrentActualSpeed);
         client.print(F(",\"set\":")); client.print(keyaCurrentSetSpeed);
         client.print(F(",\"actual\":")); client.print(steerAngleActual, 2);
+        client.print(F(",\"refLink\":")); client.print((refAngleTime < 1000 && refAngleValid) ? F("true") : F("false"));
+        client.print(F(",\"refAngle\":")); client.print(refWheelAngle, 2);
         client.print(F("}"));
         break;
     }
