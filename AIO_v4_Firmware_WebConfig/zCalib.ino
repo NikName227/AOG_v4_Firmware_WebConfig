@@ -65,6 +65,7 @@ static void calLoadResultsFromConfig() {
     calResTL  = moduleConfig.keyaTicksLeft;
     calResTR  = moduleConfig.keyaTicksRight;
     calResTpd = moduleConfig.keyaTicksPerDeg;
+    calResMaxL = calResMaxR = 0;   // measured-max is only valid after a range run
 }
 
 static bool calCommonGuards() {
@@ -227,6 +228,8 @@ void calComputeRange() {
     float degL  = fabs(calRefLeft  - calRefCenter);
     float tickR = fabs((float)(calEncRight - calEncCenter));
     float tickL = fabs((float)(calEncLeft  - calEncCenter));
+    calResMaxL = degL;   // measured physical max each side (operator trims 2-3° in GUI)
+    calResMaxR = degR;
     calResTR = (degR > 1.0f) ? tickR / degR : 0;
     calResTL = (degL > 1.0f) ? tickL / degL : 0;
     calResTpd = ((calResTR > 0) + (calResTL > 0)) ?

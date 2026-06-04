@@ -871,6 +871,13 @@ void ReceiveUdp()
                 //Bit 8,9    set point steer angle * 100 is sent
                 steerAngleSetPoint = ((float)(autoSteerUdpData[8] | ((int8_t)autoSteerUdpData[9]) << 8)) * 0.01; //high low bytes
 
+                // Clamp commanded angle to the working steering limits (deg, 0 = off)
+                // so the motor never drives into the mechanical stop (U-turns).
+                if (moduleConfig.keyaMaxAngleRight > 0.1f && steerAngleSetPoint >  moduleConfig.keyaMaxAngleRight)
+                    steerAngleSetPoint =  moduleConfig.keyaMaxAngleRight;
+                if (moduleConfig.keyaMaxAngleLeft  > 0.1f && steerAngleSetPoint < -moduleConfig.keyaMaxAngleLeft)
+                    steerAngleSetPoint = -moduleConfig.keyaMaxAngleLeft;
+
                 //Serial.print("steerAngleSetPoint: ");
                 //Serial.println(steerAngleSetPoint);
 

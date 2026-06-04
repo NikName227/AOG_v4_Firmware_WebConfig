@@ -426,6 +426,11 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Ticks/deg right <small style="color:#64748b">(0 = same as base)</small></span>
 <input type="number" id="ksgR" min="0" max="500" step="0.1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Encoder ticks per degree when steering right. Leave 0 to use the base value.</p>
+<div class="row" style="margin-top:6px"><span class="lbl">Max angle left <small style="color:#64748b">(°, 0 = no limit)</small></span>
+<input type="number" id="ksgMaxL" min="0" max="80" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Max angle right <small style="color:#64748b">(°, 0 = no limit)</small></span>
+<input type="number" id="ksgMaxR" min="0" max="80" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Working steering limit per side — the commanded angle is clamped to this so the motor never drives into the mechanical stop (handy for U-turns). Set 2–3° below the physical max. Range calibration suggests the measured maximum; 0 = no limit.</p>
 <button class="btn green" onclick="saveKeyaGeom()" style="margin-top:8px">Save geometry</button>
 </div>
 
@@ -456,6 +461,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Measured dead zone</span><span class="val" id="calDz">—</span></div>
 <div class="row"><span class="lbl">Measured ticks/deg L | R</span><span class="val" id="calLR">—</span></div>
 <div class="row"><span class="lbl">Measured base ticks/deg</span><span class="val" id="calTpd">—</span></div>
+<div class="row"><span class="lbl">Measured max angle L | R</span><span class="val" id="calMax">—</span></div>
 <button class="btn" id="calApplyBtn" onclick="calApplyBtn()" style="margin-top:8px;display:none">Apply &amp; save results</button>
 </div>
 
@@ -1001,6 +1007,8 @@ function upd(d) {
     document.getElementById('ksgDz').value = d.keya_was.deadZone;
     document.getElementById('ksgL').value  = d.keya_was.ticksLeft;
     document.getElementById('ksgR').value  = d.keya_was.ticksRight;
+    document.getElementById('ksgMaxL').value = d.keya_was.maxAngleLeft;
+    document.getElementById('ksgMaxR').value = d.keya_was.maxAngleRight;
     document.getElementById('kw10').value  = d.keya_was.azTimeSlowMs;
     document.getElementById('kw11').value  = d.keya_was.azTimeFastMs;
     document.getElementById('can1Mode').value = d.cfg.can1Mode || 0;
@@ -1064,7 +1072,9 @@ function saveMotor() {
 function saveKeyaGeom() {
   var url = '/api/save?keyaDeadZone=' + document.getElementById('ksgDz').value
           + '&keyaTicksLeft='  + document.getElementById('ksgL').value
-          + '&keyaTicksRight=' + document.getElementById('ksgR').value;
+          + '&keyaTicksRight=' + document.getElementById('ksgR').value
+          + '&keyaMaxL=' + document.getElementById('ksgMaxL').value
+          + '&keyaMaxR=' + document.getElementById('ksgMaxR').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'Steering geometry saved.' : 'ERROR saving.';
   });
@@ -1209,6 +1219,7 @@ function updLive(d) {
     document.getElementById('calDz').textContent  = d.calDz > 0 ? d.calDz.toFixed(2) + ' °' : '—';
     document.getElementById('calLR').textContent  = (d.calTL > 0 || d.calTR > 0) ? (d.calTL.toFixed(1) + ' | ' + d.calTR.toFixed(1)) : '—';
     document.getElementById('calTpd').textContent = d.calTpd > 0 ? d.calTpd.toFixed(1) : '—';
+    document.getElementById('calMax').textContent = (d.calMaxL > 0 || d.calMaxR > 0) ? (d.calMaxL.toFixed(1) + ' | ' + d.calMaxR.toFixed(1) + ' °') : '—';
     var ab = document.getElementById('calApplyBtn');
     if (ab) ab.style.display = (d.calState === 6) ? '' : 'none';
     var cm = document.getElementById('calManual');
@@ -2075,6 +2086,8 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"deadZone\":")); client.print(moduleConfig.keyaDeadZone, 2);
     client.print(F(",\"ticksLeft\":")); client.print(moduleConfig.keyaTicksLeft, 1);
     client.print(F(",\"ticksRight\":")); client.print(moduleConfig.keyaTicksRight, 1);
+    client.print(F(",\"maxAngleLeft\":")); client.print(moduleConfig.keyaMaxAngleLeft, 1);
+    client.print(F(",\"maxAngleRight\":")); client.print(moduleConfig.keyaMaxAngleRight, 1);
     client.print(F(",\"initialZeroDone\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
 
     client.print(F("},\"imu_was\":{"));
@@ -2417,6 +2430,8 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"calTL\":")); client.print(calResTL, 1);
     client.print(F(",\"calTR\":")); client.print(calResTR, 1);
     client.print(F(",\"calTpd\":")); client.print(calResTpd, 1);
+    client.print(F(",\"calMaxL\":")); client.print(calResMaxL, 1);
+    client.print(F(",\"calMaxR\":")); client.print(calResMaxR, 1);
     client.print(F(",\"kcMode\":")); client.print(keyaCfgMode ? F("true") : F("false"));
     client.print(F(",\"kcRam\":["));
     for (uint8_t i = 0; i < 4; i++) { if (i) client.print(','); client.print(keyaCfgRam[i]); }
@@ -2783,6 +2798,8 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "keyaDeadZone=")) != NULL) moduleConfig.keyaDeadZone     = atof(p + 13);
     if ((p = strstr(req, "keyaTicksLeft=")) != NULL) moduleConfig.keyaTicksLeft    = atof(p + 14);
     if ((p = strstr(req, "keyaTicksRight=")) != NULL) moduleConfig.keyaTicksRight  = atof(p + 15);
+    if ((p = strstr(req, "keyaMaxL=")) != NULL) moduleConfig.keyaMaxAngleLeft  = atof(p + 9);
+    if ((p = strstr(req, "keyaMaxR=")) != NULL) moduleConfig.keyaMaxAngleRight = atof(p + 9);
     if ((p = strstr(req, "can2Baud="))     != NULL) {
         moduleConfig.can2Baud = (uint32_t)atol(p + 9);
         needRestart = true;
