@@ -13,7 +13,8 @@ ESP32 (TM171, soft-AP 192.168.4.1) --WiFi UDP :9000--> bridge.py --Ethernet UDP 
   - **BNO085** on I2C (SDA=GPIO21, SCL=GPIO22) — preferred if present
   - **TM171** on UART2 (RX=GPIO16, TX=GPIO17, 115200)
 - Mount the IMU **flat on the steered wheel** so roll & pitch ≈ 0; the steer angle is then the **yaw**.
-- BNO085 needs the "SparkFun BNO080 Cortex Based IMU" library (Arduino Library Manager).
+- BNO085 driver (`BNO08x_AOG.h/.cpp`, the same SparkFun BNO080 fork the Teensy uses)
+  is bundled in the `WheelCalib_ESP32/` folder — no Library Manager install needed.
 
 ## Network (no static IP needed)
 1. Connect the **laptop WiFi** to the ESP32 access point:

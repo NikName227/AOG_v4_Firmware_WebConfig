@@ -13,7 +13,9 @@
 // pipeline (ESP → bridge → Teensy → web GUI) is testable without any IMU.
 //
 // Board: any ESP32 dev board.
-// Library: BNO085 uses "SparkFun BNO080 Cortex Based IMU" (install via Library Mgr).
+// Library: BNO085 uses the bundled BNO08x_AOG driver (same SparkFun BNO080 fork as
+//          the Teensy firmware) — BNO08x_AOG.h/.cpp sit in this sketch folder, so
+//          no Library Manager install is needed.
 // WiFi:  soft-AP  SSID "WheelCalib"  PASS "calib1234"  →  ESP IP 192.168.4.1
 // UDP:   broadcasts "roll,pitch,yaw,imuOk,sensor\n" to 192.168.4.255:9000 @50 Hz
 //        imuOk : 1 = real IMU, 0 = simulated
@@ -23,7 +25,7 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <Wire.h>
-#include "SparkFun_BNO080_Arduino_Library.h"
+#include "BNO08x_AOG.h"
 
 // ── BNO085 (I2C) ────────────────────────────────────────────────────────────
 #define I2C_SDA 21
