@@ -19,7 +19,9 @@
 // WiFi:  soft-AP  SSID "WheelCalib"  PASS "calib1234"  →  ESP IP 192.168.4.1
 // UDP:   broadcasts "roll,pitch,yaw,imuOk,sensor\n" to 192.168.4.255:9000 @50 Hz
 //        imuOk : 1 = real IMU, 0 = simulated
-//        sensor: 0 = none/sim, 1 = TM171, 2 = BNO085
+//        sensor: 0 = none/sim, 1 = TM171, 2 = BNO085, 3 = forced-sim (real IMU present)
+// CMD:   listens on :9001 for "SIM1"/"SIM0" — force the clean test sinusoid on/off
+//        (link-quality check: a smooth sine end-to-end = no drops/jitter).
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <WiFi.h>
@@ -48,6 +50,12 @@ const char* AP_PASS = "12345678";        // >= 8 chars
 WiFiUDP   udp;
 const uint16_t UDP_PORT = 9000;
 IPAddress bcastIP(192, 168, 4, 255);
+
+// Command channel: the bridge sends "SIM1"/"SIM0" here to force the simulated
+// test sinusoid ON/OFF even when a real IMU is connected (link-quality check).
+WiFiUDP   udpCmd;
+const uint16_t CMD_PORT = 9001;
+bool      forceSim = false;
 
 // ── TM171 parser state ────────────────────────────────────────────────────────
 uint8_t  buf[128];
@@ -114,14 +122,24 @@ void setup() {
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASS);          // default IP 192.168.4.1
     udp.begin(UDP_PORT);
-    Serial.printf("WheelCalib AP up: %s  IP %s  UDP %u\n",
-                  AP_SSID, WiFi.softAPIP().toString().c_str(), UDP_PORT);
+    udpCmd.begin(CMD_PORT);                  // listen for SIM1/SIM0 commands
+    Serial.printf("WheelCalib AP up: %s  IP %s  UDP %u  CMD %u\n",
+                  AP_SSID, WiFi.softAPIP().toString().c_str(), UDP_PORT, CMD_PORT);
 }
 
 uint32_t lastSend = 0;
 bool     simNotified = false;
 
 void loop() {
+    // Poll for SIM1/SIM0 commands from the bridge (force the test sinusoid).
+    if (udpCmd.parsePacket()) {
+        char c[8] = {0};
+        int n = udpCmd.read((uint8_t*)c, sizeof(c) - 1);
+        if (n > 0) c[n] = 0;
+        if      (strncmp(c, "SIM1", 4) == 0) forceSim = true;
+        else if (strncmp(c, "SIM0", 4) == 0) forceSim = false;
+    }
+
     // Read whichever IMU is connected (BNO085 preferred, else TM171).
     if (hasBno && bno.dataAvailable()) {
         roll  = bno.getRoll()  * RAD_TO_DEG;
@@ -132,29 +150,37 @@ void loop() {
     } else if (!hasBno) {
         parseTM();                               // sets sensorType=1 on a valid frame
     }
-    bool imuOk = (lastPkt != 0) && (millis() - lastPkt < 1000);
+    bool realImu = (lastPkt != 0) && (millis() - lastPkt < 1000);
+    bool useSim  = forceSim || !realImu;         // forced test, or no IMU at all
 
     if (millis() - lastSend >= 20) {        // 50 Hz
         lastSend = millis();
 
         float oRoll = roll, oPitch = pitch, oYaw = yaw;
-        if (!imuOk) {
-            // No IMU → emit slowly-varying test values so the whole pipeline
-            // (ESP → bridge → Teensy → web GUI) can be verified without an IMU.
+        if (useSim) {
+            // Clean, deterministic sinusoid — sent through the whole pipeline so a
+            // smooth trace on the web graph proves the link has no drops/jitter.
             float t = millis() / 1000.0f;
             oRoll  =  2.0f * sinf(t * 0.50f);     // small wobble
             oPitch =  1.5f * sinf(t * 0.30f);
             oYaw   = 15.0f * sinf(t * 0.20f);     // bigger swing, easy to see
-            sensorType = 0;                       // none / simulated
-            if (!simNotified) { Serial.println("no IMU detected - sending simulated values"); simNotified = true; }
+            if (!simNotified) {
+                Serial.println(forceSim ? "FORCED simulation (link test)"
+                                        : "no IMU detected - sending simulated values");
+                simNotified = true;
+            }
         } else {
             simNotified = false;
         }
 
+        // When forcing sim with a real IMU present, mark sensor=3 so the bridge
+        // can show "forced"; otherwise 0 none / 1 TM171 / 2 BNO085.
+        uint8_t sensOut = useSim ? (forceSim && realImu ? 3 : 0) : sensorType;
+
         char msg[64];
-        // roll,pitch,yaw,imuOk,sensor  (imuOk 1=real 0=sim; sensor 0=none 1=TM171 2=BNO085)
+        // roll,pitch,yaw,imuOk,sensor  (imuOk 1=real 0=sim; sensor 0=none 1=TM171 2=BNO085 3=forced-sim)
         int n = snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f,%d,%d\n",
-                         oRoll, oPitch, oYaw, imuOk ? 1 : 0, sensorType);
+                         oRoll, oPitch, oYaw, useSim ? 0 : 1, sensOut);
         udp.beginPacket(bcastIP, UDP_PORT);
         udp.write((const uint8_t*)msg, n);
         udp.endPacket();

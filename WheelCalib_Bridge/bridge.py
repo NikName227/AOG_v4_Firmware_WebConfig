@@ -28,12 +28,14 @@ import tkinter as tk
 from tkinter import ttk
 
 ESP_UDP_PORT   = 9000          # ESP32 broadcasts here
+ESP_CMD_PORT   = 9001          # ESP32 listens here for SIM1/SIM0
+ESP_IP         = "192.168.4.1" # ESP32 soft-AP address
 TEENSY_PORT    = 8888          # Teensy autosteer UDP port
 TEENSY_IP_DEF  = "192.168.5.126"
 PGN_REF        = 0xD6          # reference wheel angle PGN
 
 state = {"roll": 0.0, "pitch": 0.0, "yaw": 0.0, "imuOk": 0, "sensor": 0, "last": 0.0}
-SENSOR_NAME = {0: "none", 1: "TM171", 2: "BNO085"}
+SENSOR_NAME = {0: "none", 1: "TM171", 2: "BNO085", 3: "FORCED SIM"}
 running = True
 
 
@@ -67,6 +69,14 @@ def rx_thread():
 
 # ── Teensy send ───────────────────────────────────────────────────────────────
 tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+
+def send_cmd_to_esp(on):
+    """Tell the ESP32 to force the simulated test sinusoid on/off."""
+    try:
+        tx_sock.sendto(b"SIM1" if on else b"SIM0", (ESP_IP, ESP_CMD_PORT))
+    except Exception:
+        pass
 
 
 def send_to_teensy(ip, yaw_deg, valid):
@@ -114,6 +124,12 @@ class App:
         ttk.Checkbutton(f, text="Forward yaw to Teensy (reference angle)",
                         variable=self.fwd).pack(anchor="w", pady=4)
 
+        self.sim = tk.BooleanVar(value=False)
+        ttk.Checkbutton(f, text="Force simulation (clean sine — link test)",
+                        variable=self.sim, command=self.on_sim_toggle).pack(anchor="w")
+        self._simSent = None
+        self._simBeat = 0.0
+
         self.zero = 0.0
         ttk.Button(f, text="Zero yaw (set current as 0°)", command=self.set_zero).pack(anchor="w")
         self.tx = tk.Label(f, text="TX: idle", font=("Consolas", 10)); self.tx.pack(anchor="w", pady=4)
@@ -123,14 +139,26 @@ class App:
     def set_zero(self):
         self.zero = state["yaw"]
 
+    def on_sim_toggle(self):
+        send_cmd_to_esp(self.sim.get())
+        self._simSent = self.sim.get()
+
     def update(self):
-        age = time.time() - state["last"]
+        # Resend the SIM command ~1 Hz so a dropped command packet self-heals.
+        now = time.time()
+        if now - self._simBeat > 1.0:
+            self._simBeat = now
+            send_cmd_to_esp(self.sim.get())
+
+        age = now - state["last"]
         link = age < 0.5                              # ESP packets arriving
         imu  = link and state["imuOk"] == 1
         self.link.config(text="ESP link: " + ("OK" if link else "-- (connect to WheelCalib WiFi)"),
                          fg=("#0a0" if link else "#a00"))
         if not link:
             self.imu.config(text="IMU: --", fg="#a00")
+        elif self.sim.get():
+            self.imu.config(text="IMU: FORCED SIMULATION (clean sine link test)", fg="#06c")
         elif imu:
             self.imu.config(text="IMU: " + SENSOR_NAME.get(state["sensor"], "?") + " OK", fg="#0a0")
         else:

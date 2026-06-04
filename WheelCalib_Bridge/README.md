@@ -41,8 +41,18 @@ IMU. The bridge shows **"no IMU detected (simulated values)"** and the AIO refer
 field still moves. Connect a BNO085 or TM171 for real data — the bridge then shows
 which one is in use (e.g. **"IMU: BNO085 OK"**).
 
+## Link test
+Tick **"Force simulation (clean sine — link test)"** to make the ESP send a clean,
+deterministic sinusoid through the whole chain even with a real IMU connected. Watch
+the Teensy web graph (signal *Keya reference IMU angle*) — a smooth sine end-to-end
+means the ESP→bridge→Teensy link has no drops/jitter; gaps or steps reveal where
+packets are being lost.
+
 ## Protocol
 - ESP32 → app (UDP :9000, broadcast): text `roll,pitch,yaw,imuOk,sensor\n` at 50 Hz
-  (`imuOk` 1 = real IMU, 0 = simulated; `sensor` 0 = none/sim, 1 = TM171, 2 = BNO085).
+  (`imuOk` 1 = real IMU, 0 = simulated; `sensor` 0 = none/sim, 1 = TM171, 2 = BNO085,
+  3 = forced-sim).
+- app → ESP32 (UDP :9001): `SIM1` / `SIM0` to force the test sinusoid on/off
+  (resent ~1 Hz so a dropped command self-heals).
 - app → Teensy (UDP :8888): PGN `0xD6` = `80 81 7F D6 03 <angleLo> <angleHi> <valid> <crc>`,
   angle = int16 `yaw*100` (deg), crc = sum of bytes [2..N-2] & 0xFF.
