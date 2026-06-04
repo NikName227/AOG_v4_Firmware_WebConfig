@@ -1643,21 +1643,27 @@ function uploadLines() {
 // ── Graph (Live tab → Graph) ─────────────────────────────────────────────────
 var gSignals = [
  {id:0,n:'-- none --'},
+ // ── Gr1 GPS ──
  {id:1,n:'Gr1 GGA fixQuality'},{id:2,n:'Gr1 GGA numSats'},{id:3,n:'Gr1 GGA HDOP'},{id:4,n:'Gr1 GGA altitude'},
  {id:5,n:'Gr1 VTG heading'},{id:6,n:'Gr1 VTG speed'},
  {id:7,n:'Gr1 HPR heading'},{id:8,n:'Gr1 HPR roll'},{id:9,n:'Gr1 HPR quality'},
+ {id:38,n:'Gr1 GGA interval ms'},{id:39,n:'Gr1 VTG interval ms'},{id:40,n:'Gr1 HPR interval ms'},
+ // ── Gr2 IMU ──
  {id:10,n:'Gr2 BNO heading'},{id:11,n:'Gr2 BNO roll'},{id:12,n:'Gr2 BNO pitch'},{id:13,n:'Gr2 BNO yawRate'},
  {id:14,n:'Gr2 TM171 heading'},{id:15,n:'Gr2 TM171 roll'},{id:16,n:'Gr2 TM171 pitch'},
+ // ── Gr3 WAS ──
  {id:17,n:'Gr3 WAS ADS raw'},{id:18,n:'Gr3 WAS IMU raw'},{id:19,n:'Gr3 WAS IMU scaled'},
  {id:20,n:'Gr3 WAS chassis yawRate'},{id:21,n:'Gr3 WAS wheelAngleGPS'},{id:22,n:'Gr3 WAS actual'},
+ // ── Gr4 Keya ──
  {id:23,n:'Gr4 Keya encoder'},{id:24,n:'Gr4 Keya gpsOffset'},{id:25,n:'Gr4 Keya actSpeed'},{id:26,n:'Gr4 Keya setSpeed'},
+ {id:44,n:'Gr4 Keya wheel pos (deg)'},{id:45,n:'Gr4 Keya steering-wheel pos (deg)'},
+ // ── Gr5 Steer ──
  {id:27,n:'Gr5 Steer actual'},{id:28,n:'Gr5 Steer setpoint'},{id:29,n:'Gr5 Steer error'},{id:30,n:'Gr5 PWM'},{id:31,n:'Gr5 speed'},
- {id:32,n:'Gr6 valveReady'},{id:33,n:'Gr6 estCurve'},{id:34,n:'Gr6 setCurve'},{id:35,n:'Gr6 hitch'},
- {id:36,n:'Perf loop time ms'},{id:37,n:'Perf loop max ms'},
- {id:38,n:'GPS GGA interval ms'},{id:39,n:'GPS VTG interval ms'},{id:40,n:'GPS HPR interval ms'},
  {id:41,n:'Gr5 current sensor (A17)'},{id:42,n:'Gr5 pressure sensor (A10)'},{id:43,n:'Gr5 sensor reading'},
- {id:44,n:'Gr4 Keya wheel pos (deg)'},
- {id:45,n:'Gr4 Keya steering-wheel pos (deg)'}
+ // ── Gr6 CAN Steer ──
+ {id:32,n:'Gr6 valveReady'},{id:33,n:'Gr6 estCurve'},{id:34,n:'Gr6 setCurve'},{id:35,n:'Gr6 hitch'},
+ // ── Performance (no group) ──
+ {id:36,n:'Perf loop time ms'},{id:37,n:'Perf loop max ms'}
 ];
 var gCol  = ['#4ade80','#38bdf8','#fbbf24','#f87171'];
 var gDef  = [27,28,22,11];
