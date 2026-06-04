@@ -267,6 +267,36 @@ byte velocityPWM_Pin = 36;
 
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 
+// ── Web-server prototypes (explicit) ──────────────────────────────────────────
+// The giant HTML R"AIOHTML(...)" raw string in zWebServer.ino trips up the
+// Teensyduino ctags auto-prototype generator (it counts the { } inside the
+// embedded JS), so functions defined after it get no auto-prototype. Declare
+// them here, where EthernetClient is already known (NativeEthernet included).
+void  webServerBegin();
+void  handleWebClient();
+void  graphSampleNow();
+float getSignalValue(uint8_t id);
+void  sendBuf(EthernetClient& client, const uint8_t* p, size_t len);
+void  sendHeaders(EthernetClient& c, const char* ct);
+void  handleRoot(EthernetClient& client);
+void  handleApiStatus(EthernetClient& client);
+void  handleApiLive(EthernetClient& client);
+void  handleApiGrp(EthernetClient& client, const char* req);
+void  handleApiGraphCfg(EthernetClient& client, const char* req);
+void  handleApiGraphData(EthernetClient& client);
+void  handleApiLog(EthernetClient& client, const char* req);
+void  handleApiGpsRaw(EthernetClient& client, const char* req);
+void  handleApiGpsCmd(EthernetClient& client, const char* req);
+void  handleApiGpsBaud(EthernetClient& client, const char* req);
+void  handleApiKeyaZero(EthernetClient& client);
+void  handleApiImuWasZero(EthernetClient& client);
+void  handleApiCanRaw(EthernetClient& client, const char* req);
+void  handleApiCanScan(EthernetClient& client, const char* req);
+void  handleApiPved(EthernetClient& client, const char* req);
+void  handleApiCalib(EthernetClient& client, const char* req);
+void  handleApiKeyaCfg(EthernetClient& client, const char* req);
+void  handleApiSave(EthernetClient& client, const char* req);
+
 // ══════════════════════════════════════════════════════════════════════════════
 void setup()
 {
