@@ -2,13 +2,13 @@
 // Keya WAS motorized auto-calibration
 //
 // Uses a wheel-mounted reference IMU (yaw via the bridge → PGN 0xD6 → refWheelAngle).
-// Two phases:
-//   1. DEAD ZONE — automatic: the Teensy slowly turns the Keya motor and reverses
-//      it a few times to measure the hydraulic backlash on direction change.
-//   2. RANGE — manual: the motor is OFF and the operator turns the wheel by hand to
-//      centre / full-left / full-right, capturing each (calCapCentre/Left/Right).
-//      The operator defines absolute centre, which is more precise than relying on
-//      the motor's stall detection. calComputeRange() then derives ticks/deg/side.
+// Two INDEPENDENT calibrations (run/repeat either on its own; Apply keeps the other):
+//   1. DEAD ZONE  (calStartDeadzone) — automatic: the Teensy slowly turns the Keya
+//      motor and reverses it a few times to measure backlash on direction change.
+//   2. RANGE      (calStartRange) — manual: motor OFF, the operator turns the wheel
+//      by hand to centre / full-left / full-right and captures each
+//      (calCapCentre/Left/Right). The operator defines absolute centre — more precise
+//      than the motor's stall detection. calComputeRange() derives ticks/deg/side.
 //
 // Safety: only runs stationary, autosteer off, reference link fresh. Aborts on
 // steer switch, vehicle motion, or lost reference. Keya current limit (≈5 A)
@@ -58,18 +58,44 @@ static void calMotor(int spd) {
 
 static void calStop() { SteerKeya(0, false); }
 
-// Public: start / abort / apply (called from web handler)
-void calStart() {
-    if (!keyaDetected)                 { calSet(CAL_FAIL, "Keya not detected"); return; }
-    if (!(refAngleTime < 1000 && refAngleValid)) { calSet(CAL_FAIL, "no reference IMU link"); return; }
-    if (gpsSpeed > 0.5f)               { calSet(CAL_FAIL, "vehicle moving"); return; }
+// Load current config into the result holders so that applying a calibration
+// that only measured ONE thing keeps the other (unmeasured) values intact.
+static void calLoadResultsFromConfig() {
+    calResDz  = moduleConfig.keyaDeadZone;
+    calResTL  = moduleConfig.keyaTicksLeft;
+    calResTR  = moduleConfig.keyaTicksRight;
+    calResTpd = moduleConfig.keyaTicksPerDeg;
+}
+
+static bool calCommonGuards() {
+    if (!keyaDetected)                            { calSet(CAL_FAIL, "Keya not detected"); return false; }
+    if (!(refAngleTime < 1000 && refAngleValid))  { calSet(CAL_FAIL, "no reference IMU link"); return false; }
+    if (gpsSpeed > 0.5f)                          { calSet(CAL_FAIL, "vehicle moving"); return false; }
+    return true;
+}
+
+// Public: start dead-zone (auto, motor turns) — stops at DONE, range untouched
+void calStartDeadzone() {
+    if (!calCommonGuards()) return;
+    calLoadResultsFromConfig();
+    calResDz = 0;                                  // this one is being measured
     calEncCenter = keyaEncoderRaw;
     calRefCenter = refWheelAngle;
     calDzSum = 0; calDzDone = 0;
-    calResDz = calResTL = calResTR = calResTpd = 0;
-    calManCap = 0;
     calDir = +1;
     calSet(CAL_REACT, "reaction check: sweeping +");
+}
+
+// Public: start range (manual, operator turns by hand) — dead zone untouched
+void calStartRange() {
+    if (!calCommonGuards()) return;
+    calLoadResultsFromConfig();
+    calResTL = calResTR = calResTpd = 0;           // these are being measured
+    calManCap = 0;
+    calStop();
+    calEncCenter = keyaEncoderRaw;
+    calRefCenter = refWheelAngle;
+    calSet(CAL_MANUAL_RANGE, "range: turn to CENTRE, click Capture centre");
 }
 
 void calAbort() { calStop(); calSet(CAL_IDLE, "aborted"); }
@@ -142,10 +168,8 @@ void calibrationLoop()
                 if (calDzDone >= CAL_DZ_CYCLES) {
                     calStop();
                     calResDz = calDzSum / calDzDone;
-                    // dead zone done → hand over to MANUAL range capture (operator
-                    // turns the wheel by hand and clicks Capture centre/left/right).
-                    calManCap = 0;
-                    calSet(CAL_MANUAL_RANGE, "dead zone done. Turn to CENTRE, click Capture centre");
+                    char m[48]; snprintf(m, sizeof(m), "dead zone = %.2f deg (done)", calResDz);
+                    calSet(CAL_DONE, m);
                 } else {
                     calCycleStartRef = refWheelAngle;
                     calPhase = 0;       // next cycle drive in current (new) dir to +AMPL

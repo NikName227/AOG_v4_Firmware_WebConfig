@@ -438,9 +438,11 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Motor speed <small style="color:#64748b">(slow, def 25)</small></span>
 <input type="number" id="calSpeed" min="5" max="80" step="1" value="25" class="ninput"></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-<button class="btn green" onclick="calStartBtn()">Start calibration</button>
+<button class="btn green" onclick="calDzBtn()">Calibrate dead zone</button>
+<button class="btn green" onclick="calRangeBtn()">Calibrate range</button>
 <button class="btn red" onclick="calAbortBtn()">Abort</button>
 </div>
+<p style="color:#64748b;font-size:12px;margin:6px 0 0;line-height:1.3">Run them independently — repeat just one without redoing the other. Apply saves whatever was last measured (the other value is kept).</p>
 <div class="row" style="margin-top:8px"><span class="lbl">State</span><span class="val" id="calState">idle</span></div>
 <div id="calManual" style="display:none;margin-top:8px;padding:8px;border:1px solid #334155;border-radius:6px">
 <p style="color:#94a3b8;font-size:12px;margin:0 0 6px;line-height:1.3">Motor is OFF — turn the wheel <b>by hand</b> to each position and capture. Centre defines absolute 0. Order: centre &rarr; full left &rarr; (back to centre) &rarr; full right &rarr; Compute.</p>
@@ -1107,11 +1109,12 @@ function kcBindHold() {
   });
 }
 
-function calStartBtn() {
-  if (!confirm('The steering motor will turn by itself. Vehicle stationary, stand clear, hand on wheel. Start calibration?')) return;
+function calDzBtn() {
+  if (!confirm('Dead-zone calibration: the steering motor turns by itself. Vehicle stationary, stand clear, hand on wheel. Start?')) return;
   var sp = document.getElementById('calSpeed').value;
-  fetch('/api/calib?speed=' + sp + '&start');
+  fetch('/api/calib?speed=' + sp + '&dz');
 }
+function calRangeBtn() { fetch('/api/calib?range'); }
 function calAbortBtn() { fetch('/api/calib?abort'); }
 function calApplyBtn() { fetch('/api/calib?apply').then(function(){ configLoaded = false; }); }
 function calCap(w)    { fetch('/api/calib?cap=' + w); }
@@ -2680,7 +2683,8 @@ void handleApiCalib(EthernetClient& client, const char* req)
         if (s < 5) s = 5; if (s > 80) s = 80;
         calSpeed = s;
     }
-    if      (strstr(req, "start")     != NULL) calStart();
+    if      (strstr(req, "range")     != NULL) calStartRange();
+    else if (strstr(req, "dz")        != NULL) calStartDeadzone();
     else if (strstr(req, "abort")     != NULL) calAbort();
     else if (strstr(req, "apply")     != NULL) calApply();
     else if (strstr(req, "cap=c")     != NULL) calCapCentre();
