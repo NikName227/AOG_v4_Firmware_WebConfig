@@ -152,6 +152,7 @@ Pick up to 4 signals (dual Y-axis). IDs below are the firmware signal IDs.
 | 26 | Keya setSpeed | drive units | `keyaCurrentSetSpeed` |
 | 44 | Keya wheel pos | ° | rel ticks ÷ ticks/deg (zeroed at view/graph start) |
 | 45 | Keya steering-wheel pos | ° | rel ticks × 360/65536 (zeroed at start) |
+| 46 | Keya reference IMU angle | ° | `refWheelAngle` (wheel-mounted IMU via calib bridge, PGN 0xD6) |
 
 > Tip: plot **45 (steering wheel)** against **22 / 44 (road wheel)** to see the
 > steering ratio and the dead-zone/backlash directly. Both 44 and 45 are zeroed at

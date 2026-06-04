@@ -1660,6 +1660,7 @@ var gSignals = [
  // ── Gr4 Keya ──
  {id:23,n:'Gr4 Keya encoder'},{id:24,n:'Gr4 Keya gpsOffset'},{id:25,n:'Gr4 Keya actSpeed'},{id:26,n:'Gr4 Keya setSpeed'},
  {id:44,n:'Gr4 Keya wheel pos (deg)'},{id:45,n:'Gr4 Keya steering-wheel pos (deg)'},
+ {id:46,n:'Gr4 Keya reference IMU angle (deg)'},
  // ── Gr5 Steer ──
  {id:27,n:'Gr5 Steer actual'},{id:28,n:'Gr5 Steer setpoint'},{id:29,n:'Gr5 Steer error'},{id:30,n:'Gr5 PWM'},{id:31,n:'Gr5 speed'},
  {id:41,n:'Gr5 current sensor (A17)'},{id:42,n:'Gr5 pressure sensor (A10)'},{id:43,n:'Gr5 sensor reading'},
@@ -2184,6 +2185,8 @@ float getSignalValue(uint8_t id)
     }
     // Keya steering-wheel position (relative), degrees — 65536 ticks = 1 motor turn = 360°
     case 45: return (float)(keyaEncoderRaw - keyaPosRef) * 360.0f / 65536.0f;
+    // Reference IMU wheel angle from the calibration bridge (PGN 0xD6)
+    case 46: return refWheelAngle;
     default: return 0;
     }
 }
