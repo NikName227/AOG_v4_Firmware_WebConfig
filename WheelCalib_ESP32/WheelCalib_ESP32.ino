@@ -26,6 +26,7 @@
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include "esp_wifi.h"          // station list / RSSI in soft-AP mode
 #include <Wire.h>
 #include "BNO08x_AOG.h"
 
@@ -129,8 +130,20 @@ void setup() {
 
 uint32_t lastSend = 0;
 bool     simNotified = false;
+int8_t   apRssi    = 0;          // RSSI of the connected laptop (dBm), 0 = none
+uint32_t lastRssi  = 0;
 
 void loop() {
+    // Refresh the connected station's RSSI every 500 ms (cheap, throttled)
+    if (millis() - lastRssi >= 500) {
+        lastRssi = millis();
+        wifi_sta_list_t sl;
+        if (esp_wifi_ap_get_sta_list(&sl) == ESP_OK && sl.num > 0)
+            apRssi = sl.sta[0].rssi;
+        else
+            apRssi = 0;           // no client connected
+    }
+
     // Poll for SIM1/SIM0 commands from the bridge (force the test sinusoid).
     if (udpCmd.parsePacket()) {
         char c[8] = {0};
@@ -177,10 +190,11 @@ void loop() {
         // can show "forced"; otherwise 0 none / 1 TM171 / 2 BNO085.
         uint8_t sensOut = useSim ? (forceSim && realImu ? 3 : 0) : sensorType;
 
-        char msg[64];
-        // roll,pitch,yaw,imuOk,sensor  (imuOk 1=real 0=sim; sensor 0=none 1=TM171 2=BNO085 3=forced-sim)
-        int n = snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f,%d,%d\n",
-                         oRoll, oPitch, oYaw, useSim ? 0 : 1, sensOut);
+        char msg[72];
+        // roll,pitch,yaw,imuOk,sensor,rssi
+        //   imuOk 1=real 0=sim; sensor 0=none 1=TM171 2=BNO085 3=forced-sim; rssi=laptop dBm (0=n/a)
+        int n = snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f,%d,%d,%d\n",
+                         oRoll, oPitch, oYaw, useSim ? 0 : 1, sensOut, apRssi);
         udp.beginPacket(bcastIP, UDP_PORT);
         udp.write((const uint8_t*)msg, n);
         udp.endPacket();

@@ -34,7 +34,8 @@ TEENSY_PORT    = 8888          # Teensy autosteer UDP port
 TEENSY_IP_DEF  = "192.168.5.126"
 PGN_REF        = 0xD6          # reference wheel angle PGN
 
-state = {"roll": 0.0, "pitch": 0.0, "yaw": 0.0, "imuOk": 0, "sensor": 0, "last": 0.0}
+state = {"roll": 0.0, "pitch": 0.0, "yaw": 0.0, "imuOk": 0, "sensor": 0,
+         "rssi": 0, "rx": 0, "last": 0.0}
 SENSOR_NAME = {0: "none", 1: "TM171", 2: "BNO085", 3: "FORCED SIM"}
 running = True
 
@@ -59,7 +60,10 @@ def rx_thread():
                 state["yaw"]   = float(p[2])
                 state["imuOk"] = int(p[3])     # 1=real IMU, 0=simulated/no IMU
                 if len(p) >= 5:
-                    state["sensor"] = int(p[4])  # 0=none 1=TM171 2=BNO085
+                    state["sensor"] = int(p[4])  # 0=none 1=TM171 2=BNO085 3=forced-sim
+                if len(p) >= 6:
+                    state["rssi"] = int(p[5])    # laptop signal strength (dBm)
+                state["rx"] += 1                 # packet counter (for rate/throughput)
                 state["last"]  = time.time()
         except socket.timeout:
             pass
@@ -100,7 +104,7 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title("Wheel Calib Bridge")
-        root.geometry("360x320")
+        root.geometry("360x350")
 
         f = ttk.Frame(root, padding=12)
         f.pack(fill="both", expand=True)
@@ -109,6 +113,8 @@ class App:
         self.link.pack(anchor="w")
         self.imu = tk.Label(f, text="IMU: --", font=("Consolas", 11, "bold"))
         self.imu.pack(anchor="w")
+        self.wifi = tk.Label(f, text="WiFi: --", font=("Consolas", 11))
+        self.wifi.pack(anchor="w")
 
         box = ttk.LabelFrame(f, text="Reference IMU (mount flat: roll & pitch ~ 0)", padding=8)
         box.pack(fill="x", pady=8)
@@ -129,6 +135,9 @@ class App:
                         variable=self.sim, command=self.on_sim_toggle).pack(anchor="w")
         self._simSent = None
         self._simBeat = 0.0
+        self._rxLast = 0          # packet-rate (throughput) tracking
+        self._rxTime = time.time()
+        self._rate = 0.0
 
         self.zero = 0.0
         ttk.Button(f, text="Zero yaw (set current as 0°)", command=self.set_zero).pack(anchor="w")
@@ -163,6 +172,25 @@ class App:
             self.imu.config(text="IMU: " + SENSOR_NAME.get(state["sensor"], "?") + " OK", fg="#0a0")
         else:
             self.imu.config(text="no IMU detected (simulated values)", fg="#c60")
+
+        # WiFi: signal (RSSI from the ESP) + link speed as received packets/sec.
+        # ESP sends at 50 Hz, so ~50 pkt/s = healthy; a lower rate means drops.
+        if now - self._rxTime >= 1.0:
+            self._rate = (state["rx"] - self._rxLast) / (now - self._rxTime)
+            self._rxLast = state["rx"]
+            self._rxTime = now
+        if not link:
+            self.wifi.config(text="WiFi: --", fg="#a00")
+        else:
+            r = state["rssi"]
+            if r == 0:
+                sig = "signal n/a"
+            else:
+                q = ("excellent" if r >= -55 else "good" if r >= -65
+                     else "fair" if r >= -75 else "weak")
+                sig = f"{r} dBm ({q})"
+            col = "#0a0" if self._rate >= 40 else "#c60" if self._rate >= 20 else "#a00"
+            self.wifi.config(text=f"WiFi: {sig}   {self._rate:.0f}/50 pkt/s", fg=col)
 
         self.lr.config(text=f"Roll  : {state['roll']:+7.2f}")
         self.lp.config(text=f"Pitch : {state['pitch']:+7.2f}")
