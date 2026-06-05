@@ -122,10 +122,12 @@ void setup() {
 
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASS);          // default IP 192.168.4.1
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);    // force max TX power (~19.5 dBm) for range
     udp.begin(UDP_PORT);
     udpCmd.begin(CMD_PORT);                  // listen for SIM1/SIM0 commands
-    Serial.printf("WheelCalib AP up: %s  IP %s  UDP %u  CMD %u\n",
-                  AP_SSID, WiFi.softAPIP().toString().c_str(), UDP_PORT, CMD_PORT);
+    Serial.printf("WheelCalib AP up: %s  IP %s  UDP %u  CMD %u  TxPwr %d (x0.25dBm)\n",
+                  AP_SSID, WiFi.softAPIP().toString().c_str(), UDP_PORT, CMD_PORT,
+                  (int)WiFi.getTxPower());
 }
 
 uint32_t lastSend = 0;
