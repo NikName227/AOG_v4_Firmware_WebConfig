@@ -17,7 +17,8 @@
 //          the Teensy firmware) — BNO08x_AOG.h/.cpp sit in this sketch folder, so
 //          no Library Manager install is needed.
 // WiFi:  soft-AP  SSID "WheelCalib"  PASS "calib1234"  →  ESP IP 192.168.4.1
-// UDP:   broadcasts "roll,pitch,yaw,imuOk,sensor,rssi\n" to 192.168.4.255:9000 @20 Hz
+// UDP:   sends "roll,pitch,yaw,imuOk,sensor,rssi\n" to :9000 @20 Hz — UNICAST to the
+//        bridge once its IP is known (reliable), broadcast to 192.168.4.255 until then
 //        imuOk : 1 = real IMU, 0 = simulated
 //        sensor: 0 = none/sim, 1 = TM171, 2 = BNO085, 3 = forced-sim (real IMU present)
 // CMD:   listens on :9001 for "SIM1"/"SIM0" — force the clean test sinusoid on/off
@@ -57,6 +58,8 @@ IPAddress bcastIP(192, 168, 4, 255);
 WiFiUDP   udpCmd;
 const uint16_t CMD_PORT = 9001;
 bool      forceSim = false;
+IPAddress clientIP(0, 0, 0, 0);   // bridge IP (learned from its command packets)
+uint32_t  clientSeen = 0;         // millis() of last packet from the bridge
 
 // ── TM171 parser state ────────────────────────────────────────────────────────
 uint8_t  buf[128];
@@ -147,7 +150,11 @@ void loop() {
     }
 
     // Poll for SIM1/SIM0 commands from the bridge (force the test sinusoid).
+    // Also learn the bridge's IP here so we can UNICAST the data stream to it —
+    // WiFi broadcast is sent at the lowest rate, isn't ACKed, and gets buffered/
+    // dropped when the client power-saves (the cause of the 20 -> 5 pkt/s drops).
     if (udpCmd.parsePacket()) {
+        clientIP = udpCmd.remoteIP(); clientSeen = millis();
         char c[8] = {0};
         int n = udpCmd.read((uint8_t*)c, sizeof(c) - 1);
         if (n > 0) c[n] = 0;
@@ -197,7 +204,11 @@ void loop() {
         //   imuOk 1=real 0=sim; sensor 0=none 1=TM171 2=BNO085 3=forced-sim; rssi=laptop dBm (0=n/a)
         int n = snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f,%d,%d,%d\n",
                          oRoll, oPitch, oYaw, useSim ? 0 : 1, sensOut, apRssi);
-        udp.beginPacket(bcastIP, UDP_PORT);
+        // Unicast to the bridge if we know it (reliable, ACKed); else broadcast
+        // until the bridge's first command packet arrives.
+        bool haveClient = (clientSeen != 0) && (millis() - clientSeen < 5000);
+        IPAddress dst = haveClient ? clientIP : bcastIP;
+        udp.beginPacket(dst, UDP_PORT);
         udp.write((const uint8_t*)msg, n);
         udp.endPacket();
     }
