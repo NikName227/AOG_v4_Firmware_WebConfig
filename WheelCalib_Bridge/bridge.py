@@ -209,7 +209,7 @@ class App:
         else:
             self.tx.config(text="TX: idle")
 
-        self.root.after(20, self.update)   # 50 Hz
+        self.root.after(50, self.update)   # 20 Hz (matches the ESP stream)
 
 
 if __name__ == "__main__":
