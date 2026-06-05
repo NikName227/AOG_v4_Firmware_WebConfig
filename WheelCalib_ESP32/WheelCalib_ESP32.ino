@@ -111,7 +111,7 @@ void setup() {
 
     // BNO085 on I2C (preferred). Probe both common addresses.
     Wire.begin(I2C_SDA, I2C_SCL);
-    Wire.setClock(400000);
+    Wire.setClock(100000);   // 100 kHz — more tolerant of long/dupont I2C wiring
     if (bno.begin(0x4A, Wire) || bno.begin(0x4B, Wire)) {
         hasBno = true;
         bno.enableRotationVector(20);           // 50 Hz fused orientation
@@ -137,6 +137,7 @@ uint32_t lastSend = 0;
 bool     simNotified = false;
 int8_t   apRssi    = 0;          // RSSI of the connected laptop (dBm), 0 = none
 uint32_t lastRssi  = 0;
+uint32_t lastBnoInit = 0;        // throttle BNO085 re-init attempts
 
 void loop() {
     // Refresh the connected station's RSSI every 500 ms (cheap, throttled)
@@ -172,6 +173,21 @@ void loop() {
     } else if (!hasBno) {
         parseTM();                               // sets sensorType=1 on a valid frame
     }
+
+    // BNO085 watchdog: if it was detected but went silent (>1.5 s) it has likely
+    // reset (ESD / power glitch / I2C hiccup) and dropped its report config — the
+    // library won't recover on its own. Re-init + re-enable the rotation vector,
+    // throttled to once every 2 s so we don't hammer the bus.
+    if (hasBno && lastPkt != 0 && (millis() - lastPkt > 1500) && (millis() - lastBnoInit > 2000)) {
+        lastBnoInit = millis();
+        if (bno.begin(0x4A, Wire) || bno.begin(0x4B, Wire)) {
+            bno.enableRotationVector(20);
+            Serial.println("BNO085 lost reports - re-initialized");
+        } else {
+            Serial.println("BNO085 re-init failed (check wiring/power)");
+        }
+    }
+
     bool realImu = (lastPkt != 0) && (millis() - lastPkt < 1000);
     bool useSim  = forceSim || !realImu;         // forced test, or no IMU at all
 
