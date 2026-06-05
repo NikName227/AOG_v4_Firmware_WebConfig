@@ -11,6 +11,12 @@
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xC8   // change to force EEPROM reset on next boot
 
+// Free-text setup note, stored well past ModuleConfig (~250 B, ends ~330).
+// Teensy 4.1 EEPROM is 4284 B total → 1024..2025 leaves huge margin both ways.
+#define EEP_NOTE_ADDR    1024
+#define EEP_NOTE_MAX     1000           // characters (buffer is +1 for the null)
+extern char setupNote[EEP_NOTE_MAX + 1];
+
 // IMU type
 #define IMU_AUTO    0   // auto-detect: RVC → I2C → TM171
 #define IMU_BNO_RVC 1   // force Serial BNO085 RVC only
@@ -147,9 +153,13 @@ inline void moduleConfigLoad()
     EEPROM.get(EEP_MODULE_ADDR, ident);
     if (ident == EEP_MODULE_IDENT) {
         EEPROM.get(EEP_MODULE_ADDR, moduleConfig);
+        EEPROM.get(EEP_NOTE_ADDR, setupNote);
+        setupNote[EEP_NOTE_MAX] = 0;        // guarantee null-terminated
         Serial.println("ModuleConfig: loaded from EEPROM");
     } else {
         EEPROM.put(EEP_MODULE_ADDR, moduleConfig);
+        setupNote[0] = 0;                   // first boot → empty note
+        EEPROM.put(EEP_NOTE_ADDR, setupNote);
         Serial.println("ModuleConfig: first boot, defaults written");
     }
     Serial.print("  imuType=");   Serial.print(moduleConfig.imuType);
@@ -164,6 +174,12 @@ inline void moduleConfigLoad()
 inline void moduleConfigSave()
 {
     EEPROM.put(EEP_MODULE_ADDR, moduleConfig);
+}
+
+inline void setupNoteSave()
+{
+    setupNote[EEP_NOTE_MAX] = 0;
+    EEPROM.put(EEP_NOTE_ADDR, setupNote);
 }
 
 // ── Web log helpers (defined in zWebServer.ino) ────────────────────────────────

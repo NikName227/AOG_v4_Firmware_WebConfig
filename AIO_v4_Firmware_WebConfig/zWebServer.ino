@@ -267,6 +267,14 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 
 <div class="card">
+<h2>Setup notes</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Free-text note about this machine's setup (wiring, brand quirks, calibration values, whatever helps). Saved in the Teensy and kept across reboots.</p>
+<textarea id="noteTxt" maxlength="1000" rows="8" oninput="noteCount()" style="width:100%;box-sizing:border-box;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:8px;font-family:inherit;font-size:13px;resize:vertical"></textarea>
+<div class="row" style="margin-top:6px"><span style="color:#64748b;font-size:12px" id="noteLen">0 / 1000</span>
+<button class="btn green" onclick="saveNote()">Save notes</button></div>
+</div>
+
+<div class="card">
 <h2>Settings received from AgIO (read-only)</h2>
 <div class="section-row" style="gap:0">
 <div style="flex:1;min-width:200px">
@@ -1130,6 +1138,20 @@ function calApplyBtn() { fetch('/api/calib?apply').then(function(){ configLoaded
 function calCap(w)    { fetch('/api/calib?cap=' + w); }
 function calCompute() { fetch('/api/calib?compute'); }
 
+function noteCount() {
+  var t = document.getElementById('noteTxt');
+  document.getElementById('noteLen').textContent = t.value.length + ' / 1000';
+}
+function noteLoad() {
+  fetch('/api/note').then(function(r){ return r.text(); }).then(function(txt){
+    document.getElementById('noteTxt').value = txt; noteCount();
+  });
+}
+function saveNote() {
+  fetch('/api/note', { method: 'POST', body: document.getElementById('noteTxt').value })
+    .then(function(r){ document.getElementById('sb').textContent = r.ok ? 'Setup notes saved.' : 'ERROR saving notes.'; });
+}
+
 function saveKeya() {
   var url = '/api/save?keyaDis=' + (document.getElementById('kd0').checked ? 1 : 0)
           + '&keyaSet=' + document.getElementById('kd1').value
@@ -1884,6 +1906,7 @@ gBuildRows();
 gCanvasInit();
 ceBuildRows();
 kcBindHold();
+noteLoad();
 tick();
 restartTick();
 </script>
@@ -1940,15 +1963,22 @@ void handleWebClient()
 
     if (DBG_STEER) { Serial.print("WEB: "); Serial.println(reqLine); }
 
-    // ── Drain headers until blank line ── 50ms max
+    // ── Drain headers until blank line ── 50ms max, capture Content-Length
+    int contentLen = 0;
     {
-        int hi = 0;
+        char hline[40]; int hi = 0;
         t = 0;
         while (client.connected() && t < 50) {
             if (client.available()) {
                 char c = client.read();
-                if (c == '\n') { if (hi == 0) break; hi = 0; }
-                else if (c != '\r') hi++;
+                if (c == '\n') {
+                    if (hi == 0) break;                 // blank line → body follows
+                    hline[hi] = 0;
+                    if (strstr(hline, "ontent-Length:")) contentLen = atoi(strchr(hline, ':') + 1);
+                    hi = 0;
+                } else if (c != '\r') {
+                    if (hi < 38) hline[hi++] = c;        // only need the start of the line
+                }
             }
         }
     }
@@ -1974,6 +2004,7 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/pved")        != NULL) handleApiPved(client, reqLine);
     else if (strstr(reqLine, "/api/calib")       != NULL) handleApiCalib(client, reqLine);
     else if (strstr(reqLine, "/api/keyacfg")     != NULL) handleApiKeyaCfg(client, reqLine);
+    else if (strstr(reqLine, "/api/note")        != NULL) handleApiNote(client, reqLine, contentLen);
     else if (Autosteer_running && watchdogTimer < WATCHDOG_THRESHOLD) {
         client.println(F("HTTP/1.1 503 Service Unavailable\r\n"
                          "Content-Type: text/plain\r\n"
@@ -2708,6 +2739,28 @@ void handleApiCalib(EthernetClient& client, const char* req)
     else if (strstr(req, "compute")   != NULL) calComputeRange();
     sendHeaders(client, "text/plain");
     client.print(F("OK"));
+}
+
+// GET /api/note → return the raw note text; POST /api/note → save the body as note
+void handleApiNote(EthernetClient& client, const char* reqLine, int contentLen)
+{
+    if (strncmp(reqLine, "POST", 4) == 0) {
+        int n = contentLen;
+        if (n < 0) n = 0;
+        if (n > EEP_NOTE_MAX) n = EEP_NOTE_MAX;
+        int i = 0;
+        elapsedMillis t = 0;
+        while (i < n && client.connected() && t < 300) {
+            if (client.available()) { setupNote[i++] = (char)client.read(); t = 0; }
+        }
+        setupNote[i] = 0;
+        setupNoteSave();
+        sendHeaders(client, "text/plain");
+        client.print(F("OK"));
+    } else {
+        sendHeaders(client, "text/plain");
+        client.print(setupNote);
+    }
 }
 
 void handleApiKeyaCfg(EthernetClient& client, const char* req)

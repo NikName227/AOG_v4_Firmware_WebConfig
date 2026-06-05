@@ -35,6 +35,7 @@ const int32_t baudRTK = 115200;
 
 // ── ModuleConfig instance ──────────────────────────────────────────────────────
 ModuleConfig moduleConfig;
+char setupNote[EEP_NOTE_MAX + 1] = "";   // free-text setup note (EEPROM-persisted)
 
 // ── IMU state ─────────────────────────────────────────────────────────────────
 bool useTMxx_IMU   = false;
@@ -299,6 +300,7 @@ void  handleApiCanScan(EthernetClient& client, const char* req);
 void  handleApiPved(EthernetClient& client, const char* req);
 void  handleApiCalib(EthernetClient& client, const char* req);
 void  handleApiKeyaCfg(EthernetClient& client, const char* req);
+void  handleApiNote(EthernetClient& client, const char* reqLine, int contentLen);
 void  handleApiSave(EthernetClient& client, const char* req);
 
 // ══════════════════════════════════════════════════════════════════════════════
