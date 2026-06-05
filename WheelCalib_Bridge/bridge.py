@@ -174,7 +174,7 @@ class App:
             self.imu.config(text="no IMU detected (simulated values)", fg="#c60")
 
         # WiFi: signal (RSSI from the ESP) + link speed as received packets/sec.
-        # ESP sends at 50 Hz, so ~50 pkt/s = healthy; a lower rate means drops.
+        # ESP sends at 20 Hz, so ~20 pkt/s = healthy; a lower rate means drops.
         if now - self._rxTime >= 1.0:
             self._rate = (state["rx"] - self._rxLast) / (now - self._rxTime)
             self._rxLast = state["rx"]
@@ -189,8 +189,8 @@ class App:
                 q = ("excellent" if r >= -55 else "good" if r >= -65
                      else "fair" if r >= -75 else "weak")
                 sig = f"{r} dBm ({q})"
-            col = "#0a0" if self._rate >= 40 else "#c60" if self._rate >= 20 else "#a00"
-            self.wifi.config(text=f"WiFi: {sig}   {self._rate:.0f}/50 pkt/s", fg=col)
+            col = "#0a0" if self._rate >= 16 else "#c60" if self._rate >= 10 else "#a00"
+            self.wifi.config(text=f"WiFi: {sig}   {self._rate:.0f}/20 pkt/s", fg=col)
 
         self.lr.config(text=f"Roll  : {state['roll']:+7.2f}")
         self.lp.config(text=f"Pitch : {state['pitch']:+7.2f}")

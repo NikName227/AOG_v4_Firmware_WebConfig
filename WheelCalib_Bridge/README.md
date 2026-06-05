@@ -49,10 +49,10 @@ means the ESP→bridge→Teensy link has no drops/jitter; gaps or steps reveal w
 packets are being lost.
 
 ## Protocol
-- ESP32 → app (UDP :9000, broadcast): text `roll,pitch,yaw,imuOk,sensor,rssi\n` at 50 Hz
+- ESP32 → app (UDP :9000, broadcast): text `roll,pitch,yaw,imuOk,sensor,rssi\n` at 20 Hz
   (`imuOk` 1 = real IMU, 0 = simulated; `sensor` 0 = none/sim, 1 = TM171, 2 = BNO085,
   3 = forced-sim; `rssi` = laptop signal in dBm, 0 = n/a). The bridge shows the WiFi
-  signal plus the **link speed** as received packets/sec (≈50 = healthy, lower = drops).
+  signal plus the **link speed** as received packets/sec (≈20 = healthy, lower = drops).
 - app → ESP32 (UDP :9001): `SIM1` / `SIM0` to force the test sinusoid on/off
   (resent ~1 Hz so a dropped command self-heals).
 - app → Teensy (UDP :8888): PGN `0xD6` = `80 81 7F D6 03 <angleLo> <angleHi> <valid> <crc>`,

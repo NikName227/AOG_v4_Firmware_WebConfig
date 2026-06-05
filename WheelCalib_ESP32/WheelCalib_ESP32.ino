@@ -17,7 +17,7 @@
 //          the Teensy firmware) — BNO08x_AOG.h/.cpp sit in this sketch folder, so
 //          no Library Manager install is needed.
 // WiFi:  soft-AP  SSID "WheelCalib"  PASS "calib1234"  →  ESP IP 192.168.4.1
-// UDP:   broadcasts "roll,pitch,yaw,imuOk,sensor\n" to 192.168.4.255:9000 @50 Hz
+// UDP:   broadcasts "roll,pitch,yaw,imuOk,sensor,rssi\n" to 192.168.4.255:9000 @20 Hz
 //        imuOk : 1 = real IMU, 0 = simulated
 //        sensor: 0 = none/sim, 1 = TM171, 2 = BNO085, 3 = forced-sim (real IMU present)
 // CMD:   listens on :9001 for "SIM1"/"SIM0" — force the clean test sinusoid on/off
@@ -166,7 +166,7 @@ void loop() {
     bool realImu = (lastPkt != 0) && (millis() - lastPkt < 1000);
     bool useSim  = forceSim || !realImu;         // forced test, or no IMU at all
 
-    if (millis() - lastSend >= 20) {        // 50 Hz
+    if (millis() - lastSend >= 50) {        // 20 Hz (plenty for the reference angle)
         lastSend = millis();
 
         float oRoll = roll, oPitch = pitch, oYaw = yaw;
