@@ -9,7 +9,7 @@
 // addr 80  : ModuleConfig         (NEW)
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xCA   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xCB   // change to force EEPROM reset on next boot
 
 // Free-text setup note, stored well past ModuleConfig (~250 B, ends ~330).
 // Teensy 4.1 EEPROM is 4284 B total → 1024..2025 leaves huge margin both ways.
@@ -121,9 +121,13 @@ struct ModuleConfig {
     uint8_t  imuWasInvert    = 0;       // flip sign of measured wheel angle
     float    imuWasCpdScale  = 1.0f;    // sensitivity scale factor
     uint8_t  imuWasAzEnable  = 1;       // auto-zero via GPS angle comparison
-    float    imuWasAzBeta    = 0.05f;   // auto-zero correction fraction per cycle
+    float    imuWasAzBeta    = 0.05f;   // auto-zero correction fraction per cycle (engaged)
     float    imuWasSpeedMin  = 1.0f;    // min GPS speed km/h for auto-zero
     float    imuWasYawMax    = 0.8f;    // max chassis yaw rate deg/s for straight detection
+    uint8_t  imuWasSpeedSlow  = 3;      // km/h, at/below = slow straight-time
+    float    imuWasSpeedFast  = 12.0f;  // km/h, at/above = fast straight-time
+    uint16_t imuWasTimeSlowMs = 500;    // straight time required (slow)
+    uint16_t imuWasTimeFastMs = 200;    // straight time required (fast)
     // ── PVED tool ────────────────────────────────────────────────────────────
     uint16_t pvedParam64007Factory = 0xFFFF;  // original tractor value (0xFFFF = never read)
     // ── Custom CAN engage (mask+match on a user-defined frame) ──────────────────

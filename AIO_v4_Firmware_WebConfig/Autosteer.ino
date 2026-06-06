@@ -276,6 +276,68 @@ void autosteerSetup()
 
 }// End of Setup
 
+// ── Shared GPS auto-zero (drift correction) ──────────────────────────────────
+// Used by both Keya-encoder WAS and IMU-as-WAS. Slowly trims 'offset' so that
+// (rawAngle + offset) tracks the GPS-derived wheel angle while driving straight.
+// Flodu-model behaviour: window-averaging, a lag-free wheel-rate guard, a DIRECT
+// jump when NOT engaged (fast) vs a gentle beta when engaged, and a 2 s cooldown.
+struct AzCfg {
+    bool     enable;
+    float    beta;          // gentle correction fraction (engaged)
+    float    speedMin;      // km/h, below this auto-zero is off
+    float    yawMax;        // deg/s, "driving straight" threshold
+    float    speedSlow;     // km/h
+    float    speedFast;     // km/h
+    uint16_t timeSlowMs;    // straight time required at/below speedSlow
+    uint16_t timeFastMs;    // straight time required at/above speedFast
+};
+struct AzState {
+    double        diffSum  = 0;
+    uint32_t      diffCnt  = 0;
+    elapsedMillis window;
+    elapsedMillis cooldown = elapsedMillis(5000);   // ready at boot
+};
+
+// Returns true on the cycle it applies a correction (used to clear the boot lock).
+bool gpsDriftAutoZero(float rawAngle, float &offset, AzState &s, const AzCfg &c)
+{
+    if (!c.enable || gpsSpeed < c.speedMin) {
+        s.window = 0; s.diffSum = 0; s.diffCnt = 0;
+        return false;
+    }
+
+    // "Driving straight": vehicle yaw rate near zero AND the wheel not moving fast.
+    // steerAngleSpeedActual is lag-free (encoder/IMU), so a sudden steer breaks
+    // straight instantly — before the (filtered) yaw rate catches up.
+    bool isStable = ((float)fabs(headingRate) <= c.yawMax)
+                 && (fabs(steerAngleSpeedActual) < 5.0f);
+
+    // Straight-time required, linearly interpolated by speed (Flodu model).
+    float azTimeMs;
+    if      (gpsSpeed <= c.speedSlow) azTimeMs = c.timeSlowMs;
+    else if (gpsSpeed >= c.speedFast) azTimeMs = c.timeFastMs;
+    else {
+        float t = (gpsSpeed - c.speedSlow) / (c.speedFast - c.speedSlow);
+        azTimeMs = (float)c.timeSlowMs + t * ((float)c.timeFastMs - (float)c.timeSlowMs);
+    }
+
+    if (isStable && s.cooldown > 2000) {
+        if (s.window == 0 || s.diffCnt == 0) { s.diffSum = 0; s.diffCnt = 0; }
+        s.diffSum += (double)((rawAngle + offset) - wheelAngleGPS);
+        s.diffCnt++;
+        if (s.window > azTimeMs && s.diffCnt > 0) {
+            float meanDiff = (float)(s.diffSum / s.diffCnt);
+            if (watchdogTimer < WATCHDOG_THRESHOLD) offset -= meanDiff * c.beta;  // engaged: gentle
+            else                                    offset -= meanDiff;            // not engaged: direct jump
+            s.diffSum = 0; s.diffCnt = 0; s.window = 0; s.cooldown = 0;
+            return true;
+        }
+    } else {
+        s.window = 0; s.diffSum = 0; s.diffCnt = 0;
+    }
+    return false;
+}
+
 void autosteerLoop()
 {
 
@@ -505,13 +567,13 @@ void autosteerLoop()
     {
         if (!imuWasReceived || imuWasTimeout > 500) break;
 
-        static float imuWasZero      = 0.0f;
-        static float imuWasGpsOffset = 0.0f;
+        static float imuWasZero = 0.0f;
 
         if (imuWasZeroRequest) {
             imuWasZeroRequest = false;
             imuWasZero        = imuWasRawYaw;
             imuWasGpsOffset   = 0.0f;
+            imuWasInitialZeroDone = false;   // re-lock; GPS re-confirms the zero
             Serial.println("IMU WAS: zero set");
             webLog("IMU WAS: zero set");
         }
@@ -520,15 +582,19 @@ void autosteerLoop()
         if (moduleConfig.imuWasInvert) rawAngle = -rawAngle;
         rawAngle *= moduleConfig.imuWasCpdScale;
 
-        if (moduleConfig.imuWasAzEnable
-            && gpsSpeed >= moduleConfig.imuWasSpeedMin
-            && gpsSpeed > 1.0f)
-        {
-            if ((float)abs(headingRate) <= moduleConfig.imuWasYawMax) {
-                float wasDiff = (rawAngle + imuWasGpsOffset) - wheelAngleGPS;
-                imuWasGpsOffset -= wasDiff * moduleConfig.imuWasAzBeta;
-            }
-        }
+        // Block autosteer until the first GPS auto-zero (IMU yaw drifts, like Keya).
+        // Only when auto-zero is enabled — otherwise the manual zero is used directly.
+        if (moduleConfig.imuWasAzEnable && !imuWasInitialZeroDone)
+            watchdogTimer = WATCHDOG_FORCE_VALUE;
+
+        // Continuous GPS drift correction (shared helper — same logic as Keya WAS)
+        static AzState imuAz;
+        AzCfg ic = { (bool)moduleConfig.imuWasAzEnable, moduleConfig.imuWasAzBeta,
+                     moduleConfig.imuWasSpeedMin, moduleConfig.imuWasYawMax,
+                     (float)moduleConfig.imuWasSpeedSlow, moduleConfig.imuWasSpeedFast,
+                     moduleConfig.imuWasTimeSlowMs, moduleConfig.imuWasTimeFastMs };
+        if (gpsDriftAutoZero(rawAngle, imuWasGpsOffset, imuAz, ic))
+            imuWasInitialZeroDone = true;    // first correction unlocks autosteer
 
         steerAngleActual = rawAngle + imuWasGpsOffset;
         steerAngleSpeedActual = steerAngleSpeedActual * 0.6f
@@ -567,8 +633,6 @@ void autosteerLoop()
             break;
         }
 
-        static elapsedMillis keyaStraightTimer = 0;
-
         // Cumulative int32 encoder — invert then subtract zero
         int32_t deltaTicks = keyaEncoderRaw - moduleConfig.keyaZeroTicks;
         float deltaSigned = moduleConfig.keyaEncInvert ? -(float)deltaTicks : (float)deltaTicks;
@@ -592,56 +656,13 @@ void autosteerLoop()
 
         float rawAngle = backOut;
 
-        if (moduleConfig.keyaAzEnable && gpsSpeed >= moduleConfig.keyaAzSpeedMin)
-        {
-            // "Driving straight" = vehicle yaw rate (from the heading source) near zero
-            // AND the wheel itself not moving fast. steerAngleSpeedActual comes straight
-            // from the encoder (no GPS lag), so a sudden steer breaks "straight" instantly
-            // — before the (filtered) yaw rate catches up, preventing a bad correction.
-            bool isStable = ((float)abs(headingRate) <= moduleConfig.keyaAzYawMax)
-                         && (fabs(steerAngleSpeedActual) < 5.0f);   // deg/s, lag-free guard
-
-            // Linear time interpolation (Flodu model)
-            float azTimeMs;
-            if (gpsSpeed <= (float)moduleConfig.keyaAzSpeedSlow)
-                azTimeMs = (float)moduleConfig.keyaAzTimeSlowMs;
-            else if (gpsSpeed >= moduleConfig.keyaAzSpeedFast)
-                azTimeMs = (float)moduleConfig.keyaAzTimeFastMs;
-            else {
-                float t = (gpsSpeed - (float)moduleConfig.keyaAzSpeedSlow)
-                        / (moduleConfig.keyaAzSpeedFast - (float)moduleConfig.keyaAzSpeedSlow);
-                azTimeMs = (float)moduleConfig.keyaAzTimeSlowMs
-                         + t * ((float)moduleConfig.keyaAzTimeFastMs - (float)moduleConfig.keyaAzTimeSlowMs);
-            }
-
-            // Average the WAS-vs-GPS difference over the whole stable window (Flodu model),
-            // then apply ONE correction from the mean → much less noise than instantaneous.
-            static double         azDiffSum  = 0;
-            static uint32_t       azDiffCnt  = 0;
-            static elapsedMillis  azCooldown = 5000;   // ready at boot; 2 s between corrections (Flodu)
-
-            if (isStable && azCooldown > 2000) {
-                if (keyaStraightTimer == 0 || azDiffCnt == 0) { azDiffSum = 0; azDiffCnt = 0; }
-                azDiffSum += (double)((rawAngle + keyaGpsOffset) - wheelAngleGPS);
-                azDiffCnt++;
-                if (keyaStraightTimer > azTimeMs && azDiffCnt > 0) {
-                    float meanDiff = (float)(azDiffSum / azDiffCnt);
-                    // Not engaged → direct jump to the GPS wheel angle (Flodu RAPIDE: fast
-                    // convergence while just driving). Engaged → gentle beta sub-correction
-                    // (Flodu PRECIS: don't disturb active steering).
-                    if (watchdogTimer < WATCHDOG_THRESHOLD)
-                        keyaGpsOffset -= meanDiff * moduleConfig.keyaAzBeta;   // engaged: gentle
-                    else
-                        keyaGpsOffset -= meanDiff;                             // not engaged: direct jump
-                    azDiffSum = 0; azDiffCnt = 0;
-                    keyaStraightTimer = 0;
-                    azCooldown = 0;          // start the 2 s cooldown before the next correction
-                }
-            } else {
-                keyaStraightTimer = 0;
-                azDiffSum = 0; azDiffCnt = 0;
-            }
-        }
+        // Continuous GPS drift correction (shared helper — same logic as IMU-as-WAS)
+        static AzState keyaAz;
+        AzCfg kc = { (bool)moduleConfig.keyaAzEnable, moduleConfig.keyaAzBeta,
+                     moduleConfig.keyaAzSpeedMin, moduleConfig.keyaAzYawMax,
+                     (float)moduleConfig.keyaAzSpeedSlow, moduleConfig.keyaAzSpeedFast,
+                     moduleConfig.keyaAzTimeSlowMs, moduleConfig.keyaAzTimeFastMs };
+        gpsDriftAutoZero(rawAngle, keyaGpsOffset, keyaAz, kc);
 
         float correctedAngle = rawAngle + keyaGpsOffset;
         static float keyaEmaOut = 0.0f;
@@ -864,12 +885,15 @@ void ReceiveUdp()
                 //Bit 8,9    set point steer angle * 100 is sent
                 steerAngleSetPoint = ((float)(autoSteerUdpData[8] | ((int8_t)autoSteerUdpData[9]) << 8)) * 0.01; //high low bytes
 
-                // Clamp commanded angle to the working steering limits (deg, 0 = off)
-                // so the motor never drives into the mechanical stop (U-turns).
-                if (moduleConfig.keyaMaxAngleRight > 0.1f && steerAngleSetPoint >  moduleConfig.keyaMaxAngleRight)
-                    steerAngleSetPoint =  moduleConfig.keyaMaxAngleRight;
-                if (moduleConfig.keyaMaxAngleLeft  > 0.1f && steerAngleSetPoint < -moduleConfig.keyaMaxAngleLeft)
-                    steerAngleSetPoint = -moduleConfig.keyaMaxAngleLeft;
+                // Clamp commanded angle to the Keya working steering limits (deg, 0 = off)
+                // so the motor never drives into the mechanical stop (U-turns). These
+                // params live in the Keya section, so the clamp applies only in Keya mode.
+                if (moduleConfig.wasSource == WAS_SOURCE_KEYA) {
+                    if (moduleConfig.keyaMaxAngleRight > 0.1f && steerAngleSetPoint >  moduleConfig.keyaMaxAngleRight)
+                        steerAngleSetPoint =  moduleConfig.keyaMaxAngleRight;
+                    if (moduleConfig.keyaMaxAngleLeft  > 0.1f && steerAngleSetPoint < -moduleConfig.keyaMaxAngleLeft)
+                        steerAngleSetPoint = -moduleConfig.keyaMaxAngleLeft;
+                }
 
                 //Serial.print("steerAngleSetPoint: ");
                 //Serial.println(steerAngleSetPoint);

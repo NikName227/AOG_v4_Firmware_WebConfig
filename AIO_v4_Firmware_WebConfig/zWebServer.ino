@@ -339,6 +339,19 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Max chassis yaw rate deg/s <small style="color:#64748b">(def 0.8)</small></span>
 <input type="number" id="iw5" min="0.1" max="10" step="0.1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Maximum chassis rotation rate to consider the vehicle driving straight. Lower = stricter straight detection, fewer false corrections.</p>
+<div class="section-row" style="gap:8px">
+<div style="flex:1"><span class="lbl">Speed slow km/h <small style="color:#64748b">(def 3)</small></span>
+<input type="number" id="iw6" min="0" max="20" step="1" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Speed fast km/h <small style="color:#64748b">(def 12)</small></span>
+<input type="number" id="iw7" min="1" max="30" step="1" class="ninput" style="width:100%"></div>
+</div>
+<div class="section-row" style="gap:8px">
+<div style="flex:1"><span class="lbl">Straight time slow ms <small style="color:#64748b">(def 500)</small></span>
+<input type="number" id="iw8" min="100" max="5000" step="50" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Straight time fast ms <small style="color:#64748b">(def 200)</small></span>
+<input type="number" id="iw9" min="100" max="5000" step="50" class="ninput" style="width:100%"></div>
+</div>
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 5px;line-height:1.3">How long the vehicle must drive straight before one correction is applied, interpolated by speed (longer at low speed, shorter at high). Corrections are window-averaged; when <b>not</b> engaged the offset jumps directly to the GPS angle (fast), when engaged it's a gentle beta step.</p>
 <div class="row"><span class="lbl">Wheelbase (m) <small style="color:#64748b">(def 3.20, shared)</small></span>
 <input type="number" id="iwwb" min="0.5" max="6" step="0.01" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Distance between front and rear axles. Used to compute theoretical steer angle from GPS yaw rate and speed (bicycle model). Shared with Keya WAS — changing here changes it there too.</p>
@@ -844,6 +857,8 @@ function renderGroup(d) {
     h += lvSub('IMU as WAS');
     h += lvRow('Raw yaw', d.imuRaw.toFixed(2) + ' °');
     h += lvRow('After scale', d.imuScaled.toFixed(2) + ' °  (×' + d.imuScale.toFixed(2) + ')');
+    h += lvRow('Initial zero', d.imuZero ? 'DONE' : 'PENDING (autosteer locked)');
+    h += lvRow('GPS drift offset', d.imuOff.toFixed(3) + ' °');
     h += lvSub('GPS reference (auto-zero)');
     h += lvRow('Chassis yaw rate', d.yawRate.toFixed(2) + ' °/s');
     h += lvRow('Wheel angle (GPS)', d.wheelGps.toFixed(2) + ' °');
@@ -1066,6 +1081,10 @@ function upd(d) {
     document.getElementById('iw3').value   = d.imu_was.azBeta;
     document.getElementById('iw4').value   = d.imu_was.azSpeedMin;
     document.getElementById('iw5').value   = d.imu_was.azYawMax;
+    document.getElementById('iw6').value   = d.imu_was.azVslow;
+    document.getElementById('iw7').value   = d.imu_was.azVfast;
+    document.getElementById('iw8').value   = d.imu_was.azTslow;
+    document.getElementById('iw9').value   = d.imu_was.azTfast;
     document.getElementById('iwwb').value  = d.imu_was.wheelBase;
   }
 
@@ -1431,6 +1450,10 @@ function saveImuWas() {
     + '&imuWasAzB='  + document.getElementById('iw3').value
     + '&imuWasVmin=' + document.getElementById('iw4').value
     + '&imuWasYaw='  + document.getElementById('iw5').value
+    + '&imuWasVslow='+ document.getElementById('iw6').value
+    + '&imuWasVfast='+ document.getElementById('iw7').value
+    + '&imuWasTslow='+ document.getElementById('iw8').value
+    + '&imuWasTfast='+ document.getElementById('iw9').value
     + '&wheelBase='  + document.getElementById('iwwb').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'IMU WAS params saved.' : 'ERROR saving.';
@@ -2133,6 +2156,10 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"azBeta\":")); client.print(moduleConfig.imuWasAzBeta, 4);
     client.print(F(",\"azSpeedMin\":")); client.print(moduleConfig.imuWasSpeedMin, 1);
     client.print(F(",\"azYawMax\":")); client.print(moduleConfig.imuWasYawMax, 2);
+    client.print(F(",\"azVslow\":")); client.print(moduleConfig.imuWasSpeedSlow);
+    client.print(F(",\"azVfast\":")); client.print(moduleConfig.imuWasSpeedFast, 1);
+    client.print(F(",\"azTslow\":")); client.print(moduleConfig.imuWasTimeSlowMs);
+    client.print(F(",\"azTfast\":")); client.print(moduleConfig.imuWasTimeFastMs);
     client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
 
     client.print(F("},\"j1939\":{"));
@@ -2362,6 +2389,8 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"imuRaw\":")); client.print(imuWasRawYaw, 2);
         client.print(F(",\"imuScale\":")); client.print(moduleConfig.imuWasCpdScale, 2);
         client.print(F(",\"imuScaled\":")); client.print(imuWasRawYaw * moduleConfig.imuWasCpdScale, 2);
+        client.print(F(",\"imuOff\":")); client.print(imuWasGpsOffset, 3);
+        client.print(F(",\"imuZero\":")); client.print(imuWasInitialZeroDone ? F("true") : F("false"));
         client.print(F(",\"yawRate\":")); client.print(headingRate, 2);
         client.print(F(",\"wheelGps\":")); client.print(wheelAngleGPS, 2);
         client.print(F(",\"actual\":")); client.print(steerAngleActual, 2);
@@ -2907,6 +2936,10 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "imuWasAzB="))   != NULL) moduleConfig.imuWasAzBeta   = atof(p + 10);
     if ((p = strstr(req, "imuWasVmin="))  != NULL) moduleConfig.imuWasSpeedMin = atof(p + 11);
     if ((p = strstr(req, "imuWasYaw="))   != NULL) moduleConfig.imuWasYawMax   = atof(p + 10);
+    if ((p = strstr(req, "imuWasVslow=")) != NULL) moduleConfig.imuWasSpeedSlow  = (uint8_t)atoi(p + 12);
+    if ((p = strstr(req, "imuWasVfast=")) != NULL) moduleConfig.imuWasSpeedFast  = atof(p + 12);
+    if ((p = strstr(req, "imuWasTslow=")) != NULL) moduleConfig.imuWasTimeSlowMs = (uint16_t)atoi(p + 12);
+    if ((p = strstr(req, "imuWasTfast=")) != NULL) moduleConfig.imuWasTimeFastMs = (uint16_t)atoi(p + 12);
 
     moduleConfigSave();
 

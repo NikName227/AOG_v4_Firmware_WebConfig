@@ -188,6 +188,8 @@ float         imuWasRawYaw      = 0.0f;
 bool          imuWasReceived    = false;
 elapsedMillis imuWasTimeout     = 9999;
 bool          imuWasZeroRequest = false;
+bool          imuWasInitialZeroDone = false;   // GPS initial zero done (boot lock, like Keya)
+float         imuWasGpsOffset   = 0.0f;         // GPS drift offset (moved to global for live view)
 
 // ── GPS / dual ─────────────────────────────────────────────────────────────────
 int8_t  workingDir   = 1;
