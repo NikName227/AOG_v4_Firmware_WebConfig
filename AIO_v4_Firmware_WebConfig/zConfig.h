@@ -1,5 +1,26 @@
 #pragma once
+#include <Arduino.h>
 #include <EEPROM.h>
+
+// ── Shared GPS auto-zero types (used by Keya WAS + IMU-as-WAS) ──────────────────
+// Defined here (early header) so the Arduino auto-prototype for gpsDriftAutoZero()
+// sees them — the generated prototype is inserted above the sketch's own code.
+struct AzCfg {
+    bool     enable;
+    float    beta;          // gentle correction fraction (engaged)
+    float    speedMin;      // km/h, below this auto-zero is off
+    float    yawMax;        // deg/s, "driving straight" threshold
+    float    speedSlow;     // km/h
+    float    speedFast;     // km/h
+    uint16_t timeSlowMs;    // straight time required at/below speedSlow
+    uint16_t timeFastMs;    // straight time required at/above speedFast
+};
+struct AzState {
+    double        diffSum  = 0;
+    uint32_t      diffCnt  = 0;
+    elapsedMillis window;
+    elapsedMillis cooldown = elapsedMillis(5000);   // ready at boot
+};
 
 // ── EEPROM layout ──────────────────────────────────────────────────────────────
 // addr  0  : EEP_Ident (uint16)   – steer settings identity (existing)

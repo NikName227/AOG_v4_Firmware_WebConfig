@@ -281,23 +281,7 @@ void autosteerSetup()
 // (rawAngle + offset) tracks the GPS-derived wheel angle while driving straight.
 // Flodu-model behaviour: window-averaging, a lag-free wheel-rate guard, a DIRECT
 // jump when NOT engaged (fast) vs a gentle beta when engaged, and a 2 s cooldown.
-struct AzCfg {
-    bool     enable;
-    float    beta;          // gentle correction fraction (engaged)
-    float    speedMin;      // km/h, below this auto-zero is off
-    float    yawMax;        // deg/s, "driving straight" threshold
-    float    speedSlow;     // km/h
-    float    speedFast;     // km/h
-    uint16_t timeSlowMs;    // straight time required at/below speedSlow
-    uint16_t timeFastMs;    // straight time required at/above speedFast
-};
-struct AzState {
-    double        diffSum  = 0;
-    uint32_t      diffCnt  = 0;
-    elapsedMillis window;
-    elapsedMillis cooldown = elapsedMillis(5000);   // ready at boot
-};
-
+// (AzCfg / AzState are defined in zConfig.h so the auto-prototype resolves them.)
 // Returns true on the cycle it applies a correction (used to clear the boot lock).
 bool gpsDriftAutoZero(float rawAngle, float &offset, AzState &s, const AzCfg &c)
 {
