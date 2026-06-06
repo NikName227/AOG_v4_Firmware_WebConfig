@@ -9,7 +9,7 @@
 // addr 80  : ModuleConfig         (NEW)
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xC9   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xCA   // change to force EEPROM reset on next boot
 
 // Free-text setup note, stored well past ModuleConfig (~250 B, ends ~330).
 // Teensy 4.1 EEPROM is 4284 B total → 1024..2025 leaves huge margin both ways.
@@ -93,7 +93,7 @@ struct ModuleConfig {
     uint16_t speedDiffTimeout  = 250;   // Keya + Motor speedDiff disengage timeout (ms)
     // ── Keya encoder as WAS ─────────────────────────────────────────────────
     float    keyaTicksPerDeg  = 24.0f;
-    uint8_t  keyaEncInvert    = 0;
+    uint8_t  keyaEncInvert    = 1;      // default: typical motor mount steers correct way inverted
     int32_t  keyaZeroTicks    = 0;      // int32 — matches cumulative encoder accumulator
     uint8_t  keyaAzEnable     = 1;
     float    keyaAzBeta       = 0.05f;
@@ -101,7 +101,6 @@ struct ModuleConfig {
     float    keyaAzYawMax     = 0.3f;   // Flodu default — stricter straight detection
     uint8_t  keyaAzSpeedSlow  = 3;
     float    keyaAzSpeedFast  = 12.0f;  // above this → fast (timeFast) applies
-    uint8_t  keyaAzUseImu     = 0;      // also require chassis IMU yaw rate stable for auto-zero
     float    wheelBase        = 3.20f;  // tractor wheelbase (m) for GPS bicycle-model wheel angle
     uint16_t keyaAzTimeSlowMs = 500;
     uint16_t keyaAzTimeFastMs = 200;

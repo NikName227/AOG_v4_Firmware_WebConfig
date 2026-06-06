@@ -594,25 +594,8 @@ void autosteerLoop()
 
         if (moduleConfig.keyaAzEnable && gpsSpeed >= moduleConfig.keyaAzSpeedMin)
         {
-            // GPS course yaw rate (always) + optional chassis IMU gyro yaw rate
-            bool gpsStable = ((float)abs(headingRate) <= moduleConfig.keyaAzYawMax);
-
-            bool imuStable = true;
-            if (moduleConfig.keyaAzUseImu) {
-                // IMU yaw rate (deg/s) from chassis heading (yaw global, deg x10)
-                static float        azImuLastYaw = 0;
-                static elapsedMillis azImuTimer  = 0;
-                static bool         azImuInit    = false;
-                float dt = azImuTimer / 1000.0f; azImuTimer = 0;
-                if (dt < 0.005f) dt = 0.005f;
-                float curYaw = yaw / 10.0f;
-                float dY = curYaw - azImuLastYaw; azImuLastYaw = curYaw;
-                if (dY > 180) dY -= 360; if (dY < -180) dY += 360;
-                float imuYawRate = azImuInit ? fabs(dY) / dt : 0.0f;
-                azImuInit = true;
-                imuStable = (imuYawRate <= moduleConfig.keyaAzYawMax);
-            }
-            bool isStable = gpsStable && imuStable;
+            // "Driving straight" = vehicle yaw rate (from the heading source) near zero.
+            bool isStable = ((float)abs(headingRate) <= moduleConfig.keyaAzYawMax);
 
             // Linear time interpolation (Flodu model)
             float azTimeMs;
