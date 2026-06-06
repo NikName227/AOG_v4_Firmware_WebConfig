@@ -9,7 +9,7 @@
 // addr 80  : ModuleConfig         (NEW)
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xC8   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xC9   // change to force EEPROM reset on next boot
 
 // Free-text setup note, stored well past ModuleConfig (~250 B, ends ~330).
 // Teensy 4.1 EEPROM is 4284 B total → 1024..2025 leaves huge margin both ways.
@@ -74,6 +74,7 @@ struct ModuleConfig {
     uint8_t  rollSource     = ROLL_SRC_IMU;       // roll data source (see ROLL_SRC_*)
     uint8_t  headingSource  = HDG_SRC_IMU;        // heading data source (see HDG_SRC_*)
     uint8_t  nmeaType       = NMEA_TYPE_PANDA;    // NMEA sentence type to AgIO
+    float    yawRateFilter  = 0.3f;               // EMA on auto-zero yaw rate (0=off, 0.3=medium)
     uint8_t  gpsSerial      = 7;                  // GPS receiver hardware serial (Serial1-8)
     uint8_t  tm171Serial    = 2;                  // TM171 IMU hardware serial (Serial1-8)
     uint32_t tm171Baud      = 115200;             // TM171 baud rate

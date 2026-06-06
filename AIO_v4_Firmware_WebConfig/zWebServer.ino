@@ -172,6 +172,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <option value="1">$PAOGI — dual GPS heading</option>
 </select>
 <p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Sentence name in the output to AgIO. Data fields are identical — AgIO uses the name to know if dual GPS heading is available. Select PAOGI when using HPR or RELPOS heading source.</p>
+<div class="lbl" style="margin:8px 0 3px">Yaw rate filter (EMA)</div>
+<input type="number" id="yawFilter" min="0" max="0.99" step="0.05" style="width:100%">
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Smoothing of the vehicle yaw rate derived from the heading source above. Used by the WAS auto-zero (both Keya and IMU-as-WAS). 0 = off (raw), 0.3 = medium, 0.1 = heavy — lower is smoother but slower to react. Applied live (no restart needed for this field).</p>
 <button class="btn green" onclick="saveDataSource()" style="margin-top:8px">Save Data Source (restart)</button>
 </div>
 
@@ -1033,6 +1036,7 @@ function upd(d) {
     document.getElementById('rollSource').value    = d.cfg.rollSource    || 0;
     document.getElementById('headingSource').value = d.cfg.headingSource || 0;
     document.getElementById('nmeaType').value      = d.cfg.nmeaType      || 0;
+    document.getElementById('yawFilter').value     = (d.cfg.yawRateFilter != null) ? d.cfg.yawRateFilter : 0.3;
     document.getElementById('gpsSerial').value     = d.cfg.gpsSerial     || 7;
     document.getElementById('gpsBaud2').value      = d.cfg.gpsBaud       || 115200;
     document.getElementById('tm171Serial').value   = d.cfg.tm171Serial   || 2;
@@ -1370,7 +1374,8 @@ function saveDataSource() {
     + '?wasSource='     + document.getElementById('wasSource').value
     + '&rollSource='    + document.getElementById('rollSource').value
     + '&headingSource=' + document.getElementById('headingSource').value
-    + '&nmeaType='      + document.getElementById('nmeaType').value;
+    + '&nmeaType='      + document.getElementById('nmeaType').value
+    + '&yawFilter='     + document.getElementById('yawFilter').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'Data source saved – restarting...' : 'Error saving data source.';
     configLoaded = false;
@@ -2166,6 +2171,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"rollSource\":")); client.print(moduleConfig.rollSource);
     client.print(F(",\"headingSource\":")); client.print(moduleConfig.headingSource);
     client.print(F(",\"nmeaType\":")); client.print(moduleConfig.nmeaType);
+    client.print(F(",\"yawRateFilter\":")); client.print(moduleConfig.yawRateFilter, 2);
     client.print(F(",\"gpsSerial\":")); client.print(moduleConfig.gpsSerial);
     client.print(F(",\"tm171Serial\":")); client.print(moduleConfig.tm171Serial);
     client.print(F(",\"tm171Baud\":")); client.print(moduleConfig.tm171Baud);
@@ -2873,6 +2879,7 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "rollSource="))    != NULL) { moduleConfig.rollSource     = (uint8_t)atoi(p + 11); needRestart = true; }
     if ((p = strstr(req, "headingSource=")) != NULL) { moduleConfig.headingSource  = (uint8_t)atoi(p + 14); needRestart = true; }
     if ((p = strstr(req, "nmeaType="))      != NULL) { moduleConfig.nmeaType       = (uint8_t)atoi(p + 9);  needRestart = true; }
+    if ((p = strstr(req, "yawFilter="))     != NULL) { moduleConfig.yawRateFilter  = atof(p + 10); }   // live, no restart
     if ((p = strstr(req, "gpsSerial="))     != NULL) { moduleConfig.gpsSerial      = (uint8_t)atoi(p + 10); needRestart = true; }
     if ((p = strstr(req, "tm171Serial="))   != NULL) { moduleConfig.tm171Serial    = (uint8_t)atoi(p + 12); needRestart = true; }
     if ((p = strstr(req, "tm171Baud="))     != NULL) { moduleConfig.tm171Baud      = (uint32_t)atol(p + 10); needRestart = true; }

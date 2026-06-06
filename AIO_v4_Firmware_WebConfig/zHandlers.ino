@@ -210,7 +210,9 @@ void updateGpsMotion()
         float rate = (float)(dh / dt);               // deg/s (instantaneous)
         if (rate >  90.0f) rate =  90.0f;            // clamp absurd spikes
         if (rate < -90.0f) rate = -90.0f;
-        headingRate = headingRate * 0.7f + rate * 0.3f;   // medium EMA low-pass
+        float a = moduleConfig.yawRateFilter;        // EMA factor (0 = off)
+        if (a > 0.0f && a < 1.0f) headingRate = headingRate * (1.0f - a) + rate * a;
+        else                      headingRate = rate;
     } else {
         headingRate = 0;
     }
