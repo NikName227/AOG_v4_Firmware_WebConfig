@@ -131,9 +131,13 @@ void KeyaBus_Receive()
             int16_t error = abs(keyaCurrentActualSpeed - keyaCurrentSetSpeed);
             static int16_t counter = 0;
 
-            // NV speed-direction disengage
+            // NV speed-direction disengage.
+            // Standing still (< 0.3 km/h) the motor is barely commanded, so the
+            // set-speed gate would block detection — drop it to 0 there so grabbing
+            // the wheel still disengages.
+            int16_t setMinEff = (gpsSpeed < 0.3f) ? 0 : moduleConfig.keyaSetSpeedMin;
             if (moduleConfig.keyaDisEnable
-                && abs(keyaCurrentSetSpeed)    > moduleConfig.keyaSetSpeedMin
+                && abs(keyaCurrentSetSpeed)    > setMinEff
                 && abs(keyaCurrentActualSpeed) > moduleConfig.keyaActSpeedMin
                 && steerSwitch == 0)
             {

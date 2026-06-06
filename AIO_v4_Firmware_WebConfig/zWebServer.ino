@@ -530,7 +530,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Cuts autosteer if the motor runs in the opposite direction to the command — indicates hand override on the wheel.</p>
 <div class="row"><span class="lbl">Set speed min threshold <small style="color:#64748b">(def 10)</small></span>
 <input type="number" id="kd1" min="0" max="200" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Minimum commanded motor speed (absolute value) to activate detection. Ignores very small commands near centre.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Minimum commanded motor speed (absolute value) to activate detection. Ignores very small commands near centre. <b>Standing still (&lt; 0.3 km/h) this drops to 0</b>, so grabbing the wheel still disengages even when the motor is barely commanded.</p>
 <div class="row"><span class="lbl">Act speed min threshold <small style="color:#64748b">(def 5)</small></span>
 <input type="number" id="kd2" min="0" max="200" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Minimum actual motor speed (absolute value) to activate detection. Ignores motor noise when nearly stationary.</p>
