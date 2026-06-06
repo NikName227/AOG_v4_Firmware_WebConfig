@@ -594,8 +594,12 @@ void autosteerLoop()
 
         if (moduleConfig.keyaAzEnable && gpsSpeed >= moduleConfig.keyaAzSpeedMin)
         {
-            // "Driving straight" = vehicle yaw rate (from the heading source) near zero.
-            bool isStable = ((float)abs(headingRate) <= moduleConfig.keyaAzYawMax);
+            // "Driving straight" = vehicle yaw rate (from the heading source) near zero
+            // AND the wheel itself not moving fast. steerAngleSpeedActual comes straight
+            // from the encoder (no GPS lag), so a sudden steer breaks "straight" instantly
+            // — before the (filtered) yaw rate catches up, preventing a bad correction.
+            bool isStable = ((float)abs(headingRate) <= moduleConfig.keyaAzYawMax)
+                         && (fabs(steerAngleSpeedActual) < 5.0f);   // deg/s, lag-free guard
 
             // Linear time interpolation (Flodu model)
             float azTimeMs;
