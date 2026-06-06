@@ -616,20 +616,26 @@ void autosteerLoop()
 
             // Average the WAS-vs-GPS difference over the whole stable window (Flodu model),
             // then apply ONE correction from the mean → much less noise than instantaneous.
-            static double azDiffSum = 0;
-            static uint32_t azDiffCnt = 0;
-            if (isStable) {
+            static double         azDiffSum  = 0;
+            static uint32_t       azDiffCnt  = 0;
+            static elapsedMillis  azCooldown = 5000;   // ready at boot; 2 s between corrections (Flodu)
+
+            if (isStable && azCooldown > 2000) {
                 if (keyaStraightTimer == 0 || azDiffCnt == 0) { azDiffSum = 0; azDiffCnt = 0; }
                 azDiffSum += (double)((rawAngle + keyaGpsOffset) - wheelAngleGPS);
                 azDiffCnt++;
                 if (keyaStraightTimer > azTimeMs && azDiffCnt > 0) {
                     float meanDiff = (float)(azDiffSum / azDiffCnt);
-                    float beta = (watchdogTimer < WATCHDOG_THRESHOLD)
-                                 ? moduleConfig.keyaAzBeta * 0.2f
-                                 : moduleConfig.keyaAzBeta;
-                    keyaGpsOffset -= meanDiff * beta;
+                    // Not engaged → direct jump to the GPS wheel angle (Flodu RAPIDE: fast
+                    // convergence while just driving). Engaged → gentle beta sub-correction
+                    // (Flodu PRECIS: don't disturb active steering).
+                    if (watchdogTimer < WATCHDOG_THRESHOLD)
+                        keyaGpsOffset -= meanDiff * moduleConfig.keyaAzBeta;   // engaged: gentle
+                    else
+                        keyaGpsOffset -= meanDiff;                             // not engaged: direct jump
                     azDiffSum = 0; azDiffCnt = 0;
-                    keyaStraightTimer = 0;   // restart window (acts as cooldown)
+                    keyaStraightTimer = 0;
+                    azCooldown = 0;          // start the 2 s cooldown before the next correction
                 }
             } else {
                 keyaStraightTimer = 0;
