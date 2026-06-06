@@ -176,13 +176,13 @@ void VTG_Handler()
 // Used by Keya & IMU-WAS auto-zero and shown in Live tab Gr3 WAS.
 void updateGpsMotion()
 {
-    static double        hdgOld = 0;
+    static float         emaHdg = 0;   // EMA-filtered heading (deg)
     static elapsedMillis dtT    = 0;
     static bool          init   = false;
 
-    // Yaw rate follows the configured HEADING SOURCE (always differentiate a heading
-    // in degrees — unit-safe). True heading sources (IMU fused, dual-antenna HPR/
-    // RELPOS) are valid even stationary; VTG course is only a fallback and needs motion.
+    // Yaw rate follows the configured HEADING SOURCE (always a heading in degrees —
+    // unit-safe). True heading sources (IMU fused, dual-antenna HPR/RELPOS) are valid
+    // even stationary; VTG course is only a fallback and needs motion.
     float hdg; bool usingVtg = false;
     if (moduleConfig.headingSource == HDG_SRC_RELPOS) {
         hdg = (float)heading;                                   // RELPOS dual-antenna
@@ -197,22 +197,28 @@ void updateGpsMotion()
 
     float dt = dtT / 1000.0f;
     dtT = 0;
-    if (!init) { hdgOld = hdg; init = true; return; }
+    if (!init) { emaHdg = hdg; init = true; return; }
     if (dt < 0.02f) dt = 0.02f;        // floor dt (a tiny dt hugely amplifies noise)
 
-    double dh = hdg - hdgOld;
-    hdgOld = hdg;
-    if (dh > 180)  dh -= 360;
-    if (dh < -180) dh += 360;
+    // ── Filter the HEADING first, THEN differentiate (cleaner than filtering the
+    // rate: differentiating a smoothed signal avoids amplifying glitches). The EMA
+    // step itself is the change of the filtered heading this sample → divide by dt.
+    float dRaw = hdg - emaHdg;
+    if (dRaw > 180)  dRaw -= 360;
+    if (dRaw < -180) dRaw += 360;
+    float a = moduleConfig.yawRateFilter;            // heading EMA factor (0 = off)
+    float step;
+    if (a > 0.0f && a < 1.0f) { step = a * dRaw; emaHdg += step; }
+    else                      { step = dRaw;     emaHdg  = hdg; }   // filter off = raw
+    if (emaHdg < 0.0f)    emaHdg += 360.0f;
+    if (emaHdg >= 360.0f) emaHdg -= 360.0f;
 
-    // VTG fallback needs movement; a real heading source is differentiated at any speed.
+    // VTG fallback needs movement; a real heading source is valid at any speed.
     if (!usingVtg || gpsSpeed > 1.0f) {
-        float rate = (float)(dh / dt);               // deg/s (instantaneous)
+        float rate = step / dt;                      // deg/s from the smoothed heading
         if (rate >  90.0f) rate =  90.0f;            // clamp absurd spikes
         if (rate < -90.0f) rate = -90.0f;
-        float a = moduleConfig.yawRateFilter;        // EMA factor (0 = off)
-        if (a > 0.0f && a < 1.0f) headingRate = headingRate * (1.0f - a) + rate * a;
-        else                      headingRate = rate;
+        headingRate = rate;
     } else {
         headingRate = 0;
     }

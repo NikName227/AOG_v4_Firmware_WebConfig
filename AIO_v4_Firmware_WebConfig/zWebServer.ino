@@ -174,7 +174,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Sentence name in the output to AgIO. Data fields are identical — AgIO uses the name to know if dual GPS heading is available. Select PAOGI when using HPR or RELPOS heading source.</p>
 <div class="lbl" style="margin:8px 0 3px">Yaw rate filter (EMA)</div>
 <input type="number" id="yawFilter" min="0" max="0.99" step="0.05" style="width:100%">
-<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Smoothing of the vehicle yaw rate derived from the heading source above. Used by the WAS auto-zero (both Keya and IMU-as-WAS). 0 = off (raw), 0.3 = medium, 0.1 = heavy — lower is smoother but slower to react. Applied live (no restart needed for this field).</p>
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">EMA smoothing applied to the heading <b>before</b> the yaw rate is computed (cleaner than filtering the rate — avoids amplifying glitches). Yaw rate feeds the WAS auto-zero (Keya and IMU-as-WAS). 0 = off (raw), 0.3 = medium, 0.1 = heavy — lower is smoother but slower. Applied live (no restart needed).</p>
 <button class="btn green" onclick="saveDataSource()" style="margin-top:8px">Save Data Source (restart)</button>
 </div>
 
