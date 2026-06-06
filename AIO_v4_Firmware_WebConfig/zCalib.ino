@@ -58,16 +58,6 @@ static void calMotor(int spd) {
 
 static void calStop() { SteerKeya(0, false); }
 
-// Load current config into the result holders so that applying a calibration
-// that only measured ONE thing keeps the other (unmeasured) values intact.
-static void calLoadResultsFromConfig() {
-    calResDz  = moduleConfig.keyaDeadZone;
-    calResTL  = moduleConfig.keyaTicksLeft;
-    calResTR  = moduleConfig.keyaTicksRight;
-    calResTpd = moduleConfig.keyaTicksPerDeg;
-    calResMaxL = calResMaxR = 0;   // measured-max is only valid after a range run
-}
-
 static bool calCommonGuards() {
     if (!keyaDetected)                            { calSet(CAL_FAIL, "Keya not detected"); return false; }
     if (!(refAngleTime < 1000 && refAngleValid))  { calSet(CAL_FAIL, "no reference IMU link"); return false; }
@@ -78,8 +68,7 @@ static bool calCommonGuards() {
 // Public: start dead-zone (auto, motor turns) — stops at DONE, range untouched
 void calStartDeadzone() {
     if (!calCommonGuards()) return;
-    calLoadResultsFromConfig();
-    calResDz = 0;                                  // this one is being measured
+    calResDz = 0; calHaveDz = false;               // this one is being measured
     calEncCenter = keyaEncoderRaw;
     calRefCenter = refWheelAngle;
     calDzSum = 0; calDzDone = 0;
@@ -90,8 +79,9 @@ void calStartDeadzone() {
 // Public: start range (manual, operator turns by hand) — dead zone untouched
 void calStartRange() {
     if (!calCommonGuards()) return;
-    calLoadResultsFromConfig();
     calResTL = calResTR = calResTpd = 0;           // these are being measured
+    calResMaxL = calResMaxR = 0;
+    calHaveRange = false;
     calManCap = 0;
     calStop();
     calEncCenter = keyaEncoderRaw;
@@ -101,12 +91,16 @@ void calStartRange() {
 
 void calAbort() { calStop(); calSet(CAL_IDLE, "aborted"); }
 
+// Apply only what was actually measured this session — the other value is left
+// untouched in EEPROM (so running one calibration never zeroes the other).
 void calApply() {
     if (calState != CAL_DONE) return;
-    if (calResTpd > 1.0f)  moduleConfig.keyaTicksPerDeg = calResTpd;
-    if (calResTR  > 1.0f)  moduleConfig.keyaTicksRight   = calResTR;
-    if (calResTL  > 1.0f)  moduleConfig.keyaTicksLeft    = calResTL;
-    moduleConfig.keyaDeadZone = calResDz;
+    if (calHaveDz)    moduleConfig.keyaDeadZone = calResDz;
+    if (calHaveRange) {
+        if (calResTpd > 1.0f) moduleConfig.keyaTicksPerDeg = calResTpd;
+        if (calResTR  > 1.0f) moduleConfig.keyaTicksRight   = calResTR;
+        if (calResTL  > 1.0f) moduleConfig.keyaTicksLeft    = calResTL;
+    }
     moduleConfigSave();
     calSet(CAL_IDLE, "applied & saved");
 }
@@ -169,6 +163,7 @@ void calibrationLoop()
                 if (calDzDone >= CAL_DZ_CYCLES) {
                     calStop();
                     calResDz = calDzSum / calDzDone;
+                    calHaveDz = true;
                     char m[48]; snprintf(m, sizeof(m), "dead zone = %.2f deg (done)", calResDz);
                     calSet(CAL_DONE, m);
                 } else {
@@ -234,6 +229,11 @@ void calComputeRange() {
     calResTL = (degL > 1.0f) ? tickL / degL : 0;
     calResTpd = ((calResTR > 0) + (calResTL > 0)) ?
                 ((calResTR + calResTL) / ((calResTR > 0) + (calResTL > 0))) : 0;
-    char m[48]; snprintf(m, sizeof(m), "done: L %.1f R %.1f t/deg", calResTL, calResTR);
+    calHaveRange = true;
+    char m[64];
+    if (calResTR == 0 || calResTL == 0)
+        snprintf(m, sizeof(m), "ref barely moved (L %.1f R %.1f deg) - check wheel IMU", degL, degR);
+    else
+        snprintf(m, sizeof(m), "done: L %.1f R %.1f t/deg (range L %.1f R %.1f deg)", calResTL, calResTR, degL, degR);
     calSet(CAL_DONE, m);
 }

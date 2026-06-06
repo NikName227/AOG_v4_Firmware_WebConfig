@@ -180,23 +180,33 @@ void updateGpsMotion()
     static elapsedMillis dtT    = 0;
     static bool          init   = false;
 
+    // Heading to differentiate. VTG course-over-ground is very noisy (its derivative
+    // explodes at low speed / with GPS jitter), so prefer the dual-antenna heading
+    // (HPR) when that is the configured source — it is far steadier.
+    double hdg = headingVTG;
+    if (moduleConfig.headingSource == HDG_SRC_HPR && umHeading[0] != 0)
+        hdg = atof(umHeading);
+
     float dt = dtT / 1000.0f;
     dtT = 0;
-    if (!init) { hdgOld = headingVTG; init = true; return; }
-    if (dt < 0.005f) dt = 0.005f;
+    if (!init) { hdgOld = hdg; init = true; return; }
+    if (dt < 0.02f) dt = 0.02f;        // floor dt (a tiny dt hugely amplifies noise)
 
-    double dh = headingVTG - hdgOld;
-    hdgOld = headingVTG;
+    double dh = hdg - hdgOld;
+    hdgOld = hdg;
     if (dh > 180)  dh -= 360;
     if (dh < -180) dh += 360;
 
     if (gpsSpeed > 1.0f) {
-        headingRate = dh / dt;                       // deg/s
+        float rate = (float)(dh / dt);               // deg/s (instantaneous)
+        if (rate >  90.0f) rate =  90.0f;            // clamp absurd spikes
+        if (rate < -90.0f) rate = -90.0f;
+        headingRate = headingRate * 0.7f + rate * 0.3f;   // EMA low-pass
         double ms = gpsSpeed * 0.27778;
         wheelAngleGPS = atan(headingRate / RAD_TO_DEG * moduleConfig.wheelBase / ms) * RAD_TO_DEG;
         if (!(wheelAngleGPS < 50 && wheelAngleGPS > -50)) wheelAngleGPS = steerAngleActual;
     } else {
-        headingRate   = 0;   // VTG course is noise below ~1 km/h
+        headingRate   = 0;   // course/heading rate is unreliable below ~1 km/h
         wheelAngleGPS = 0;
     }
 }

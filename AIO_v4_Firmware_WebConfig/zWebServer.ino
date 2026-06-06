@@ -862,6 +862,10 @@ function renderGroup(d) {
     h += lvRow('Actual speed', d.act);
     h += lvRow('Set speed', d.set);
     h += lvRow('Final angle', d.actual.toFixed(2) + ' °');
+    h += lvSub('GPS auto-zero inputs');
+    h += lvRow('Chassis yaw rate', d.yawRate.toFixed(2) + ' °/s');
+    h += lvRow('Wheel angle (GPS)', d.wheelGps.toFixed(2) + ' °');
+    h += lvRow('WAS − GPS diff', (d.actual - d.wheelGps).toFixed(2) + ' °');
     h += lvSub('Reference IMU (calibration)');
     h += lvRow('Ref IMU link', d.refLink ? 'OK' : '-- (no bridge)');
     h += lvRow('Reference angle', d.refLink ? (d.refAngle.toFixed(2) + ' °') : '—');
@@ -1715,6 +1719,8 @@ var gSignals = [
  {id:23,n:'Gr4 Keya encoder'},{id:24,n:'Gr4 Keya gpsOffset'},{id:25,n:'Gr4 Keya actSpeed'},{id:26,n:'Gr4 Keya setSpeed'},
  {id:44,n:'Gr4 Keya wheel pos (deg)'},{id:45,n:'Gr4 Keya steering-wheel pos (deg)'},
  {id:46,n:'Gr4 Keya reference IMU angle (deg)'},
+ {id:20,n:'Gr4 Keya chassis yawRate (auto-zero)'},
+ {id:21,n:'Gr4 Keya wheelAngleGPS (auto-zero)'},
  // ── Gr5 Steer ──
  {id:27,n:'Gr5 Steer actual'},{id:28,n:'Gr5 Steer setpoint'},{id:29,n:'Gr5 Steer error'},{id:30,n:'Gr5 PWM'},{id:31,n:'Gr5 speed'},
  {id:41,n:'Gr5 current sensor (A17)'},{id:42,n:'Gr5 pressure sensor (A10)'},{id:43,n:'Gr5 sensor reading'},
@@ -2376,6 +2382,8 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"actual\":")); client.print(steerAngleActual, 2);
         client.print(F(",\"refLink\":")); client.print((refAngleTime < 1000 && refAngleValid) ? F("true") : F("false"));
         client.print(F(",\"refAngle\":")); client.print(refWheelAngle, 2);
+        client.print(F(",\"yawRate\":")); client.print(headingRate, 2);
+        client.print(F(",\"wheelGps\":")); client.print(wheelAngleGPS, 2);
         client.print(F("}"));
         break;
     }

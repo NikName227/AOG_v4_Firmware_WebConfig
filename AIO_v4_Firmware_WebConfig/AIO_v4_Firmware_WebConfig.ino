@@ -161,6 +161,8 @@ float    calResTR   = 0.0f;
 float    calResTpd  = 0.0f;
 float    calResMaxL = 0.0f;            // measured max angle each side (deg, from range cal)
 float    calResMaxR = 0.0f;
+bool     calHaveDz    = false;         // a fresh dead-zone result is ready to apply
+bool     calHaveRange = false;         // a fresh range (ticks/deg) result is ready to apply
 
 // ── Custom CAN engage runtime state ──────────────────────────────────────────
 uint8_t  customEngLastBuf[8] = {0};  // last frame seen on configured ID (for Learn)
