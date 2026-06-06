@@ -139,7 +139,7 @@ Pick up to 4 signals (dual Y-axis). IDs below are the firmware signal IDs.
 | 17 | WAS ADS raw | counts | `steeringPosition` |
 | 18 | WAS IMU raw | ° | `imuWasRawYaw` |
 | 19 | WAS IMU scaled | ° | `imuWasRawYaw × cpdScale` |
-| 20 | WAS chassis yawRate | °/s | `headingRate` (GPS course) |
+| 20 | WAS chassis yawRate | °/s | `headingRate` — derivative of the configured heading source (IMU / HPR / RELPOS; VTG fallback), medium EMA |
 | 21 | WAS wheelAngleGPS | ° | GPS bicycle model |
 | 22 | WAS actual | ° | `steerAngleActual` (final angle) |
 

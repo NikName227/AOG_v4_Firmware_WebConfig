@@ -180,12 +180,20 @@ void updateGpsMotion()
     static elapsedMillis dtT    = 0;
     static bool          init   = false;
 
-    // Heading to differentiate. VTG course-over-ground is very noisy (its derivative
-    // explodes at low speed / with GPS jitter), so prefer the dual-antenna heading
-    // (HPR) when that is the configured source — it is far steadier.
-    double hdg = headingVTG;
-    if (moduleConfig.headingSource == HDG_SRC_HPR && umHeading[0] != 0)
-        hdg = atof(umHeading);
+    // Yaw rate follows the configured HEADING SOURCE (always differentiate a heading
+    // in degrees — unit-safe). True heading sources (IMU fused, dual-antenna HPR/
+    // RELPOS) are valid even stationary; VTG course is only a fallback and needs motion.
+    float hdg; bool usingVtg = false;
+    if (moduleConfig.headingSource == HDG_SRC_RELPOS) {
+        hdg = (float)heading;                                   // RELPOS dual-antenna
+    } else if (moduleConfig.headingSource == HDG_SRC_HPR && umHeading[0] != 0) {
+        hdg = atof(umHeading);                                  // HPR dual-antenna
+    } else if (moduleConfig.headingSource == HDG_SRC_IMU) {
+        hdg = useTMxx_IMU ? (float)(TM171_IMU.getYaw() / 100.0) // TM171 (deg)
+                          : (yaw / 10.0f);                      // BNO085 (deg x10 -> deg)
+    } else {
+        hdg = (float)headingVTG; usingVtg = true;               // course-over-ground fallback
+    }
 
     float dt = dtT / 1000.0f;
     dtT = 0;
@@ -197,16 +205,22 @@ void updateGpsMotion()
     if (dh > 180)  dh -= 360;
     if (dh < -180) dh += 360;
 
-    if (gpsSpeed > 1.0f) {
+    // VTG fallback needs movement; a real heading source is differentiated at any speed.
+    if (!usingVtg || gpsSpeed > 1.0f) {
         float rate = (float)(dh / dt);               // deg/s (instantaneous)
         if (rate >  90.0f) rate =  90.0f;            // clamp absurd spikes
         if (rate < -90.0f) rate = -90.0f;
-        headingRate = headingRate * 0.7f + rate * 0.3f;   // EMA low-pass
+        headingRate = headingRate * 0.7f + rate * 0.3f;   // medium EMA low-pass
+    } else {
+        headingRate = 0;
+    }
+
+    // Bicycle-model wheel angle from yaw rate + speed (needs speed to be meaningful).
+    if (gpsSpeed > 1.0f) {
         double ms = gpsSpeed * 0.27778;
         wheelAngleGPS = atan(headingRate / RAD_TO_DEG * moduleConfig.wheelBase / ms) * RAD_TO_DEG;
         if (!(wheelAngleGPS < 50 && wheelAngleGPS > -50)) wheelAngleGPS = steerAngleActual;
     } else {
-        headingRate   = 0;   // course/heading rate is unreliable below ~1 km/h
         wheelAngleGPS = 0;
     }
 }
