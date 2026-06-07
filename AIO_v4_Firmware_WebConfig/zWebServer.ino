@@ -308,8 +308,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Beta / step <small style="color:#64748b">(def 0.02)</small></span>
 <input type="number" id="az1" min="0.001" max="0.5" step="0.001" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How fast it walks toward 0 each cycle. Keep small (0.01–0.03) — analog needs only a gentle, slow trim.</p>
-<div class="row"><span class="lbl">Min GPS speed km/h <small style="color:#64748b">(def 1.5)</small></span>
+<div class="row"><span class="lbl">Min GPS speed km/h <small style="color:#64748b">(def 3)</small></span>
 <input type="number" id="az2" min="0" max="25" step="0.5" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Auto-zero only runs above this speed. Higher = stricter (GPS heading is steadier at speed).</p>
 <div class="row"><span class="lbl">Max yaw rate °/s <small style="color:#64748b">(def 0.5)</small></span>
 <input type="number" id="az3" min="0.1" max="5" step="0.1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Stricter "driving straight" gate than the other sources — lower = only corrects on very straight stretches.</p>

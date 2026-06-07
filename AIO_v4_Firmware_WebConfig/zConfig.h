@@ -155,7 +155,7 @@ struct ModuleConfig {
     // ── ADS1115 analog WAS auto-zero (slow nudge toward 0, persisted in EEPROM) ──
     uint8_t  adsAzEnable    = 0;        // 0=off 1=on
     float    adsAzBeta      = 0.02f;    // very slow correction toward 0
-    float    adsAzSpeedMin  = 1.5f;     // min GPS speed km/h
+    float    adsAzSpeedMin  = 3.0f;     // min GPS speed km/h (higher = stricter, like Keya)
     float    adsAzYawMax    = 0.5f;     // max yaw rate deg/s for "straight" (stricter)
     float    adsAzDeltaMax  = 10.0f;    // only correct if |angle| below this (deg)
     uint16_t adsAzTimeMs    = 1000;     // straight time required before a correction (ms)
