@@ -319,7 +319,11 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div style="flex:1"><span class="lbl">Straight time ms <small style="color:#64748b">(def 1000)</small></span>
 <input type="number" id="az5" min="200" max="5000" step="100" class="ninput" style="width:100%"></div>
 </div>
-<button class="btn green" onclick="saveAdsAz()" style="margin-top:8px">Save ADS auto-zero</button>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+<button class="btn green" onclick="saveAdsAz()">Save ADS auto-zero</button>
+<button class="btn" onclick="resetAdsAz()">Reset offset</button>
+</div>
+<p style="color:#94a3b8;font-size:12px;margin:5px 0 0;line-height:1.3">Reset sets the auto offset back to 0 — use after changing or servicing the WAS sensor (then re-set the AgOpenGPS WAS offset and drive straight to re-converge).</p>
 </div>
 
 <div class="card">
@@ -1515,6 +1519,12 @@ function saveAdsAz() {
     + '&adsAzT='   + document.getElementById('az5').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'ADS auto-zero saved.' : 'ERROR saving.';
+    configLoaded = false;
+  });
+}
+function resetAdsAz() {
+  fetch('/api/save?adsAzReset=1').then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'ADS auto-zero offset reset to 0.' : 'ERROR.';
     configLoaded = false;
   });
 }
@@ -3020,6 +3030,7 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "adsAzYaw="))  != NULL) moduleConfig.adsAzYawMax   = atof(p + 9);
     if ((p = strstr(req, "adsAzDmax=")) != NULL) moduleConfig.adsAzDeltaMax = atof(p + 10);
     if ((p = strstr(req, "adsAzT="))    != NULL) moduleConfig.adsAzTimeMs   = (uint16_t)atoi(p + 7);
+    if (strstr(req, "adsAzReset=") != NULL) { moduleConfig.adsAutoOffset = 0.0f; moduleConfigSave(); }
 
     moduleConfigSave();
 
