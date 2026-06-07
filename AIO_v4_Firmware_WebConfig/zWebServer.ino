@@ -323,20 +323,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 
 <div class="card">
-<h2>Motor (PWM) speed-direction disengage</h2>
-<p style="color:#f59e0b;font-size:13px;margin-bottom:8px">&#9888; Current Sensor must be enabled in AOG</p>
-<div class="row"><span class="lbl">Enable</span>
-<input type="checkbox" id="md0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
-<div class="row"><span class="lbl">Angle error min (deg)</span>
-<input type="number" id="md1" min="0" max="30" step="1" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Minimum steer angle error (degrees) before motor movement is considered a hand override. Higher = less sensitive.</p>
-<div class="row"><span class="lbl">SpeedDiff timeout (ms)</span>
-<input type="number" id="md2" min="0" max="5000" step="10" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How long the motor must run in the wrong direction before autosteer is cut. Shorter = more sensitive to hand override.</p>
-<button class="btn green" onclick="saveMotor()" style="margin-top:8px">Save Motor params</button>
-</div>
-
-<div class="card">
 <h2>IMU as WAS</h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">Dual-IMU steering angle = <b>knuckle yaw − chassis yaw</b> (the chassis term cancels vehicle rotation, so the angle stays correct mid-turn). Knuckle IMU sends yaw over CAN1 (ID 0x300, 250 kbps, 50–100 Hz); chassis = the AIO's own IMU. Set WAS = IMUasWAS and CAN1 = IMUasWAS above. <b>Requires an active chassis IMU.</b></p>
 <div class="row"><span class="lbl">Invert direction <small style="color:#64748b">(def OFF)</small></span>
@@ -387,6 +373,20 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <input type="number" id="iwwb" min="0.5" max="6" step="0.01" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Distance between front and rear axles. Used to compute theoretical steer angle from GPS yaw rate and speed (bicycle model). Shared with Keya WAS — changing here changes it there too.</p>
 <button class="btn green" onclick="saveImuWas()" style="margin-top:8px">Save IMU WAS params</button>
+</div>
+
+<div class="card">
+<h2>Motor (PWM) speed-direction disengage</h2>
+<p style="color:#f59e0b;font-size:13px;margin-bottom:8px">&#9888; Current Sensor must be enabled in AOG</p>
+<div class="row"><span class="lbl">Enable</span>
+<input type="checkbox" id="md0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div class="row"><span class="lbl">Angle error min (deg)</span>
+<input type="number" id="md1" min="0" max="30" step="1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Minimum steer angle error (degrees) before motor movement is considered a hand override. Higher = less sensitive.</p>
+<div class="row"><span class="lbl">SpeedDiff timeout (ms)</span>
+<input type="number" id="md2" min="0" max="5000" step="10" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How long the motor must run in the wrong direction before autosteer is cut. Shorter = more sensitive to hand override.</p>
+<button class="btn green" onclick="saveMotor()" style="margin-top:8px">Save Motor params</button>
 </div>
 
 </div><!-- /config -->
