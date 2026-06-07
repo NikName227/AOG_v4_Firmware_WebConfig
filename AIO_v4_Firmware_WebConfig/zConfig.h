@@ -30,7 +30,7 @@ struct AzState {
 // addr 80  : ModuleConfig         (NEW)
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xCC   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xCD   // change to force EEPROM reset on next boot
 
 // Free-text setup note, stored well past ModuleConfig (~250 B, ends ~330).
 // Teensy 4.1 EEPROM is 4284 B total → 1024..2025 leaves huge margin both ways.
@@ -152,6 +152,14 @@ struct ModuleConfig {
     float    imuWasChDriftR  = -0.1f;   // chassis IMU, turning right
     float    imuWasKnDriftL  =  0.1f;   // knuckle IMU, turning left
     float    imuWasKnDriftR  =  0.1f;   // knuckle IMU, turning right
+    // ── ADS1115 analog WAS auto-zero (slow nudge toward 0, persisted in EEPROM) ──
+    uint8_t  adsAzEnable    = 0;        // 0=off 1=on
+    float    adsAzBeta      = 0.02f;    // very slow correction toward 0
+    float    adsAzSpeedMin  = 1.5f;     // min GPS speed km/h
+    float    adsAzYawMax    = 0.5f;     // max yaw rate deg/s for "straight" (stricter)
+    float    adsAzDeltaMax  = 10.0f;    // only correct if |angle| below this (deg)
+    uint16_t adsAzTimeMs    = 1000;     // straight time required before a correction (ms)
+    float    adsAutoOffset  = 0.0f;     // persisted auto-zero offset (deg)
     // ── PVED tool ────────────────────────────────────────────────────────────
     uint16_t pvedParam64007Factory = 0xFFFF;  // original tractor value (0xFFFF = never read)
     // ── Custom CAN engage (mask+match on a user-defined frame) ──────────────────

@@ -755,6 +755,33 @@ void autosteerLoop()
             steeringPosition = (steeringPosition - 6805 + steerSettings.wasOffset);
             steerAngleActual = (float)(steeringPosition) / steerSettings.steerSensorCounts;
         }
+
+        // ── ADS1115 auto-zero (separate, persisted offset on top of AOG wasOffset) ──
+        // Analog WAS is repeatable but hard to trim to exactly 0; this very slowly
+        // nudges the angle to 0 while driving straight, and the offset is kept in
+        // EEPROM (saved periodically) so the next boot starts already zeroed.
+        if (moduleConfig.adsAzEnable) {
+            steerAngleActual -= moduleConfig.adsAutoOffset;
+            static uint32_t adsStable = 0;
+            if (gpsSpeed > moduleConfig.adsAzSpeedMin
+                && fabs(headingRate) < moduleConfig.adsAzYawMax
+                && fabs(steerAngleActual) < moduleConfig.adsAzDeltaMax) {
+                uint32_t n = millis();
+                if (adsStable == 0) adsStable = n;
+                if (n - adsStable > moduleConfig.adsAzTimeMs)
+                    moduleConfig.adsAutoOffset += moduleConfig.adsAzBeta * steerAngleActual;
+            } else adsStable = 0;
+            // Persist every ~5 min, only if it actually moved (analog is stable, low wear)
+            static uint32_t adsSaveT = 0; static float adsSavedOff = 0;
+            if (millis() - adsSaveT > 300000UL) {
+                adsSaveT = millis();
+                if (fabs(moduleConfig.adsAutoOffset - adsSavedOff) > 0.02f) {
+                    moduleConfigSave(); adsSavedOff = moduleConfig.adsAutoOffset;
+                    webLog("ADS auto-zero offset saved to EEPROM");
+                }
+            }
+        }
+
         steerAngleSpeedActual = steerAngleSpeedActual * 0.6 + (steerAngleActual-steerAngleActual_previous)*0.4 / (steerSensorReadTime/1000);
         steerSensorReadTime = 0;
         steerAngleActual_previous = steerAngleActual;

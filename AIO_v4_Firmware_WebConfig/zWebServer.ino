@@ -299,6 +299,28 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 </div>
 
+<div class="card">
+<h2>WAS — ADS1115 auto-zero</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">For the analog ADS1115 WAS only. Analog is repeatable but hard to trim to exactly 0°, so this very slowly nudges the angle to 0 while driving straight. The offset sits <b>on top of</b> the AgOpenGPS WAS offset and is kept in EEPROM (saved ~every 5 min), so the next boot starts already zeroed — no need to hit 0 precisely by hand.</p>
+<div class="row"><span class="lbl">Enable <small style="color:#64748b">(def OFF)</small></span>
+<input type="checkbox" id="az0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div class="row"><span class="lbl">Current auto offset</span><span class="val" id="azOff">—</span></div>
+<div class="row"><span class="lbl">Beta / step <small style="color:#64748b">(def 0.02)</small></span>
+<input type="number" id="az1" min="0.001" max="0.5" step="0.001" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How fast it walks toward 0 each cycle. Keep small (0.01–0.03) — analog needs only a gentle, slow trim.</p>
+<div class="row"><span class="lbl">Min GPS speed km/h <small style="color:#64748b">(def 1.5)</small></span>
+<input type="number" id="az2" min="0" max="25" step="0.5" class="ninput"></div>
+<div class="row"><span class="lbl">Max yaw rate °/s <small style="color:#64748b">(def 0.5)</small></span>
+<input type="number" id="az3" min="0.1" max="5" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Stricter "driving straight" gate than the other sources — lower = only corrects on very straight stretches.</p>
+<div class="section-row" style="gap:8px">
+<div style="flex:1"><span class="lbl">Max angle for zero ° <small style="color:#64748b">(def 10)</small></span>
+<input type="number" id="az4" min="1" max="40" step="1" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Straight time ms <small style="color:#64748b">(def 1000)</small></span>
+<input type="number" id="az5" min="200" max="5000" step="100" class="ninput" style="width:100%"></div>
+</div>
+<button class="btn green" onclick="saveAdsAz()" style="margin-top:8px">Save ADS auto-zero</button>
+</div>
 
 <div class="card">
 <h2>Motor (PWM) speed-direction disengage</h2>
@@ -863,6 +885,7 @@ function renderGroup(d) {
     h += lvRow('Active source', srcN[d.src] || d.src);
     h += lvSub('ADS1115');
     h += lvRow('Raw counts', d.adsRaw);
+    if (d.adsAzEn) h += lvRow('Auto-zero offset', d.adsAzOff.toFixed(3) + ' °');
     h += lvSub('IMU as WAS');
     h += lvRow('Raw yaw', d.imuRaw.toFixed(2) + ' °');
     h += lvRow('After scale', d.imuScaled.toFixed(2) + ' °  (×' + d.imuScale.toFixed(2) + ')');
@@ -1097,6 +1120,15 @@ function upd(d) {
     document.getElementById('iwKnL').value = d.imu_was.knDriftL;
     document.getElementById('iwKnR').value = d.imu_was.knDriftR;
     document.getElementById('iwwb').value  = d.imu_was.wheelBase;
+    if (d.adsAz) {
+      document.getElementById('az0').checked = !!d.adsAz.en;
+      document.getElementById('az1').value   = d.adsAz.beta;
+      document.getElementById('az2').value   = d.adsAz.vmin;
+      document.getElementById('az3').value   = d.adsAz.yaw;
+      document.getElementById('az4').value   = d.adsAz.dmax;
+      document.getElementById('az5').value   = d.adsAz.tms;
+      document.getElementById('azOff').textContent = d.adsAz.off.toFixed(3) + ' °';
+    }
   }
 
   document.getElementById('sb').textContent = 'Updated: ' + new Date().toLocaleTimeString();
@@ -1470,6 +1502,20 @@ function saveImuWas() {
     + '&wheelBase='  + document.getElementById('iwwb').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'IMU WAS params saved.' : 'ERROR saving.';
+  });
+}
+
+function saveAdsAz() {
+  var url = '/api/save'
+    + '?adsAzEn='  + (document.getElementById('az0').checked ? 1 : 0)
+    + '&adsAzB='   + document.getElementById('az1').value
+    + '&adsAzVmin='+ document.getElementById('az2').value
+    + '&adsAzYaw=' + document.getElementById('az3').value
+    + '&adsAzDmax='+ document.getElementById('az4').value
+    + '&adsAzT='   + document.getElementById('az5').value;
+  fetch(url).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'ADS auto-zero saved.' : 'ERROR saving.';
+    configLoaded = false;
   });
 }
 
@@ -2177,6 +2223,15 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"knDriftR\":")); client.print(moduleConfig.imuWasKnDriftR, 2);
     client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
 
+    client.print(F("},\"adsAz\":{"));
+    client.print(F("\"en\":")); client.print(moduleConfig.adsAzEnable);
+    client.print(F(",\"beta\":")); client.print(moduleConfig.adsAzBeta, 3);
+    client.print(F(",\"vmin\":")); client.print(moduleConfig.adsAzSpeedMin, 1);
+    client.print(F(",\"yaw\":")); client.print(moduleConfig.adsAzYawMax, 2);
+    client.print(F(",\"dmax\":")); client.print(moduleConfig.adsAzDeltaMax, 1);
+    client.print(F(",\"tms\":")); client.print(moduleConfig.adsAzTimeMs);
+    client.print(F(",\"off\":")); client.print(moduleConfig.adsAutoOffset, 3);
+
     client.print(F("},\"j1939\":{"));
     client.print(F("\"srcAddr\":")); client.print(moduleConfig.j1939SrcAddr);
     client.print(F(",\"en65267\":")); client.print(moduleConfig.j1939En65267);
@@ -2401,6 +2456,8 @@ void handleApiGrp(EthernetClient& client, const char* req)
     case 3: { // WAS
         client.print(F("{\"src\":")); client.print(moduleConfig.wasSource);
         client.print(F(",\"adsRaw\":")); client.print(steeringPosition);
+        client.print(F(",\"adsAzEn\":")); client.print(moduleConfig.adsAzEnable);
+        client.print(F(",\"adsAzOff\":")); client.print(moduleConfig.adsAutoOffset, 3);
         client.print(F(",\"imuRaw\":")); client.print(imuWasRawYaw, 2);
         client.print(F(",\"imuScale\":")); client.print(moduleConfig.imuWasCpdScale, 2);
         client.print(F(",\"imuScaled\":")); client.print(imuWasRawYaw * moduleConfig.imuWasCpdScale, 2);
@@ -2957,6 +3014,12 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "imuWasChDR="))  != NULL) moduleConfig.imuWasChDriftR   = atof(p + 11);
     if ((p = strstr(req, "imuWasKnDL="))  != NULL) moduleConfig.imuWasKnDriftL   = atof(p + 11);
     if ((p = strstr(req, "imuWasKnDR="))  != NULL) moduleConfig.imuWasKnDriftR   = atof(p + 11);
+    if ((p = strstr(req, "adsAzEn="))   != NULL) moduleConfig.adsAzEnable   = (uint8_t)atoi(p + 8);
+    if ((p = strstr(req, "adsAzB="))    != NULL) moduleConfig.adsAzBeta     = atof(p + 7);
+    if ((p = strstr(req, "adsAzVmin=")) != NULL) moduleConfig.adsAzSpeedMin = atof(p + 10);
+    if ((p = strstr(req, "adsAzYaw="))  != NULL) moduleConfig.adsAzYawMax   = atof(p + 9);
+    if ((p = strstr(req, "adsAzDmax=")) != NULL) moduleConfig.adsAzDeltaMax = atof(p + 10);
+    if ((p = strstr(req, "adsAzT="))    != NULL) moduleConfig.adsAzTimeMs   = (uint16_t)atoi(p + 7);
 
     moduleConfigSave();
 
