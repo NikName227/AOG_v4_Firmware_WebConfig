@@ -551,36 +551,80 @@ void autosteerLoop()
     {
         if (!imuWasReceived || imuWasTimeout > 500) break;
 
-        static float imuWasZero = 0.0f;
+        // Dual-IMU differential WAS (port of the MarekJarczewwski dual-IMU project):
+        // steering angle = knuckle yaw − chassis yaw. The chassis term cancels the
+        // vehicle's own rotation, so the angle stays correct mid-turn (a single IMU
+        // can't). Both yaws are delta-integrated with per-side drift scaling; a
+        // freeze-when-still stage stops parked drift; auto-zero nudges toward 0.
+        float chYaw = useTMxx_IMU ? (float)(TM171_IMU.getYaw() / 100.0) : (yaw / 10.0f); // chassis (AIO IMU)
+        float knYaw = imuWasRawYaw;                                                      // knuckle (CAN 0x300)
 
+        // Chassis yaw integrator (per-side drift compensated)
+        static bool chInit = false; static float chPrev = 0, chInteg = 0;
+        if (!chInit) { chPrev = chYaw; chInteg = 0; chInit = true; }
+        float dCh = chYaw - chPrev; chPrev = chYaw;
+        while (dCh > 180) dCh -= 360; while (dCh < -180) dCh += 360;
+        chInteg += dCh * (1.0f - ((dCh > 0 ? moduleConfig.imuWasChDriftR : moduleConfig.imuWasChDriftL) / 360.0f));
+
+        // Knuckle yaw integrator (per-side drift compensated)
+        static bool knInit = false; static float knPrev = 0, knInteg = 0;
+        if (!knInit) { knPrev = knYaw; knInteg = 0; knInit = true; }
+        float dKn = knYaw - knPrev; knPrev = knYaw;
+        while (dKn > 180) dKn -= 360; while (dKn < -180) dKn += 360;
+        knInteg += dKn * (1.0f - ((dKn > 0 ? moduleConfig.imuWasKnDriftR : moduleConfig.imuWasKnDriftL) / 360.0f));
+
+        // Differential = steering angle
+        float deltaBase = knInteg - chInteg;
+        while (deltaBase > 180) deltaBase -= 360; while (deltaBase < -180) deltaBase += 360;
+
+        float delta = deltaBase;
+        if (moduleConfig.imuWasInvert) delta = -delta;
+        delta *= moduleConfig.imuWasCpdScale;
+
+        // "Set Zero Now": make the current angle read 0 (mounting offset)
         if (imuWasZeroRequest) {
             imuWasZeroRequest = false;
-            imuWasZero        = imuWasRawYaw;
-            imuWasGpsOffset   = 0.0f;
-            imuWasInitialZeroDone = false;   // re-lock; GPS re-confirms the zero
-            Serial.println("IMU WAS: zero set");
-            webLog("IMU WAS: zero set");
+            imuWasGpsOffset   = delta;
+            Serial.println("IMU WAS: zero set"); webLog("IMU WAS: zero set");
         }
 
-        float rawAngle = imuWasRawYaw - imuWasZero;
-        if (moduleConfig.imuWasInvert) rawAngle = -rawAngle;
-        rawAngle *= moduleConfig.imuWasCpdScale;
+        steerAngleActual = delta - imuWasGpsOffset;
 
-        // Block autosteer until the first GPS auto-zero (IMU yaw drifts, like Keya).
-        // Only when auto-zero is enabled — otherwise the manual zero is used directly.
-        if (moduleConfig.imuWasAzEnable && !imuWasInitialZeroDone)
-            watchdogTimer = WATCHDOG_FORCE_VALUE;
+        // ── Freeze-when-still (anti-drift; rebase knuckle integrator on thaw → no jump)
+        static bool wasFrozen = false; static float frozenWAS = 0, frozenDelta = 0, lastDeltaBase = 0;
+        static uint32_t stillStart = 0, lastDeltaMs = 0;
+        const float FREEZE_SPEED = 0.6f, THAW_RATE = 0.5f; const uint32_t FREEZE_TIME = 500;
+        uint32_t nowMs = millis();
+        float deltaRate = 0;
+        if (lastDeltaMs) { float dt2 = (nowMs - lastDeltaMs) / 1000.0f;
+            if (dt2 > 0.001f) { float d = deltaBase - lastDeltaBase; while (d > 180) d -= 360; while (d < -180) d += 360; deltaRate = d / dt2; } }
+        lastDeltaBase = deltaBase; lastDeltaMs = nowMs;
+        bool moving = (gpsSpeed > FREEZE_SPEED), steerMoved = (fabs(deltaRate) > THAW_RATE);
+        if (!moving && !steerMoved) {
+            if (stillStart == 0) stillStart = nowMs;
+            if (!wasFrozen && nowMs - stillStart > FREEZE_TIME) { wasFrozen = true; frozenWAS = steerAngleActual; frozenDelta = deltaBase; }
+        } else stillStart = 0;
+        if (wasFrozen && (moving || steerMoved)) {
+            wasFrozen = false;
+            float cur = knInteg - chInteg; while (cur > 180) cur -= 360; while (cur < -180) cur += 360;
+            float shift = frozenDelta - cur; while (shift > 180) shift -= 360; while (shift < -180) shift += 360;
+            knInteg += shift; chPrev = chYaw; knPrev = knYaw;
+        }
+        if (wasFrozen) steerAngleActual = frozenWAS;
 
-        // Continuous GPS drift correction (shared helper — same logic as Keya WAS)
-        static AzState imuAz;
-        AzCfg ic = { (bool)moduleConfig.imuWasAzEnable, moduleConfig.imuWasAzBeta,
-                     moduleConfig.imuWasSpeedMin, moduleConfig.imuWasYawMax,
-                     (float)moduleConfig.imuWasSpeedSlow, moduleConfig.imuWasSpeedFast,
-                     moduleConfig.imuWasTimeSlowMs, moduleConfig.imuWasTimeFastMs };
-        if (gpsDriftAutoZero(rawAngle, imuWasGpsOffset, imuAz, ic))
-            imuWasInitialZeroDone = true;    // first correction unlocks autosteer
+        // ── Auto-zero toward 0 (driving straight → steering ≈ 0). Uses chassis yaw rate.
+        if (moduleConfig.imuWasAzEnable && gpsSpeed > moduleConfig.imuWasSpeedMin) {
+            static float azLastYaw = 0; static uint32_t azLastT = 0, azStable = 0;
+            float dY = chYaw - azLastYaw; while (dY > 180) dY -= 360; while (dY < -180) dY += 360;
+            uint32_t azNow = millis(); float adt = (azNow - azLastT) / 1000.0f; if (adt < 0.001f) adt = 0.001f;
+            float yawRate = fabs(dY) / adt; azLastYaw = chYaw; azLastT = azNow;
+            if (yawRate < moduleConfig.imuWasYawMax && fabs(steerAngleActual) < moduleConfig.imuWasAzDeltaMax) {
+                if (azStable == 0) azStable = azNow;
+                if (azNow - azStable > moduleConfig.imuWasAzTimeMs)
+                    imuWasGpsOffset += moduleConfig.imuWasAzBeta * steerAngleActual;
+            } else azStable = 0;
+        }
 
-        steerAngleActual = rawAngle + imuWasGpsOffset;
         steerAngleSpeedActual = steerAngleSpeedActual * 0.6f
                               + (steerAngleActual - steerAngleActual_previous) * 0.4f
                               / (steerSensorReadTime / 1000.0f);

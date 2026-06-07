@@ -11,7 +11,8 @@ Bus        : CAN1 (Teensy pin TX1/RX1)
 Baud       : 250 kbps
 CAN ID     : 0x300  (standard 11-bit)
 DLC        : 8 bytes
-Rate       : 50 Hz (svakih 20 ms) ili brze
+Rate       : 100 Hz (svakih 10 ms) preporuceno; 50 Hz minimum
+             (visi rate = bolja sinkronizacija s chassis IMU u brzom zavoju)
 Tip okvira : standard (ne extended)
 
 Format poruke (8 bajta)
@@ -55,10 +56,10 @@ void sendImuWas(float yaw_deg, float yaw_rate_dps) {
     Can.write(msg);
 }
 
-// Pozovi iz loop() svakih 20 ms:
+// Pozovi iz loop() svakih 10 ms (100 Hz):
 void loop() {
     static elapsedMillis txTimer = 0;
-    if (txTimer >= 20) {
+    if (txTimer >= 10) {
         txTimer = 0;
         float yaw = readYawFromIMU();       // tvoj IMU yaw u stupnjevima
         float rate = readYawRateFromIMU();  // tvoj IMU yaw rate u stupnjevima/s

@@ -316,7 +316,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <div class="card">
 <h2>IMU as WAS</h2>
-<p style="color:#64748b;font-size:13px;margin-bottom:8px">Wheel-mounted IMU sends yaw over CAN1 (ID 0x300, 250 kbps). Set WAS = IMUasWAS and CAN1 = IMUasWAS above. Requires chassis IMU active.</p>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Dual-IMU steering angle = <b>knuckle yaw − chassis yaw</b> (the chassis term cancels vehicle rotation, so the angle stays correct mid-turn). Knuckle IMU sends yaw over CAN1 (ID 0x300, 250 kbps, 50–100 Hz); chassis = the AIO's own IMU. Set WAS = IMUasWAS and CAN1 = IMUasWAS above. <b>Requires an active chassis IMU.</b></p>
 <div class="row"><span class="lbl">Invert direction <small style="color:#64748b">(def OFF)</small></span>
 <input type="checkbox" id="iw0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Flip the sign of the measured wheel angle. Enable if turning right shows a negative angle.</p>
@@ -326,10 +326,10 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <button class="btn" onclick="setImuWasZero()" style="margin-top:6px">Set Zero Now</button>
 <p style="color:#94a3b8;font-size:10px;margin:3px 0 5px;line-height:1.3">Resets integrators so the current wheel position reads 0°. Use with wheels pointing straight ahead.</p>
 <div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
-<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Auto-zero — GPS drift correction</div>
+<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Auto-zero — toward 0 when straight</div>
 <div class="row"><span class="lbl">Enable <small style="color:#64748b">(def ON)</small></span>
 <input type="checkbox" id="iw2" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Automatically corrects slow IMU drift by comparing measured angle to GPS-computed wheel angle while driving straight.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">While driving straight the steering angle should be ~0, so this slowly nudges the offset toward 0 to cancel residual IMU drift.</p>
 <div class="row"><span class="lbl">Beta / correction fraction <small style="color:#64748b">(def 0.05)</small></span>
 <input type="number" id="iw3" min="0.001" max="1" step="0.001" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How aggressively auto-zero corrects drift each cycle. 0.05 = slow and stable, 0.3 = fast but may hunt.</p>
@@ -340,18 +340,27 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <input type="number" id="iw5" min="0.1" max="10" step="0.1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Maximum chassis rotation rate to consider the vehicle driving straight. Lower = stricter straight detection, fewer false corrections.</p>
 <div class="section-row" style="gap:8px">
-<div style="flex:1"><span class="lbl">Speed slow km/h <small style="color:#64748b">(def 3)</small></span>
-<input type="number" id="iw6" min="0" max="20" step="1" class="ninput" style="width:100%"></div>
-<div style="flex:1"><span class="lbl">Speed fast km/h <small style="color:#64748b">(def 12)</small></span>
-<input type="number" id="iw7" min="1" max="30" step="1" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Max steer for zero ° <small style="color:#64748b">(def 20)</small></span>
+<input type="number" id="iw6" min="1" max="60" step="1" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Straight time ms <small style="color:#64748b">(def 300)</small></span>
+<input type="number" id="iw7" min="100" max="3000" step="50" class="ninput" style="width:100%"></div>
+</div>
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Auto-zero nudges the offset so the angle reads 0 while driving straight (yaw rate below max, |steer| below "max steer for zero", held for "straight time").</p>
+<div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
+<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Per-side drift compensation (deg / 360°)</div>
+<div class="section-row" style="gap:8px">
+<div style="flex:1"><span class="lbl">Chassis drift L <small style="color:#64748b">(def -0.1)</small></span>
+<input type="number" id="iwChL" min="-5" max="5" step="0.01" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Chassis drift R <small style="color:#64748b">(def -0.1)</small></span>
+<input type="number" id="iwChR" min="-5" max="5" step="0.01" class="ninput" style="width:100%"></div>
 </div>
 <div class="section-row" style="gap:8px">
-<div style="flex:1"><span class="lbl">Straight time slow ms <small style="color:#64748b">(def 500)</small></span>
-<input type="number" id="iw8" min="100" max="5000" step="50" class="ninput" style="width:100%"></div>
-<div style="flex:1"><span class="lbl">Straight time fast ms <small style="color:#64748b">(def 200)</small></span>
-<input type="number" id="iw9" min="100" max="5000" step="50" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Knuckle drift L <small style="color:#64748b">(def 0.1)</small></span>
+<input type="number" id="iwKnL" min="-5" max="5" step="0.01" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Knuckle drift R <small style="color:#64748b">(def 0.1)</small></span>
+<input type="number" id="iwKnR" min="-5" max="5" step="0.01" class="ninput" style="width:100%"></div>
 </div>
-<p style="color:#94a3b8;font-size:12px;margin:3px 0 5px;line-height:1.3">How long the vehicle must drive straight before one correction is applied, interpolated by speed (longer at low speed, shorter at high). Corrections are window-averaged; when <b>not</b> engaged the offset jumps directly to the GPS angle (fast), when engaged it's a gentle beta step.</p>
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 5px;line-height:1.3">Compensates each IMU's gyro drift, separately per turn direction (degrees of error accumulated per 360° of rotation). Leave at defaults unless you see the angle drifting one way during turns; then trim a little.</p>
 <div class="row"><span class="lbl">Wheelbase (m) <small style="color:#64748b">(def 3.20, shared)</small></span>
 <input type="number" id="iwwb" min="0.5" max="6" step="0.01" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Distance between front and rear axles. Used to compute theoretical steer angle from GPS yaw rate and speed (bicycle model). Shared with Keya WAS — changing here changes it there too.</p>
@@ -857,8 +866,7 @@ function renderGroup(d) {
     h += lvSub('IMU as WAS');
     h += lvRow('Raw yaw', d.imuRaw.toFixed(2) + ' °');
     h += lvRow('After scale', d.imuScaled.toFixed(2) + ' °  (×' + d.imuScale.toFixed(2) + ')');
-    h += lvRow('Initial zero', d.imuZero ? 'DONE' : 'PENDING (autosteer locked)');
-    h += lvRow('GPS drift offset', d.imuOff.toFixed(3) + ' °');
+    h += lvRow('Auto-zero offset', d.imuOff.toFixed(3) + ' °');
     h += lvSub('GPS reference (auto-zero)');
     h += lvRow('Chassis yaw rate', d.yawRate.toFixed(2) + ' °/s');
     h += lvRow('Wheel angle (GPS)', d.wheelGps.toFixed(2) + ' °');
@@ -1081,10 +1089,12 @@ function upd(d) {
     document.getElementById('iw3').value   = d.imu_was.azBeta;
     document.getElementById('iw4').value   = d.imu_was.azSpeedMin;
     document.getElementById('iw5').value   = d.imu_was.azYawMax;
-    document.getElementById('iw6').value   = d.imu_was.azVslow;
-    document.getElementById('iw7').value   = d.imu_was.azVfast;
-    document.getElementById('iw8').value   = d.imu_was.azTslow;
-    document.getElementById('iw9').value   = d.imu_was.azTfast;
+    document.getElementById('iw6').value   = d.imu_was.azDeltaMax;
+    document.getElementById('iw7').value   = d.imu_was.azTimeMs;
+    document.getElementById('iwChL').value = d.imu_was.chDriftL;
+    document.getElementById('iwChR').value = d.imu_was.chDriftR;
+    document.getElementById('iwKnL').value = d.imu_was.knDriftL;
+    document.getElementById('iwKnR').value = d.imu_was.knDriftR;
     document.getElementById('iwwb').value  = d.imu_was.wheelBase;
   }
 
@@ -1450,10 +1460,12 @@ function saveImuWas() {
     + '&imuWasAzB='  + document.getElementById('iw3').value
     + '&imuWasVmin=' + document.getElementById('iw4').value
     + '&imuWasYaw='  + document.getElementById('iw5').value
-    + '&imuWasVslow='+ document.getElementById('iw6').value
-    + '&imuWasVfast='+ document.getElementById('iw7').value
-    + '&imuWasTslow='+ document.getElementById('iw8').value
-    + '&imuWasTfast='+ document.getElementById('iw9').value
+    + '&imuWasDmax=' + document.getElementById('iw6').value
+    + '&imuWasAzT='  + document.getElementById('iw7').value
+    + '&imuWasChDL=' + document.getElementById('iwChL').value
+    + '&imuWasChDR=' + document.getElementById('iwChR').value
+    + '&imuWasKnDL=' + document.getElementById('iwKnL').value
+    + '&imuWasKnDR=' + document.getElementById('iwKnR').value
     + '&wheelBase='  + document.getElementById('iwwb').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'IMU WAS params saved.' : 'ERROR saving.';
@@ -2156,10 +2168,12 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"azBeta\":")); client.print(moduleConfig.imuWasAzBeta, 4);
     client.print(F(",\"azSpeedMin\":")); client.print(moduleConfig.imuWasSpeedMin, 1);
     client.print(F(",\"azYawMax\":")); client.print(moduleConfig.imuWasYawMax, 2);
-    client.print(F(",\"azVslow\":")); client.print(moduleConfig.imuWasSpeedSlow);
-    client.print(F(",\"azVfast\":")); client.print(moduleConfig.imuWasSpeedFast, 1);
-    client.print(F(",\"azTslow\":")); client.print(moduleConfig.imuWasTimeSlowMs);
-    client.print(F(",\"azTfast\":")); client.print(moduleConfig.imuWasTimeFastMs);
+    client.print(F(",\"azDeltaMax\":")); client.print(moduleConfig.imuWasAzDeltaMax, 1);
+    client.print(F(",\"azTimeMs\":")); client.print(moduleConfig.imuWasAzTimeMs);
+    client.print(F(",\"chDriftL\":")); client.print(moduleConfig.imuWasChDriftL, 2);
+    client.print(F(",\"chDriftR\":")); client.print(moduleConfig.imuWasChDriftR, 2);
+    client.print(F(",\"knDriftL\":")); client.print(moduleConfig.imuWasKnDriftL, 2);
+    client.print(F(",\"knDriftR\":")); client.print(moduleConfig.imuWasKnDriftR, 2);
     client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
 
     client.print(F("},\"j1939\":{"));
@@ -2390,7 +2404,6 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"imuScale\":")); client.print(moduleConfig.imuWasCpdScale, 2);
         client.print(F(",\"imuScaled\":")); client.print(imuWasRawYaw * moduleConfig.imuWasCpdScale, 2);
         client.print(F(",\"imuOff\":")); client.print(imuWasGpsOffset, 3);
-        client.print(F(",\"imuZero\":")); client.print(imuWasInitialZeroDone ? F("true") : F("false"));
         client.print(F(",\"yawRate\":")); client.print(headingRate, 2);
         client.print(F(",\"wheelGps\":")); client.print(wheelAngleGPS, 2);
         client.print(F(",\"actual\":")); client.print(steerAngleActual, 2);
@@ -2936,10 +2949,12 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "imuWasAzB="))   != NULL) moduleConfig.imuWasAzBeta   = atof(p + 10);
     if ((p = strstr(req, "imuWasVmin="))  != NULL) moduleConfig.imuWasSpeedMin = atof(p + 11);
     if ((p = strstr(req, "imuWasYaw="))   != NULL) moduleConfig.imuWasYawMax   = atof(p + 10);
-    if ((p = strstr(req, "imuWasVslow=")) != NULL) moduleConfig.imuWasSpeedSlow  = (uint8_t)atoi(p + 12);
-    if ((p = strstr(req, "imuWasVfast=")) != NULL) moduleConfig.imuWasSpeedFast  = atof(p + 12);
-    if ((p = strstr(req, "imuWasTslow=")) != NULL) moduleConfig.imuWasTimeSlowMs = (uint16_t)atoi(p + 12);
-    if ((p = strstr(req, "imuWasTfast=")) != NULL) moduleConfig.imuWasTimeFastMs = (uint16_t)atoi(p + 12);
+    if ((p = strstr(req, "imuWasDmax="))  != NULL) moduleConfig.imuWasAzDeltaMax = atof(p + 11);
+    if ((p = strstr(req, "imuWasAzT="))   != NULL) moduleConfig.imuWasAzTimeMs   = (uint16_t)atoi(p + 10);
+    if ((p = strstr(req, "imuWasChDL="))  != NULL) moduleConfig.imuWasChDriftL   = atof(p + 11);
+    if ((p = strstr(req, "imuWasChDR="))  != NULL) moduleConfig.imuWasChDriftR   = atof(p + 11);
+    if ((p = strstr(req, "imuWasKnDL="))  != NULL) moduleConfig.imuWasKnDriftL   = atof(p + 11);
+    if ((p = strstr(req, "imuWasKnDR="))  != NULL) moduleConfig.imuWasKnDriftR   = atof(p + 11);
 
     moduleConfigSave();
 
