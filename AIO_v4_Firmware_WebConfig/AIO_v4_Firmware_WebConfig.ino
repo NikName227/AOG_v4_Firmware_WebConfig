@@ -189,6 +189,7 @@ bool          imuWasReceived    = false;
 elapsedMillis imuWasTimeout     = 9999;
 bool          imuWasZeroRequest = false;
 float         imuWasGpsOffset   = 0.0f;         // dual-IMU WAS offset (Set Zero + auto-zero toward 0)
+bool          imuWasInitDone    = false;        // initial auto-zero captured (autosteer locked until then)
 
 // ── GPS / dual ─────────────────────────────────────────────────────────────────
 int8_t  workingDir   = 1;

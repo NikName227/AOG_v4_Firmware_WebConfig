@@ -324,7 +324,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <input type="number" id="iw1" min="0.5" max="2.0" step="0.01" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Scales the raw angle delta between wheel and chassis IMU. Increase if steering angle reads too small, decrease if too large.</p>
 <button class="btn" onclick="setImuWasZero()" style="margin-top:6px">Set Zero Now</button>
-<p style="color:#94a3b8;font-size:10px;margin:3px 0 5px;line-height:1.3">Resets integrators so the current wheel position reads 0°. Use with wheels pointing straight ahead.</p>
+<p style="color:#94a3b8;font-size:10px;margin:3px 0 5px;line-height:1.3"><b>Optional</b> — the zero is captured automatically on the first straight drive after boot (autosteer stays locked until then). Use this only to force the current position to 0° manually (wheels straight).</p>
 <div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
 <div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Auto-zero — toward 0 when straight</div>
 <div class="row"><span class="lbl">Enable <small style="color:#64748b">(def ON)</small></span>
@@ -866,6 +866,7 @@ function renderGroup(d) {
     h += lvSub('IMU as WAS');
     h += lvRow('Raw yaw', d.imuRaw.toFixed(2) + ' °');
     h += lvRow('After scale', d.imuScaled.toFixed(2) + ' °  (×' + d.imuScale.toFixed(2) + ')');
+    h += lvRow('Initial zero', d.imuInit ? 'DONE' : 'PENDING (drive straight)');
     h += lvRow('Auto-zero offset', d.imuOff.toFixed(3) + ' °');
     h += lvSub('GPS reference (auto-zero)');
     h += lvRow('Chassis yaw rate', d.yawRate.toFixed(2) + ' °/s');
@@ -2404,6 +2405,7 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"imuScale\":")); client.print(moduleConfig.imuWasCpdScale, 2);
         client.print(F(",\"imuScaled\":")); client.print(imuWasRawYaw * moduleConfig.imuWasCpdScale, 2);
         client.print(F(",\"imuOff\":")); client.print(imuWasGpsOffset, 3);
+        client.print(F(",\"imuInit\":")); client.print(imuWasInitDone ? F("true") : F("false"));
         client.print(F(",\"yawRate\":")); client.print(headingRate, 2);
         client.print(F(",\"wheelGps\":")); client.print(wheelAngleGPS, 2);
         client.print(F(",\"actual\":")); client.print(steerAngleActual, 2);

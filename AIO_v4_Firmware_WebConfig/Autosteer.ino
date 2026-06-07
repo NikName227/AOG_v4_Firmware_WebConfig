@@ -582,13 +582,19 @@ void autosteerLoop()
         delta *= moduleConfig.imuWasCpdScale;
 
         // "Set Zero Now": make the current angle read 0 (mounting offset)
-        if (imuWasZeroRequest) {
+        if (imuWasZeroRequest) {       // manual override (optional)
             imuWasZeroRequest = false;
             imuWasGpsOffset   = delta;
+            imuWasInitDone    = true;
             Serial.println("IMU WAS: zero set"); webLog("IMU WAS: zero set");
         }
 
         steerAngleActual = delta - imuWasGpsOffset;
+
+        // Block autosteer until the initial auto-zero has captured the straight-ahead
+        // reference (no manual zeroing needed — just drive straight a few seconds).
+        if (moduleConfig.imuWasAzEnable && !imuWasInitDone)
+            watchdogTimer = WATCHDOG_FORCE_VALUE;
 
         // ── Freeze-when-still (anti-drift; rebase knuckle integrator on thaw → no jump)
         static bool wasFrozen = false; static float frozenWAS = 0, frozenDelta = 0, lastDeltaBase = 0;
@@ -612,16 +618,28 @@ void autosteerLoop()
         }
         if (wasFrozen) steerAngleActual = frozenWAS;
 
-        // ── Auto-zero toward 0 (driving straight → steering ≈ 0). Uses chassis yaw rate.
+        // ── Auto-zero (driving straight → steering ≈ 0). Uses chassis yaw rate.
+        // First straight stretch = INITIAL zero: one-shot full capture (ignores the
+        // delta cap, so any mounting offset is absorbed) → unlocks autosteer. After
+        // that: gentle continuous nudge toward 0, bounded by the delta cap.
         if (moduleConfig.imuWasAzEnable && gpsSpeed > moduleConfig.imuWasSpeedMin) {
             static float azLastYaw = 0; static uint32_t azLastT = 0, azStable = 0;
             float dY = chYaw - azLastYaw; while (dY > 180) dY -= 360; while (dY < -180) dY += 360;
             uint32_t azNow = millis(); float adt = (azNow - azLastT) / 1000.0f; if (adt < 0.001f) adt = 0.001f;
             float yawRate = fabs(dY) / adt; azLastYaw = chYaw; azLastT = azNow;
-            if (yawRate < moduleConfig.imuWasYawMax && fabs(steerAngleActual) < moduleConfig.imuWasAzDeltaMax) {
+            bool angleOk = !imuWasInitDone || (fabs(steerAngleActual) < moduleConfig.imuWasAzDeltaMax);
+            if (yawRate < moduleConfig.imuWasYawMax && angleOk) {
                 if (azStable == 0) azStable = azNow;
-                if (azNow - azStable > moduleConfig.imuWasAzTimeMs)
-                    imuWasGpsOffset += moduleConfig.imuWasAzBeta * steerAngleActual;
+                if (azNow - azStable > moduleConfig.imuWasAzTimeMs) {
+                    if (!imuWasInitDone) {
+                        imuWasGpsOffset = delta;          // one-shot initial capture → 0
+                        imuWasInitDone  = true;
+                        webLog("IMU WAS: initial auto-zero done — autosteer unlocked");
+                        Serial.println("IMU WAS: initial auto-zero done");
+                    } else {
+                        imuWasGpsOffset += moduleConfig.imuWasAzBeta * steerAngleActual;
+                    }
+                }
             } else azStable = 0;
         }
 
