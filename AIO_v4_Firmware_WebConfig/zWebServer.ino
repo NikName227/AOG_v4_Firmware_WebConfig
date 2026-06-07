@@ -890,7 +890,7 @@ function renderGroup(d) {
     h += lvRow('Active source', srcN[d.src] || d.src);
     h += lvSub('ADS1115');
     h += lvRow('Raw counts', d.adsRaw);
-    if (d.adsAzEn) h += lvRow('Auto-zero offset', d.adsAzOff.toFixed(3) + ' °');
+    h += lvRow('Auto-zero offset', d.adsAzEn ? (d.adsAzOff.toFixed(3) + ' °') : 'off');
     h += lvSub('IMU as WAS');
     h += lvRow('Raw yaw', d.imuRaw.toFixed(2) + ' °');
     h += lvRow('After scale', d.imuScaled.toFixed(2) + ' °  (×' + d.imuScale.toFixed(2) + ')');
