@@ -70,10 +70,27 @@ void keyaCfgWrite(uint8_t id, uint8_t val) {
     webLogf("Keya: write param %u = %u", id, val);
 }
 
-// Test wheel drive (manual). Stationary only. Reuses SteerKeya.
-void keyaCfgTest(int8_t dir, int16_t speed) {
+// Test wheel drive (manual, timed pulse). Stationary only. Reuses SteerKeya.
+// One click = drive at 'speed' for 'durMs' then auto-stop (firmware-timed, so the
+// motor stops itself even if the stop command is lost).
+static elapsedMillis keyaTestTimer;
+static uint16_t      keyaTestDur = 0;   // 0 = idle
+
+void keyaCfgTest(int8_t dir, int16_t speed, uint16_t durMs) {
     if (gpsSpeed > 0.5f) { webLog("Keya test blocked: vehicle moving"); return; }
     if (speed < 0) speed = 0; if (speed > 250) speed = 250;
+    if (durMs < 50)  durMs = 50;
+    if (durMs > 5000) durMs = 5000;
+    keyaTestTimer = 0;
+    keyaTestDur   = durMs;
     SteerKeya(dir * speed, true);
 }
-void keyaCfgTestStop() { SteerKeya(0, false); }
+void keyaCfgTestStop() { keyaTestDur = 0; SteerKeya(0, false); }
+
+// Call from the main loop: auto-stops the test pulse when its time elapses.
+void keyaCfgTestLoop() {
+    if (keyaTestDur && keyaTestTimer > keyaTestDur) {
+        keyaTestDur = 0;
+        SteerKeya(0, false);
+    }
+}

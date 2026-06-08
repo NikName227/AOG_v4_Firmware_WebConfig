@@ -541,6 +541,9 @@ void loop()
         graphSampleNow();
     }
 
+    // ── Keya wheel-test timed pulse (auto-stop) ──────────────────────────────
+    keyaCfgTestLoop();
+
     // ── Web server (non-blocking – only active when browser connects) ────────
     handleWebClient();
 

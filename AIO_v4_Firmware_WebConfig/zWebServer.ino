@@ -612,12 +612,14 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <div class="card">
 <h2>Keya wheel test <span style="color:#64748b;font-weight:normal;font-size:11px">— stationary only</span></h2>
-<p style="color:#f59e0b;font-size:12px;margin-bottom:8px;line-height:1.3">&#9888; Turns the wheel. Vehicle stationary, hand ready. <b>Hold</b> a button to turn, release to stop. Speed-controlled motor — the wheel keeps turning while held, so use a low speed.</p>
+<p style="color:#f59e0b;font-size:12px;margin-bottom:8px;line-height:1.3">&#9888; Turns the wheel. Vehicle stationary, hand ready. Each <b>click</b> = one short pulse: the wheel turns at the set speed for the set time, then stops by itself (firmware-timed).</p>
 <div class="row"><span class="lbl">Speed <small style="color:#64748b">(0-250, slow=30-60)</small></span>
 <input type="number" id="kcTestSpeed" min="0" max="250" step="10" value="50" class="ninput"></div>
+<div class="row"><span class="lbl">Pulse time s <small style="color:#64748b">(def 0.5)</small></span>
+<input type="number" id="kcTestTime" min="0.1" max="5" step="0.1" value="0.5" class="ninput"></div>
 <div style="display:flex;gap:8px;margin-top:8px">
-<button class="btn" id="kcLeftBtn">◀ Left (hold)</button>
-<button class="btn" id="kcRightBtn">Right ▶ (hold)</button>
+<button class="btn" onclick="kcPulse('L')">◀ Left</button>
+<button class="btn" onclick="kcPulse('R')">Right ▶</button>
 <button class="btn red" onclick="kcStop()">Stop</button>
 </div>
 </div>
@@ -1174,29 +1176,15 @@ function kcWrite(id, fld) {
 function kcWriteSel(id, fld) {
   fetch('/api/keyacfg?cmd=write&id=' + id + '&val=' + document.getElementById(fld).value);
 }
-var kcHoldTimer = null;
-function kcHoldStart(dir) {
-  kcHoldStop();
-  var send = function(){ fetch('/api/keyacfg?cmd=test&dir=' + dir + '&speed=' + document.getElementById('kcTestSpeed').value); };
-  send();
-  kcHoldTimer = setInterval(send, 100);   // refresh so the Keya keeps moving while held
+// One click = one timed pulse (speed × time). The firmware stops the motor itself
+// after the time, so no hold/release needed and a lost stop packet is harmless.
+function kcPulse(dir) {
+  var sp = document.getElementById('kcTestSpeed').value;
+  var ms = Math.round(parseFloat(document.getElementById('kcTestTime').value) * 1000);
+  fetch('/api/keyacfg?cmd=test&dir=' + dir + '&speed=' + sp + '&dur=' + ms);
 }
-function kcHoldStop() {
-  if (kcHoldTimer) { clearInterval(kcHoldTimer); kcHoldTimer = null; }
-}
-function kcStop() { kcHoldStop(); fetch('/api/keyacfg?cmd=disable'); }
-function kcBindHold() {
-  var l = document.getElementById('kcLeftBtn'), r = document.getElementById('kcRightBtn');
-  if (!l || !r) return;
-  [['L', l], ['R', r]].forEach(function(p) {
-    var dir = p[0], btn = p[1];
-    btn.addEventListener('mousedown',  function(e){ e.preventDefault(); kcHoldStart(dir); });
-    btn.addEventListener('touchstart', function(e){ e.preventDefault(); kcHoldStart(dir); }, {passive:false});
-    btn.addEventListener('mouseup',    function(){ kcStop(); });
-    btn.addEventListener('mouseleave', function(){ kcStop(); });
-    btn.addEventListener('touchend',   function(){ kcStop(); });
-  });
-}
+function kcStop() { fetch('/api/keyacfg?cmd=disable'); }
+function kcBindHold() {}   // (kept: called on load; pulse buttons use onclick now)
 
 function calDzBtn() {
   if (!confirm('Dead-zone calibration: the steering motor turns by itself. Vehicle stationary, stand clear, hand on wheel. Start?')) return;
@@ -2898,9 +2886,10 @@ void handleApiKeyaCfg(EthernetClient& client, const char* req)
     }
     else if (strstr(req, "cmd=test")    != NULL) {
         int8_t dir = (strstr(req, "dir=L") != NULL) ? -1 : +1;
-        int16_t sp = 0;
-        if ((p = strstr(req, "speed=")) != NULL) sp = (int16_t)atoi(p + 6);
-        keyaCfgTest(dir, sp);
+        int16_t sp = 0; uint16_t dur = 500;
+        if ((p = strstr(req, "speed=")) != NULL) sp  = (int16_t)atoi(p + 6);
+        if ((p = strstr(req, "dur="))   != NULL) dur = (uint16_t)atoi(p + 4);
+        keyaCfgTest(dir, sp, dur);
     }
     sendHeaders(client, "text/plain");
     client.print(F("OK"));
