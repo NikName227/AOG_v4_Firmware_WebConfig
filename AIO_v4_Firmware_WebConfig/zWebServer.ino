@@ -2380,6 +2380,7 @@ void handleApiGraphCfg(EthernetClient& client, const char* req)
     }
     graphBufCount = 0;
     graphSampleTimer = 0;
+    graphPollTimer = 0;
     graphActive = (strstr(req, "stop") == NULL);
     sendHeaders(client, "text/plain");
     client.print(F("OK"));
@@ -2387,15 +2388,16 @@ void handleApiGraphCfg(EthernetClient& client, const char* req)
 
 void handleApiGraphData(EthernetClient& client)
 {
+    graphPollTimer = 0;          // browser is alive → keep sampling
     sendHeaders(client, "application/json");
-    uint8_t n = graphBufCount;
+    uint16_t n = graphBufCount;
     client.print(F("{\"n\":")); client.print(n);
     client.print(F(",\"dt\":")); client.print(graphRateMs);
     client.print(F(",\"d\":["));
     for (uint8_t ch = 0; ch < 4; ch++) {
         if (ch > 0) client.print(',');
         client.print('[');
-        for (uint8_t i = 0; i < n; i++) {
+        for (uint16_t i = 0; i < n; i++) {
             if (i > 0) client.print(',');
             client.print(graphBuf[ch][i], 3);
         }

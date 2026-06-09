@@ -172,13 +172,16 @@ bool     adcConnected    = false;  // true if ADS1115 responded at boot
 bool logActive       = true;   // enabled on boot to capture setup messages
 
 // ── Graph sampling (Live tab → Graph) ────────────────────────────────────────
-#define GRAPH_BATCH_MAX 20
+// Buffer is large enough to keep sampling while the browser tab is backgrounded
+// (it polls slowly then) and catch up on return without a gap. ~4.8 KB RAM.
+#define GRAPH_BATCH_MAX 300
 bool          graphActive   = false;     // sampling enabled
 uint8_t       graphSig[4]   = {0,0,0,0}; // selected signal IDs per channel
 uint16_t      graphRateMs   = 200;       // sample interval (100=10Hz..1000=1Hz)
 float         graphBuf[4][GRAPH_BATCH_MAX];
-uint8_t       graphBufCount = 0;         // samples buffered since last poll
+uint16_t      graphBufCount = 0;         // samples buffered since last poll
 elapsedMillis graphSampleTimer = 0;
+elapsedMillis graphPollTimer   = 0;      // ms since last /api/graphdata poll (auto-stop)
 bool logAutoOffDone  = false;  // one-shot: auto-disables log after 10s
 bool gpsRawActive    = false;  // GPS raw capture enabled (web UM98x tab)
 elapsedMillis logBootTime = 0;
@@ -536,6 +539,9 @@ void loop()
     else ReceiveUdp();
 
     // ── Graph sampling (high-rate internal buffer, browser polls batches) ────
+    // Keeps sampling even when the browser tab is backgrounded; auto-stops if the
+    // browser hasn't polled for 3 min (web interface closed).
+    if (graphActive && graphPollTimer > 180000UL) graphActive = false;
     if (graphActive && graphSampleTimer >= graphRateMs) {
         graphSampleTimer = 0;
         graphSampleNow();
