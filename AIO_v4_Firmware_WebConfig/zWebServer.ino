@@ -109,7 +109,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </style>
 </head>
 <body>
-<h1>&#9881; AIO v4 | Web Config</h1>
+<h1>&#9881; AIO v4 | Web Config <span id="fwVer" style="font-size:12px;color:#64748b;font-weight:normal"></span></h1>
 <div class="tabs">
 <button class="tab active" onclick="showTab('config',this)">Config</button>
 <button class="tab" onclick="showTab('live',this)">Live</button>
@@ -981,6 +981,7 @@ function badge(id, ok) {
 function yn(v) { return v ? 'YES' : 'NO'; }
 
 function upd(d) {
+  if (d.fwVer) document.getElementById('fwVer').textContent = d.fwVer;
   badge('k_det', d.detected.keya);
   badge('k_zero', d.keya_was.initialZeroDone);
   document.getElementById('k_enc').textContent = d.keya_was.encoderRaw + ' ticks';
@@ -2137,7 +2138,8 @@ void handleApiStatus(EthernetClient& client)
 {
     sendHeaders(client, "application/json");
 
-    client.print(F("{\"detected\":{"));
+    client.print(F("{\"fwVer\":\"" FW_VERSION "\""));
+    client.print(F(",\"detected\":{"));
     client.print(F("\"bno_rvc\":")); client.print(useBNO08xRVC  ? F("true") : F("false"));
     client.print(F(",\"bno_i2c\":")); client.print(useBNO08xI2C ? F("true") : F("false"));
     client.print(F(",\"tm171\":")); client.print(useTMxx_IMU    ? F("true") : F("false"));

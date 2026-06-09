@@ -29,6 +29,8 @@ struct AzState {
 // addr 60  : networkAddress       –  3 bytes (existing)
 // addr 80  : ModuleConfig         (NEW)
 
+#define FW_VERSION "v0.9-proto"   // shown in web GUI; bump before tagging a release branch
+
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xCD   // change to force EEPROM reset on next boot
 
