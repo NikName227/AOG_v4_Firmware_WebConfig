@@ -894,7 +894,7 @@ function renderGroup(d) {
     var srcN = {0:'ADS1115',1:'Keya encoder',2:'IMU via CAN',3:'CAN valve'};
     h += lvRow('Active source', srcN[d.src] || d.src);
     h += lvSub('ADS1115');
-    h += lvRow('Raw counts', d.adsRaw);
+    h += lvRow('Raw counts', d.adsConn ? (d.adsRaw + (d.src != 0 ? '  (monitor)' : '')) : 'not connected');
     h += lvRow('Auto-zero offset', d.adsAzEn ? (d.adsAzOff.toFixed(3) + ' °') : 'off');
     h += lvSub('IMU as WAS');
     h += lvRow('Raw yaw', d.imuRaw.toFixed(2) + ' °');
@@ -2325,7 +2325,7 @@ float getSignalValue(uint8_t id)
     case 15: return useTMxx_IMU ? atof(TM171_IMU.getRollStr())  : 0;
     case 16: return useTMxx_IMU ? atof(TM171_IMU.getPitchStr()) : 0;
     // WAS
-    case 17: return (float)steeringPosition;
+    case 17: return (float)adsRawCounts;   // live raw ADS, any WAS source
     case 18: return imuWasRawYaw;
     case 19: return imuWasRawYaw * moduleConfig.imuWasCpdScale;
     case 20: return (float)headingRate;
@@ -2468,7 +2468,8 @@ void handleApiGrp(EthernetClient& client, const char* req)
     }
     case 3: { // WAS
         client.print(F("{\"src\":")); client.print(moduleConfig.wasSource);
-        client.print(F(",\"adsRaw\":")); client.print(steeringPosition);
+        client.print(F(",\"adsRaw\":")); client.print(adsRawCounts);
+        client.print(F(",\"adsConn\":")); client.print(adcConnected ? F("true") : F("false"));
         client.print(F(",\"adsAzEn\":")); client.print(moduleConfig.adsAzEnable);
         client.print(F(",\"adsAzOff\":")); client.print(moduleConfig.adsAutoOffset, 3);
         client.print(F(",\"imuRaw\":")); client.print(imuWasRawYaw, 2);

@@ -118,6 +118,7 @@ float steerAngleActual_previous = 0;
 float steerAngleSpeedActual = 0;
 float steerAngleSetPoint = 0; //the desired angle from AgOpen
 int16_t steeringPosition = 0; //from steering sensor
+int16_t adsRawCounts = 0;    //latest raw ADS1115 reading (always updated when ADS present, any WAS source)
 float steerAngleError = 0; //setpoint - actual
 
 //pwm variables
@@ -320,6 +321,19 @@ bool gpsDriftAutoZero(float rawAngle, float &offset, AzState &s, const AzCfg &c)
         s.window = 0; s.diffSum = 0; s.diffCnt = 0;
     }
     return false;
+}
+
+// Read the raw ADS1115 WAS counts. Called every cycle whenever an ADS is present —
+// regardless of the selected WAS source — so the analog sensor can always be
+// monitored live (e.g. while testing with Keya). Updates adsRawCounts only.
+void readAdsRaw()
+{
+    adc.setMux(steerConfig.SingleInputWAS ? ADS1115_REG_CONFIG_MUX_SINGLE_0
+                                          : ADS1115_REG_CONFIG_MUX_DIFF_0_1);
+    int16_t v = adc.getConversion();
+    adc.triggerConversion();
+    adsRawCounts = v >> 1;
+    helloSteerPosition = adsRawCounts - 6800;
 }
 
 void autosteerLoop()
@@ -545,6 +559,18 @@ void autosteerLoop()
         }
     }
 
+    // Always read the analog WAS (if present) so it can be monitored live in the GUI
+    // regardless of which source is selected. Full rate when ADS is the active source;
+    // a light 20 Hz monitor read otherwise (keeps loop time low).
+    if (adcConnected) {
+        if (moduleConfig.wasSource == WAS_SOURCE_ADS1115) {
+            readAdsRaw();
+        } else {
+            static elapsedMillis adsMonTimer = 0;
+            if (adsMonTimer > 50) { adsMonTimer = 0; readAdsRaw(); }
+        }
+    }
+
     switch (moduleConfig.wasSource)
     {
     case WAS_SOURCE_IMU_CAN:
@@ -728,22 +754,7 @@ void autosteerLoop()
     }
     default: // WAS_SOURCE_ADS1115
     {
-        if (steerConfig.SingleInputWAS)
-        {
-            adc.setMux(ADS1115_REG_CONFIG_MUX_SINGLE_0);
-            steeringPosition = adc.getConversion();
-            adc.triggerConversion();
-            steeringPosition = (steeringPosition >> 1);
-            helloSteerPosition = steeringPosition - 6800;
-        }
-        else
-        {
-            adc.setMux(ADS1115_REG_CONFIG_MUX_DIFF_0_1);
-            steeringPosition = adc.getConversion();
-            adc.triggerConversion();
-            steeringPosition = (steeringPosition >> 1);
-            helloSteerPosition = steeringPosition - 6800;
-        }
+        steeringPosition = adsRawCounts;   // raw already read above (readAdsRaw)
 
         if (steerConfig.InvertWAS)
         {
