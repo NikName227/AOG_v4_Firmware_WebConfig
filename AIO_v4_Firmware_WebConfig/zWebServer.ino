@@ -99,7 +99,7 @@ select{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:4px 6px
 .btn.sm{padding:3px 10px;font-size:13px;margin-top:0;margin-left:auto}
 .chk-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:15px;color:#e2e8f0}
 input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:#38bdf8}
-#sb{font-size:13px;color:#64748b;margin-top:8px;padding-top:6px;border-top:1px solid #1e293b}
+#sb{font-size:13px;color:#64748b;margin:2px 0 8px}
 .section-row{display:flex;gap:10px;flex-wrap:wrap}
 .section-row .card{flex:1;min-width:280px}
 #log,#gpsraw{background:#050d1a;border:1px solid #1e3a5f;border-radius:3px;padding:8px;height:320px;overflow-y:scroll;font-size:13px;color:#7dd3fc;white-space:pre-wrap;word-break:break-all;margin-top:8px}
@@ -110,6 +110,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </head>
 <body>
 <h1>&#9881; AIO v4 | Web Config <span id="fwVer" style="font-size:12px;color:#64748b;font-weight:normal"></span></h1>
+<div id="sb">Connecting to Teensy...</div>
 <div class="tabs">
 <button class="tab active" onclick="showTab('config',this)">Config</button>
 <button class="tab" onclick="showTab('live',this)">Live</button>
@@ -802,8 +803,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <pre id="gpsraw">(GPS raw capture disabled — enable above to start)</pre>
 </div>
 </div><!-- /um98x -->
-
-<div id="sb">Connecting to Teensy...</div>
 
 <script>
 var loaded = false;
