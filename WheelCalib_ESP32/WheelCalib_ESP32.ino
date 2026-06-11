@@ -114,7 +114,8 @@ void setup() {
     Wire.setClock(100000);   // 100 kHz — more tolerant of long/dupont I2C wiring
     if (bno.begin(0x4A, Wire) || bno.begin(0x4B, Wire)) {
         hasBno = true;
-        bno.enableRotationVector(20);           // 50 Hz fused orientation
+        bno.enableGameRotationVector(20);       // accel+gyro only, NO magnetometer
+                                                // (wheel iron corrupts the mag → drift)
         Serial.println("IMU: BNO085 detected on I2C");
     } else {
         Serial.println("IMU: no BNO085 on I2C - using TM171 UART if present");
@@ -181,7 +182,7 @@ void loop() {
     if (hasBno && lastPkt != 0 && (millis() - lastPkt > 1500) && (millis() - lastBnoInit > 2000)) {
         lastBnoInit = millis();
         if (bno.begin(0x4A, Wire) || bno.begin(0x4B, Wire)) {
-            bno.enableRotationVector(20);
+            bno.enableGameRotationVector(20);   // no magnetometer (re-init after BNO reset)
             Serial.println("BNO085 lost reports - re-initialized");
         } else {
             Serial.println("BNO085 re-init failed (check wiring/power)");
