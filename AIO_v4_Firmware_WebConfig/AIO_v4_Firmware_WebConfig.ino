@@ -150,7 +150,7 @@ elapsedMillis refAngleTime  = 9999;   // ms since last reference packet
 
 // ── Keya WAS motorized auto-calibration ──────────────────────────────────────
 // NB: keep CAL_DONE=6 / CAL_FAIL=7 stable (the web JS checks those numbers).
-enum { CAL_IDLE=0, CAL_REACT, CAL_DEADZONE, CAL_RANGE_RIGHT, CAL_RETURN, CAL_RANGE_LEFT, CAL_DONE, CAL_FAIL, CAL_MANUAL_RANGE };
+enum { CAL_IDLE=0, CAL_REACT, CAL_DEADZONE, CAL_RANGE_RIGHT, CAL_RETURN, CAL_RANGE_LEFT, CAL_DONE, CAL_FAIL, CAL_MANUAL_RANGE, CAL_SWEEP };
 uint8_t  calState = CAL_IDLE;
 char     calMsg[48] = "idle";
 uint8_t  calSpeed   = 25;             // Keya drive speed during calibration (slow)
@@ -161,6 +161,12 @@ float    calResTR   = 0.0f;
 float    calResTpd  = 0.0f;
 float    calResMaxL = 0.0f;            // measured max angle each side (deg, from range cal)
 float    calResMaxR = 0.0f;
+// calResTL/TR/Tpd hold the BIKE (virtual-centre) ticks/deg that get applied.
+// These mirror the raw WHEEL ticks/deg for comparison + the sweep fit quality:
+float    calResWheelL = 0.0f;          // raw wheel-angle ticks/deg (display/compare)
+float    calResWheelR = 0.0f;
+float    calRmsL      = 0.0f;          // sweep linear-fit RMS residual (deg), 0 = manual
+float    calRmsR      = 0.0f;
 bool     calHaveDz    = false;         // a fresh dead-zone result is ready to apply
 bool     calHaveRange = false;         // a fresh range (ticks/deg) result is ready to apply
 

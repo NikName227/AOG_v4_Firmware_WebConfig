@@ -32,7 +32,7 @@ struct AzState {
 #define FW_VERSION "v0.9-proto"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xCD   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xCE   // change to force EEPROM reset on next boot
 
 // Free-text setup note, stored well past ModuleConfig (~250 B, ends ~330).
 // Teensy 4.1 EEPROM is 4284 B total → 1024..2025 leaves huge margin both ways.
@@ -134,6 +134,9 @@ struct ModuleConfig {
     float    keyaTicksRight   = 0.0f;   // ticks/deg when steering right (0 = use keyaTicksPerDeg)
     float    keyaMaxAngleLeft  = 0.0f;  // working max steer angle left  (deg, 0 = no limit)
     float    keyaMaxAngleRight = 0.0f;  // working max steer angle right (deg, 0 = no limit)
+    // Calibration geometry: wheel-angle -> bicycle (virtual centre) angle conversion.
+    // L = the shared `wheelBase` above; T is keya-specific:
+    float    keyaTrackT        = 1.5f;  // T: track at kingpin-axis ground intersection (m)
     // ── J1939 / NMEA 2000 GPS broadcast ─────────────────────────────────────
     uint8_t  j1939SrcAddr    = 0x1E;  // J1939 source address (30 = default AIO)
     uint8_t  j1939En65267    = 1;     // enable PGN 65267/65256 (position + direction)

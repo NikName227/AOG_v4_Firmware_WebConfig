@@ -1,14 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Keya WAS motorized auto-calibration
 //
-// Uses a wheel-mounted reference IMU (yaw via the bridge → PGN 0xD6 → refWheelAngle).
-// Two INDEPENDENT calibrations (run/repeat either on its own; Apply keeps the other):
-//   1. DEAD ZONE  (calStartDeadzone) — automatic: the Teensy slowly turns the Keya
-//      motor and reverses it a few times to measure backlash on direction change.
-//   2. RANGE      (calStartRange) — manual: motor OFF, the operator turns the wheel
-//      by hand to centre / full-left / full-right and captures each
-//      (calCapCentre/Left/Right). The operator defines absolute centre — more precise
-//      than the motor's stall detection. calComputeRange() derives ticks/deg/side.
+// Calibrates Keya counts → bicycle (virtual-centre) angle. Wheel angle (from the
+// reference IMU or a protractor) is converted to the bike angle via L,T (wheelToBike).
+//   1. DEAD ZONE  (calStartDeadzone) — automatic: motor turns + reverses to measure
+//      backlash on direction change.
+//   2. RANGE A    (calStartSweep) — operator turns lock-to-lock by hand (motor OFF),
+//      ~10 Hz samples feed a per-side least-squares fit → ticks/deg (bike) + RMS.
+//   3. RANGE B    (calStartManual) — no IMU: per lock the operator enters the measured
+//      inner-wheel angle (protractor); ticks/deg = tickΔ / angle (+ bike conversion).
+// Apply writes the BIKE ticks/deg into keyaTicksLeft/Right (+ base).
 //
 // Safety: only runs stationary, autosteer off, reference link fresh. Aborts on
 // steer switch, vehicle motion, or lost reference. Keya current limit (≈5 A)
@@ -30,7 +31,7 @@ static elapsedMillis calStateTimer;
 static elapsedMillis calMotorTimer;
 static elapsedMillis calStallTimer;
 static int    calPhase;
-static int32_t calEncCenter;
+int32_t calEncCenter;                 // non-static: web status shows tick delta from centre
 static float  calRefCenter;
 // dead-zone accumulation
 static float  calDzSum;
@@ -38,9 +39,56 @@ static int    calDzDone;
 static int32_t calRevEnc;
 static float  calCycleStartRef;
 static int8_t calDir;
-// range
-static int32_t calEncRight, calEncLeft;
-static float  calRefRight, calRefLeft;
+
+// ── Wheel-angle → bicycle (virtual centre) angle, MAGNITUDE in degrees ─────────
+// L,T from config. inner = the measured wheel is the inner wheel for this turn.
+//   tan(δ_bike) = L/R ; inner: R = L/tan(δ_w) + T/2 ; outer: R = L/tan(δ_w) − T/2
+static float wheelToBike(float dwMagDeg, bool inner) {
+    float L = moduleConfig.wheelBase;     // shared tractor wheelbase
+    float T = moduleConfig.keyaTrackT;
+    if (L < 0.1f) return dwMagDeg;                       // no geometry → wheel == bike
+    float t = tanf(dwMagDeg * (float)DEG_TO_RAD);
+    float denom = L + (inner ? +1.0f : -1.0f) * (T * 0.5f) * t;
+    if (denom < 0.01f) return dwMagDeg;
+    return atanf(L * t / denom) * (float)RAD_TO_DEG;
+}
+
+// Per-side least-squares accumulator for the sweep. Fits angle(y) vs tick(x):
+//   slope = deg/tick → ticks/deg = 1/slope ; RMS residual in degrees.
+// Holds both the raw-wheel and bike-angle columns (shared tick x).
+struct CalFit {
+    uint32_t n;
+    double Sx, Sxx;          // Σtick, Σtick²
+    double Sw, Swx, Sww;     // wheel deg: Σw, Σtick·w, Σw²
+    double Sb, Sbx, Sbb;     // bike  deg: Σb, Σtick·b, Σb²
+};
+static CalFit calFitL, calFitR;
+
+static void calFitReset(CalFit &f) { memset(&f, 0, sizeof(f)); }
+static void calFitAdd(CalFit &f, double tick, double w, double b) {
+    f.n++; f.Sx += tick; f.Sxx += tick*tick;
+    f.Sw += w; f.Swx += tick*w; f.Sww += w*w;
+    f.Sb += b; f.Sbx += tick*b; f.Sbb += b*b;
+}
+// ticks/deg from the fit (useBike picks the bike or wheel column); rmsOut = deg residual.
+static float calFitTicksPerDeg(const CalFit &f, bool useBike, float &rmsOut) {
+    rmsOut = 0;
+    if (f.n < 5) return 0;
+    double n = f.n, Sx = f.Sx, Sxx = f.Sxx;
+    double Sy  = useBike ? f.Sb  : f.Sw;
+    double Sxy = useBike ? f.Sbx : f.Swx;
+    double Syy = useBike ? f.Sbb : f.Sww;
+    double denom = n*Sxx - Sx*Sx;
+    if (fabs(denom) < 1e-6) return 0;
+    double slope = (n*Sxy - Sx*Sy) / denom;             // deg per tick
+    if (fabs(slope) < 1e-9) return 0;
+    double Sxy_c = Sxy - Sx*Sy/n;
+    double Syy_c = Syy - Sy*Sy/n;
+    double ssres = Syy_c - slope*Sxy_c;                 // residual sum of squares (deg²)
+    if (ssres < 0) ssres = 0;
+    rmsOut = (float)sqrt(ssres / n);
+    return (float)(1.0 / fabs(slope));                  // ticks per degree
+}
 
 static void calSet(uint8_t s, const char* m) {
     calState = s;
@@ -76,17 +124,36 @@ void calStartDeadzone() {
     calSet(CAL_REACT, "reaction check: sweeping +");
 }
 
-// Public: start range (manual, operator turns by hand) — dead zone untouched
-void calStartRange() {
-    if (!calCommonGuards()) return;
-    calResTL = calResTR = calResTpd = 0;           // these are being measured
+static void calResetRange() {
+    calResTL = calResTR = calResTpd = 0;
+    calResWheelL = calResWheelR = 0;
+    calRmsL = calRmsR = 0;
     calResMaxL = calResMaxR = 0;
     calHaveRange = false;
     calManCap = 0;
+}
+
+// Public: Tool A — IMU sweep (operator turns lock-to-lock, motor OFF). Needs the
+// reference IMU. Accumulates a per-side least-squares fit → ticks/deg (bike) + RMS.
+void calStartSweep() {
+    if (!calCommonGuards()) return;                // needs Keya + reference IMU + stationary
+    calResetRange();
+    calFitReset(calFitL); calFitReset(calFitR);
     calStop();
     calEncCenter = keyaEncoderRaw;
     calRefCenter = refWheelAngle;
-    calSet(CAL_MANUAL_RANGE, "range: turn to CENTRE, click Capture centre");
+    calSet(CAL_SWEEP, "sweep: turn slowly full RIGHT then full LEFT (a few times), then Stop");
+}
+
+// Public: Tool B — manual protractor (no IMU). Set centre, then per lock the
+// operator enters the measured INNER-wheel angle and captures the tick delta.
+void calStartManual() {
+    if (!keyaDetected)   { calSet(CAL_FAIL, "Keya not detected"); return; }
+    if (gpsSpeed > 0.5f) { calSet(CAL_FAIL, "vehicle moving");    return; }
+    calResetRange();
+    calStop();
+    calEncCenter = keyaEncoderRaw;
+    calSet(CAL_MANUAL_RANGE, "manual: wheels straight = Set Centre, then turn to a lock + enter angle");
 }
 
 void calAbort() { calStop(); calSet(CAL_IDLE, "aborted"); }
@@ -94,7 +161,7 @@ void calAbort() { calStop(); calSet(CAL_IDLE, "aborted"); }
 // Apply only what was actually measured this session — the other value is left
 // untouched in EEPROM (so running one calibration never zeroes the other).
 void calApply() {
-    if (calState != CAL_DONE) return;
+    if (calState != CAL_DONE && calState != CAL_MANUAL_RANGE) return;
     if (calHaveDz)    moduleConfig.keyaDeadZone = calResDz;
     if (calHaveRange) {
         if (calResTpd > 1.0f) moduleConfig.keyaTicksPerDeg = calResTpd;
@@ -105,9 +172,10 @@ void calApply() {
     calSet(CAL_IDLE, "applied & saved");
 }
 
-// Common abort guards
+// Common abort guards. Manual (Tool B) is protractor-based — no reference IMU needed.
 static bool calGuard() {
-    if (refAngleTime > 1500 || !refAngleValid) { calStop(); calSet(CAL_FAIL, "reference lost"); return false; }
+    bool needRef = (calState != CAL_MANUAL_RANGE);
+    if (needRef && (refAngleTime > 1500 || !refAngleValid)) { calStop(); calSet(CAL_FAIL, "reference lost"); return false; }
     if (gpsSpeed > 0.5f)                        { calStop(); calSet(CAL_FAIL, "vehicle moving"); return false; }
     if (digitalRead(STEERSW_PIN) == LOW)        { calStop(); calSet(CAL_FAIL, "steer switch pressed"); return false; }
     return true;
@@ -177,63 +245,82 @@ void calibrationLoop()
         break;
     }
 
-    // ── Manual range: motor OFF, operator turns by hand and clicks captures ────
-    // Captures happen in calCapCentre/Left/Right (web handler). Here we just keep
-    // the motor stopped and let the safety guards (ref link) keep running.
+    // ── Manual (Tool B): motor OFF, operator captures locks via the web handler ─
     case CAL_MANUAL_RANGE: {
         calStop();
+        break;
+    }
+
+    // ── Sweep (Tool A): motor OFF, operator turns lock-to-lock by hand. Sample at
+    // ~10 Hz: sort by steer-sign side, convert wheel→bike, feed the per-side fit. ─
+    case CAL_SWEEP: {
+        calStop();
+        static elapsedMillis sweepSamp = 0;
+        if (sweepSamp < 100) break;                     // ~10 Hz
+        sweepSamp = 0;
+        int32_t dtick   = keyaEncoderRaw - calEncCenter;
+        int32_t sgnTick = moduleConfig.keyaEncInvert ? -dtick : dtick;  // steer-sign convention
+        float   dwMag   = fabs(refWheelAngle - calRefCenter);
+        float   tickMag = fabs((float)dtick);
+        if (tickMag < 20.0f || dwMag < 0.5f) break;     // skip the dead band around centre
+        if (sgnTick > 0) {                              // right turn: right (IMU) wheel = inner
+            calFitAdd(calFitR, tickMag, dwMag, wheelToBike(dwMag, true));
+            if (dwMag > calResMaxR) calResMaxR = dwMag;
+        } else {                                        // left turn: right (IMU) wheel = outer
+            calFitAdd(calFitL, tickMag, dwMag, wheelToBike(dwMag, false));
+            if (dwMag > calResMaxL) calResMaxL = dwMag;
+        }
         break;
     }
     }
 }
 
-// ── Manual range capture (called from the web handler) ───────────────────────
-// The operator turns the steered wheel by hand to centre / full-left / full-right
-// and clicks the matching button. Captures the encoder + reference IMU angle at
-// each point; absolute centre is defined by the operator (more precise than the
-// motor's stall detection).
-void calCapCentre() {
-    if (calState != CAL_MANUAL_RANGE) return;
-    calEncCenter = keyaEncoderRaw; calRefCenter = refWheelAngle;
-    calManCap |= 0x01;
-    strncpy(calMsg, "centre captured. Turn full LEFT, click Capture left", sizeof(calMsg) - 1);
+// ── Helper: recompute base ticks/deg (avg of valid bike slopes) + ready flag ──
+static void calUpdateBase() {
+    int nv = (calResTR > 1.0f) + (calResTL > 1.0f);
+    calResTpd = nv ? ((calResTR * (calResTR > 1.0f) + calResTL * (calResTL > 1.0f)) / nv) : 0;
+    calHaveRange = (nv > 0);
 }
 
-void calCapLeft() {
-    if (calState != CAL_MANUAL_RANGE) return;
-    calEncLeft = keyaEncoderRaw; calRefLeft = refWheelAngle;
-    calManCap |= 0x02;
-    strncpy(calMsg, "left captured. Back to centre, then full RIGHT + Capture right", sizeof(calMsg) - 1);
-}
-
-void calCapRight() {
-    if (calState != CAL_MANUAL_RANGE) return;
-    calEncRight = keyaEncoderRaw; calRefRight = refWheelAngle;
-    calManCap |= 0x04;
-    strncpy(calMsg, "right captured. Click Compute when all three are done", sizeof(calMsg) - 1);
-}
-
-void calComputeRange() {
-    if (calState != CAL_MANUAL_RANGE) return;
-    if ((calManCap & 0x07) != 0x07) {
-        strncpy(calMsg, "capture centre + left + right first", sizeof(calMsg) - 1);
-        return;
-    }
-    float degR  = fabs(calRefRight - calRefCenter);
-    float degL  = fabs(calRefLeft  - calRefCenter);
-    float tickR = fabs((float)(calEncRight - calEncCenter));
-    float tickL = fabs((float)(calEncLeft  - calEncCenter));
-    calResMaxL = degL;   // measured physical max each side (operator trims 2-3° in GUI)
-    calResMaxR = degR;
-    calResTR = (degR > 1.0f) ? tickR / degR : 0;
-    calResTL = (degL > 1.0f) ? tickL / degL : 0;
-    calResTpd = ((calResTR > 0) + (calResTL > 0)) ?
-                ((calResTR + calResTL) / ((calResTR > 0) + (calResTL > 0))) : 0;
-    calHaveRange = true;
-    char m[64];
-    if (calResTR == 0 || calResTL == 0)
-        snprintf(m, sizeof(m), "ref barely moved (L %.1f R %.1f deg) - check wheel IMU", degL, degR);
+// ── Tool A: finish the sweep — compute per-side least-squares slopes ──────────
+void calStopSweep() {
+    if (calState != CAL_SWEEP) return;
+    calStop();
+    float dummy;
+    calResWheelR = calFitTicksPerDeg(calFitR, false, dummy);   // raw wheel t/d (compare)
+    calResWheelL = calFitTicksPerDeg(calFitL, false, dummy);
+    calResTR     = calFitTicksPerDeg(calFitR, true,  calRmsR); // bike t/d (applied) + RMS
+    calResTL     = calFitTicksPerDeg(calFitL, true,  calRmsL);
+    calUpdateBase();
+    char m[80];
+    if (!calHaveRange)
+        snprintf(m, sizeof(m), "not enough sweep data - turn fuller/slower, both sides");
     else
-        snprintf(m, sizeof(m), "done: L %.1f R %.1f t/deg (range L %.1f R %.1f deg)", calResTL, calResTR, degL, degR);
+        snprintf(m, sizeof(m), "sweep done: bike t/d L %.1f R %.1f (RMS L %.2f R %.2f)",
+                 calResTL, calResTR, calRmsL, calRmsR);
     calSet(CAL_DONE, m);
+}
+
+// ── Tool B: manual capture (called from the web handler) ─────────────────────
+void calManSetCentre() {
+    if (calState != CAL_MANUAL_RANGE) return;
+    calEncCenter = keyaEncoderRaw;
+    calManCap |= 0x01;
+    strncpy(calMsg, "centre set. Turn full RIGHT, measure inner-wheel angle, Capture right", sizeof(calMsg) - 1);
+}
+
+// side: +1 = right lock, -1 = left lock. angleDeg = measured INNER wheel angle (protractor).
+void calManCapLock(int8_t side, float angleDeg) {
+    if (calState != CAL_MANUAL_RANGE) return;
+    if (angleDeg < 1.0f) { strncpy(calMsg, "enter the measured wheel angle first", sizeof(calMsg) - 1); return; }
+    float tickMag = fabs((float)(keyaEncoderRaw - calEncCenter));
+    float bike    = wheelToBike(angleDeg, true);   // inner wheel measured at each lock
+    float tdWheel = (angleDeg > 0.5f) ? tickMag / angleDeg : 0;
+    float tdBike  = (bike     > 0.5f) ? tickMag / bike      : 0;
+    if (side > 0) { calResWheelR = tdWheel; calResTR = tdBike; calResMaxR = angleDeg; calManCap |= 0x04; }
+    else          { calResWheelL = tdWheel; calResTL = tdBike; calResMaxL = angleDeg; calManCap |= 0x02; }
+    calUpdateBase();
+    char m[72];
+    snprintf(m, sizeof(m), "%s lock: wheel %.1f t/d, bike %.1f t/d", side > 0 ? "right" : "left", tdWheel, tdBike);
+    strncpy(calMsg, m, sizeof(calMsg) - 1);
 }

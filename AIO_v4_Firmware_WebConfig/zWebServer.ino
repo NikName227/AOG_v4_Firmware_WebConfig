@@ -499,34 +499,54 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 
 <div class="card">
-<h2>Keya WAS — auto-calibration <span style="color:#64748b;font-weight:normal;font-size:11px">(reference IMU)</span></h2>
-<p style="color:#64748b;font-size:13px;margin-bottom:8px">Uses a wheel-mounted reference IMU (BNO085/TM171 on ESP32, via the laptop bridge). <b>Dead zone</b> is measured automatically (the motor turns itself); then you measure the <b>range</b> by hand — turn the wheel to centre/left/right and capture each, so the operator defines absolute centre (more precise). Vehicle stationary, stand clear.</p>
+<h2>Keya WAS — auto-calibration <span style="color:#64748b;font-weight:normal;font-size:11px">(reference IMU + manual)</span></h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Calibrates Keya counts → <b>bicycle (virtual-centre) angle</b>. Dead zone is auto (motor turns). Range: <b>A — IMU sweep</b> (turn lock-to-lock, least-squares fit) or <b>B — manual</b> (protractor, no IMU). Both report per-side ticks/deg in <b>wheel</b> and <b>bike</b> terms. Vehicle stationary, stand clear.</p>
 <div class="row"><span class="lbl">Reference IMU link</span><span id="calRefBadge" class="badge fail">--</span></div>
 <div class="row"><span class="lbl">Reference angle</span><span class="val" id="calRefAngle">—</span></div>
-<p style="color:#f59e0b;font-size:12px;margin:6px 0 8px;line-height:1.3">&#9888; The Teensy turns the steering motor by itself. Vehicle stationary, stand clear, hand ready on the wheel. Aborts on steer switch / motion / lost reference.</p>
+
+<div class="lbl" style="margin:10px 0 3px">Geometry — wheel→bicycle conversion</div>
+<div class="row"><span class="lbl">Wheelbase L <small style="color:#64748b">(m)</small></span>
+<input type="number" id="calWB" min="0.5" max="6" step="0.01" class="ninput"></div>
+<div class="row"><span class="lbl">Track T <small style="color:#64748b">(m, kingpin axes at ground)</small></span>
+<input type="number" id="calT" min="0.5" max="4" step="0.01" class="ninput"></div>
+<button class="btn" onclick="saveCalGeom()">Save L / T</button>
+
+<div class="lbl" style="margin:12px 0 3px">Dead zone <small style="color:#64748b">(auto — motor turns)</small></div>
+<p style="color:#f59e0b;font-size:12px;margin:0 0 6px;line-height:1.3">&#9888; The motor turns by itself. Stand clear, hand ready. Aborts on steer switch / motion / lost reference.</p>
 <div class="row"><span class="lbl">Motor speed <small style="color:#64748b">(slow, def 25)</small></span>
 <input type="number" id="calSpeed" min="5" max="80" step="1" value="25" class="ninput"></div>
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-<button class="btn green" onclick="calDzBtn()">Calibrate dead zone</button>
-<button class="btn green" onclick="calRangeBtn()">Calibrate range</button>
-<button class="btn red" onclick="calAbortBtn()">Abort</button>
-</div>
-<p style="color:#64748b;font-size:12px;margin:6px 0 0;line-height:1.3">Run them independently — repeat just one without redoing the other. Apply saves whatever was last measured (the other value is kept).</p>
-<div class="row" style="margin-top:8px"><span class="lbl">State</span><span class="val" id="calState">idle</span></div>
-<div id="calManual" style="display:none;margin-top:8px;padding:8px;border:1px solid #334155;border-radius:6px">
-<p style="color:#94a3b8;font-size:12px;margin:0 0 6px;line-height:1.3">Motor is OFF — turn the wheel <b>by hand</b> to each position and capture. Centre defines absolute 0. Order: centre &rarr; full left &rarr; (back to centre) &rarr; full right &rarr; Compute.</p>
+<button class="btn green" onclick="calDzBtn()" style="margin-top:6px">Calibrate dead zone</button>
+
+<div class="lbl" style="margin:12px 0 3px">Range A — IMU sweep <small style="color:#64748b">(needs reference IMU)</small></div>
+<p style="color:#94a3b8;font-size:12px;margin:0 0 6px;line-height:1.3">Set wheels straight, Start, then turn <b>slowly</b> full RIGHT then full LEFT a few times (&lt;60 s), then Stop. Least-squares fit per side.</p>
 <div style="display:flex;gap:8px;flex-wrap:wrap">
-<button class="btn" onclick="calCap('c')">Capture centre <span id="capC"></span></button>
-<button class="btn" onclick="calCap('l')">Capture left <span id="capL"></span></button>
-<button class="btn" onclick="calCap('r')">Capture right <span id="capR"></span></button>
-<button class="btn green" onclick="calCompute()">Compute</button>
+<button class="btn green" onclick="calSweepBtn()">Start sweep</button>
+<button class="btn green" id="calSwStop" onclick="calSwStopBtn()" style="display:none">Stop &amp; Compute</button>
 </div>
+
+<div class="lbl" style="margin:12px 0 3px">Range B — manual <small style="color:#64748b">(protractor, no IMU)</small></div>
+<button class="btn" onclick="calManBtn()">Start manual</button>
+<div id="calManual" style="display:none;margin-top:8px;padding:8px;border:1px solid #334155;border-radius:6px">
+<p style="color:#94a3b8;font-size:12px;margin:0 0 6px;line-height:1.3">Wheels straight → Set centre. Turn full to a lock, measure the <b>inner</b> wheel angle with a protractor, enter it, Capture.</p>
+<button class="btn" onclick="calManCentre()">Set centre <span id="capC"></span></button>
+<div class="row" style="margin-top:6px"><span class="lbl">Right lock: wheel ° <span id="capR"></span></span>
+<input type="number" id="calAngR" min="1" max="80" step="0.5" class="ninput" style="width:80px"></div>
+<button class="btn" onclick="calManCap('r')">Capture right</button>
+<div class="row" style="margin-top:6px"><span class="lbl">Left lock: wheel ° <span id="capL"></span></span>
+<input type="number" id="calAngL" min="1" max="80" step="0.5" class="ninput" style="width:80px"></div>
+<button class="btn" onclick="calManCap('l')">Capture left</button>
 </div>
-<div class="row"><span class="lbl">Measured dead zone</span><span class="val" id="calDz">—</span></div>
-<div class="row"><span class="lbl">Measured ticks/deg L | R</span><span class="val" id="calLR">—</span></div>
-<div class="row"><span class="lbl">Measured base ticks/deg</span><span class="val" id="calTpd">—</span></div>
-<div class="row"><span class="lbl">Measured max angle L | R</span><span class="val" id="calMax">—</span></div>
-<button class="btn" id="calApplyBtn" onclick="calApplyBtn()" style="margin-top:8px;display:none">Apply &amp; save results</button>
+
+<div style="margin-top:10px"><button class="btn red" onclick="calAbortBtn()">Abort</button></div>
+<div class="row" style="margin-top:8px"><span class="lbl">State</span><span class="val" id="calState">idle</span></div>
+<div class="row"><span class="lbl">Tick delta from centre</span><span class="val" id="calEncDelta">—</span></div>
+<div class="row"><span class="lbl">Dead zone</span><span class="val" id="calDz">—</span></div>
+<div class="row"><span class="lbl">ticks/deg wheel &nbsp;L | R</span><span class="val" id="calWLR">—</span></div>
+<div class="row"><span class="lbl">ticks/deg <b>bike</b> &nbsp;L | R</span><span class="val" id="calLR">—</span></div>
+<div class="row"><span class="lbl">base ticks/deg</span><span class="val" id="calTpd">—</span></div>
+<div class="row"><span class="lbl">RMS residual L | R <small style="color:#64748b">(sweep)</small></span><span class="val" id="calRms">—</span></div>
+<div class="row"><span class="lbl">max angle L | R</span><span class="val" id="calMax">—</span></div>
+<button class="btn" id="calApplyBtn" onclick="calApplyBtn()" style="margin-top:8px;display:none">Apply &amp; save (bike ticks/deg)</button>
 </div>
 
 <div class="card">
@@ -1072,6 +1092,8 @@ function upd(d) {
     document.getElementById('kw8').value   = d.keya_was.azSpeedSlow;
     document.getElementById('kw9').value   = d.keya_was.azSpeedFast;
     document.getElementById('kwwb').value  = d.keya_was.wheelBase;
+    document.getElementById('calWB').value = d.keya_was.wheelBase;
+    document.getElementById('calT').value  = d.keya_was.trackT;
     document.getElementById('ksgDz').value = d.keya_was.deadZone;
     document.getElementById('ksgL').value  = d.keya_was.ticksLeft;
     document.getElementById('ksgR').value  = d.keya_was.ticksRight;
@@ -1194,11 +1216,21 @@ function calDzBtn() {
   var sp = document.getElementById('calSpeed').value;
   fetch('/api/calib?speed=' + sp + '&dz');
 }
-function calRangeBtn() { fetch('/api/calib?range'); }
+function saveCalGeom() {
+  fetch('/api/save?wheelBase=' + document.getElementById('calWB').value
+                + '&keyaT=' + document.getElementById('calT').value)
+    .then(function(r){ document.getElementById('sb').textContent = r.ok ? 'L/T saved.' : 'ERROR.'; configLoaded = false; });
+}
+function calSweepBtn()   { fetch('/api/calib?sweep'); }
+function calSwStopBtn()  { fetch('/api/calib?swstop'); }
+function calManBtn()     { fetch('/api/calib?manual'); }
+function calManCentre()  { fetch('/api/calib?setc'); }
+function calManCap(s)    {
+  var a = document.getElementById(s === 'r' ? 'calAngR' : 'calAngL').value;
+  fetch('/api/calib?cap' + s + '&ang=' + a);
+}
 function calAbortBtn() { fetch('/api/calib?abort'); }
 function calApplyBtn() { fetch('/api/calib?apply').then(function(){ configLoaded = false; }); }
-function calCap(w)    { fetch('/api/calib?cap=' + w); }
-function calCompute() { fetch('/api/calib?compute'); }
 
 function noteCount() {
   var t = document.getElementById('noteTxt');
@@ -1301,13 +1333,18 @@ function updLive(d) {
     csv.textContent = d.calMsg;
     csv.style.color = (d.calState === 7) ? '#f87171' : (d.calState === 6) ? '#4ade80' : '#e2e8f0';
     document.getElementById('calDz').textContent  = d.calDz > 0 ? d.calDz.toFixed(2) + ' °' : '—';
+    document.getElementById('calWLR').textContent = (d.calWL > 0 || d.calWR > 0) ? (d.calWL.toFixed(1) + ' | ' + d.calWR.toFixed(1)) : '—';
     document.getElementById('calLR').textContent  = (d.calTL > 0 || d.calTR > 0) ? (d.calTL.toFixed(1) + ' | ' + d.calTR.toFixed(1)) : '—';
     document.getElementById('calTpd').textContent = d.calTpd > 0 ? d.calTpd.toFixed(1) : '—';
+    document.getElementById('calRms').textContent = (d.calRmsL > 0 || d.calRmsR > 0) ? (d.calRmsL.toFixed(2) + ' | ' + d.calRmsR.toFixed(2) + ' °') : '—';
     document.getElementById('calMax').textContent = (d.calMaxL > 0 || d.calMaxR > 0) ? (d.calMaxL.toFixed(1) + ' | ' + d.calMaxR.toFixed(1) + ' °') : '—';
+    if (d.calEncDelta !== undefined) document.getElementById('calEncDelta').textContent = d.calEncDelta + ' ticks';
     var ab = document.getElementById('calApplyBtn');
-    if (ab) ab.style.display = (d.calState === 6) ? '' : 'none';
+    if (ab) ab.style.display = (d.calState === 6 || d.calState === 8) ? '' : 'none';   // DONE or manual
     var cm = document.getElementById('calManual');
     if (cm) cm.style.display = (d.calState === 8) ? '' : 'none';   // CAL_MANUAL_RANGE
+    var sw = document.getElementById('calSwStop');
+    if (sw) sw.style.display = (d.calState === 9) ? '' : 'none';   // CAL_SWEEP
     if (d.calCap !== undefined) {
       document.getElementById('capC').textContent = (d.calCap & 1) ? '✓' : '';
       document.getElementById('capL').textContent = (d.calCap & 2) ? '✓' : '';
@@ -2216,6 +2253,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"ticksRight\":")); client.print(moduleConfig.keyaTicksRight, 1);
     client.print(F(",\"maxAngleLeft\":")); client.print(moduleConfig.keyaMaxAngleLeft, 1);
     client.print(F(",\"maxAngleRight\":")); client.print(moduleConfig.keyaMaxAngleRight, 1);
+    client.print(F(",\"trackT\":")); client.print(moduleConfig.keyaTrackT, 2);
     client.print(F(",\"initialZeroDone\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
 
     client.print(F("},\"imu_was\":{"));
@@ -2585,6 +2623,11 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"calTpd\":")); client.print(calResTpd, 1);
     client.print(F(",\"calMaxL\":")); client.print(calResMaxL, 1);
     client.print(F(",\"calMaxR\":")); client.print(calResMaxR, 1);
+    client.print(F(",\"calWL\":")); client.print(calResWheelL, 1);
+    client.print(F(",\"calWR\":")); client.print(calResWheelR, 1);
+    client.print(F(",\"calRmsL\":")); client.print(calRmsL, 2);
+    client.print(F(",\"calRmsR\":")); client.print(calRmsR, 2);
+    client.print(F(",\"calEncDelta\":")); client.print((long)(keyaEncoderRaw - calEncCenter));
     client.print(F(",\"kcMode\":")); client.print(keyaCfgMode ? F("true") : F("false"));
     client.print(F(",\"kcRam\":["));
     for (uint8_t i = 0; i < 4; i++) { if (i) client.print(','); client.print(keyaCfgRam[i]); }
@@ -2851,14 +2894,15 @@ void handleApiCalib(EthernetClient& client, const char* req)
         if (s < 5) s = 5; if (s > 80) s = 80;
         calSpeed = s;
     }
-    if      (strstr(req, "range")     != NULL) calStartRange();
+    if      (strstr(req, "sweep")     != NULL) calStartSweep();      // Tool A start
+    else if (strstr(req, "swstop")    != NULL) calStopSweep();       // Tool A stop+compute
+    else if (strstr(req, "manual")    != NULL) calStartManual();     // Tool B start
     else if (strstr(req, "dz")        != NULL) calStartDeadzone();
     else if (strstr(req, "abort")     != NULL) calAbort();
     else if (strstr(req, "apply")     != NULL) calApply();
-    else if (strstr(req, "cap=c")     != NULL) calCapCentre();
-    else if (strstr(req, "cap=l")     != NULL) calCapLeft();
-    else if (strstr(req, "cap=r")     != NULL) calCapRight();
-    else if (strstr(req, "compute")   != NULL) calComputeRange();
+    else if (strstr(req, "setc")      != NULL) calManSetCentre();
+    else if (strstr(req, "capr")      != NULL) { float a=0; if((p=strstr(req,"ang="))!=NULL) a=atof(p+4); calManCapLock(+1, a); }
+    else if (strstr(req, "capl")      != NULL) { float a=0; if((p=strstr(req,"ang="))!=NULL) a=atof(p+4); calManCapLock(-1, a); }
     sendHeaders(client, "text/plain");
     client.print(F("OK"));
 }
@@ -2975,6 +3019,7 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "keyaTicksRight=")) != NULL) moduleConfig.keyaTicksRight  = atof(p + 15);
     if ((p = strstr(req, "keyaMaxL=")) != NULL) moduleConfig.keyaMaxAngleLeft  = atof(p + 9);
     if ((p = strstr(req, "keyaMaxR=")) != NULL) moduleConfig.keyaMaxAngleRight = atof(p + 9);
+    if ((p = strstr(req, "keyaT=")) != NULL)  moduleConfig.keyaTrackT    = atof(p + 6);
     if ((p = strstr(req, "can2Baud="))     != NULL) {
         moduleConfig.can2Baud = (uint32_t)atol(p + 9);
         needRestart = true;
