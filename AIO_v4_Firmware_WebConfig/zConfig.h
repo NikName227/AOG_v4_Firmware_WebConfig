@@ -41,7 +41,7 @@ struct CalFit {
 #define FW_VERSION "v0.9-proto"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xCE   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xCF   // change to force EEPROM reset on next boot
 
 // Free-text setup note, stored well past ModuleConfig (~250 B, ends ~330).
 // Teensy 4.1 EEPROM is 4284 B total → 1024..2025 leaves huge margin both ways.
@@ -125,7 +125,7 @@ struct ModuleConfig {
     uint16_t speedDiffTimeout  = 250;   // Keya + Motor speedDiff disengage timeout (ms)
     // ── Keya encoder as WAS ─────────────────────────────────────────────────
     float    keyaTicksPerDeg  = 24.0f;
-    uint8_t  keyaEncInvert    = 1;      // default: typical motor mount steers correct way inverted
+    uint8_t  keyaEncInvert    = 0;      // default OFF: base logic already gives right-turn = positive
     int32_t  keyaZeroTicks    = 0;      // int32 — matches cumulative encoder accumulator
     uint8_t  keyaAzEnable     = 1;
     float    keyaAzBeta       = 0.05f;

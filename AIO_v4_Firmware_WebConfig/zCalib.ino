@@ -252,7 +252,7 @@ void calibrationLoop()
         if (sweepSamp < 100) break;                     // ~10 Hz
         sweepSamp = 0;
         int32_t dtick   = keyaEncoderRaw - calEncCenter;
-        int32_t sgnTick = moduleConfig.keyaEncInvert ? -dtick : dtick;  // steer-sign convention
+        int32_t sgnTick = moduleConfig.keyaEncInvert ? dtick : -dtick;  // steer-sign (matches deltaSigned)
         float   dwMag   = fabs(refWheelAngle - calRefCenter);
         float   tickMag = fabs((float)dtick);
         if (tickMag < 20.0f || dwMag < 0.5f) break;     // skip the dead band around centre

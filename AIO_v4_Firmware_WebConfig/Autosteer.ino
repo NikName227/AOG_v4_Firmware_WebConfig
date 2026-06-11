@@ -705,9 +705,11 @@ void autosteerLoop()
             break;
         }
 
-        // Cumulative int32 encoder — invert then subtract zero
+        // Cumulative int32 encoder — subtract zero, then sign.
+        // Base (Invert OFF) is already right-turn = positive; the checkbox flips it
+        // for hardware wired the opposite way.
         int32_t deltaTicks = keyaEncoderRaw - moduleConfig.keyaZeroTicks;
-        float deltaSigned = moduleConfig.keyaEncInvert ? -(float)deltaTicks : (float)deltaTicks;
+        float deltaSigned = moduleConfig.keyaEncInvert ? (float)deltaTicks : -(float)deltaTicks;
 
         // Per-side ticks/deg (0 = use the base keyaTicksPerDeg for that side)
         float tpd = moduleConfig.keyaTicksPerDeg;
