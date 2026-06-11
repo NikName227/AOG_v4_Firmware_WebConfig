@@ -22,6 +22,15 @@ struct AzState {
     elapsedMillis cooldown = elapsedMillis(5000);   // ready at boot
 };
 
+// Per-side least-squares accumulator for the Keya sweep calibration. Declared here
+// (early header) so the auto-prototypes for calFit*() see the type.
+struct CalFit {
+    uint32_t n;
+    double Sx, Sxx;          // Σtick, Σtick²
+    double Sw, Swx, Sww;     // wheel deg: Σw, Σtick·w, Σw²
+    double Sb, Sbx, Sbb;     // bike  deg: Σb, Σtick·b, Σb²
+};
+
 // ── EEPROM layout ──────────────────────────────────────────────────────────────
 // addr  0  : EEP_Ident (uint16)   – steer settings identity (existing)
 // addr 10  : steerSettings        – 11 bytes (existing)

@@ -53,15 +53,8 @@ static float wheelToBike(float dwMagDeg, bool inner) {
     return atanf(L * t / denom) * (float)RAD_TO_DEG;
 }
 
-// Per-side least-squares accumulator for the sweep. Fits angle(y) vs tick(x):
-//   slope = deg/tick → ticks/deg = 1/slope ; RMS residual in degrees.
-// Holds both the raw-wheel and bike-angle columns (shared tick x).
-struct CalFit {
-    uint32_t n;
-    double Sx, Sxx;          // Σtick, Σtick²
-    double Sw, Swx, Sww;     // wheel deg: Σw, Σtick·w, Σw²
-    double Sb, Sbx, Sbb;     // bike  deg: Σb, Σtick·b, Σb²
-};
+// CalFit struct lives in zConfig.h (early header) so the auto-prototypes see it.
+// Fits angle(y) vs tick(x): slope = deg/tick → ticks/deg = 1/slope ; RMS in degrees.
 static CalFit calFitL, calFitR;
 
 static void calFitReset(CalFit &f) { memset(&f, 0, sizeof(f)); }
