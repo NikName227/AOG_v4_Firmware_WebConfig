@@ -24,11 +24,16 @@ struct AzState {
 
 // Per-side least-squares accumulator for the Keya sweep calibration. Declared here
 // (early header) so the auto-prototypes for calFit*() see the type.
+// Accumulates the wheel column plus BOTH bike conversions (inner & outer); the
+// inner/outer choice per side is decided at the end from the max wheel angle
+// (larger = inner = right turn), so calibration is robust to encoder polarity.
 struct CalFit {
     uint32_t n;
     double Sx, Sxx;          // Σtick, Σtick²
-    double Sw, Swx, Sww;     // wheel deg: Σw, Σtick·w, Σw²
-    double Sb, Sbx, Sbb;     // bike  deg: Σb, Σtick·b, Σb²
+    double Sw, Swx, Sww;     // wheel deg
+    double Si, Six, Sii;     // bike-if-inner
+    double So, Sox, Soo;     // bike-if-outer
+    double maxW;             // max |wheel| seen (inner detection)
 };
 
 // ── EEPROM layout ──────────────────────────────────────────────────────────────

@@ -201,6 +201,21 @@ void KeyaBus_Receive()
             }
         }
     }
+
+    // ── Heartbeat watchdog ───────────────────────────────────────────────────
+    // If the Keya stops responding (unplugged / powered off / CAN fault), drop the
+    // detection flag and disengage with a fault. Fires once on the transition.
+    // Flood-safe (calStop() is rate-limited during calibration), so it only trips
+    // on a real loss of heartbeat, not on bus congestion.
+    if (keyaDetected && lastKeyaHeatbeat > 1000) {
+        keyaDetected    = false;
+        keyaEncInitDone = false;          // re-baseline the delta tracker on reconnect
+        Serial.println("Keya heartbeat lost - disengaging");
+        disengageLog("Keya heartbeat lost");
+        steerSwitch  = 1;
+        currentState = 1;
+        previous     = 0;
+    }
 }
 
 void SteerKeya(int steerSpeed, bool intendToSteer)

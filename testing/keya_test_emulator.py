@@ -80,6 +80,11 @@ class Emulator:
         self.last_wheel    = 0.0
         self.last_ticks    = 0
         self.last_enc16    = 0
+        # CAN TX health
+        self.tx_ok         = 0
+        self.tx_err        = 0
+        self.last_err      = ""
+        self.last_stat     = 0.0
 
     # ── derived values from the current bike angle ──────────────────────────
     def compute(self):
@@ -87,7 +92,10 @@ class Emulator:
             bike = self.bike_deg; L = self.L; T = self.T
             k = self.ticks_per_deg; rev = self.reverse
         wheel = bike_to_wheel(bike, L, T)
-        ticks = k * bike * (-1.0 if rev else 1.0)
+        # Negate so a RIGHT turn DECREASES the count, matching a real Keya / the
+        # firmware default (Invert encoder OFF => right turn reads positive). With
+        # the wrong sign the calibration applies inner/outer to the wrong side.
+        ticks = -k * bike * (-1.0 if rev else 1.0)
         enc16 = int(round(ticks)) & 0xFFFF
         return bike, wheel, ticks, enc16
 
@@ -107,15 +115,28 @@ class Emulator:
             if self.bus is not None:
                 data = bytes([(enc16 >> 8) & 0xFF, enc16 & 0xFF, 0, 0, 0, 0, 0, 0])
                 try:
+                    # short timeout: if the bus can't transmit (no ACK -> no
+                    # receiver / wrong bitrate / no termination) this RAISES instead
+                    # of silently queuing stale frames.
                     self.bus.send(can.Message(arbitration_id=KEYA_HEARTBEAT_ID,
-                                              is_extended_id=True, data=data))
-                except Exception:
-                    pass
+                                              is_extended_id=True, data=data), timeout=0.05)
+                    self.tx_ok += 1
+                except Exception as e:
+                    self.tx_err += 1
+                    self.last_err = str(e)
 
             # UDP PGN 0xD6 (reference wheel angle) every udp_every ticks
             if i % udp_every == 0:
                 self._send_udp(wheel)
             i += 1
+
+            # Print CAN TX health only when there are errors (quiet when healthy).
+            if time.time() - self.last_stat >= 1.0:
+                self.last_stat = time.time()
+                if self.tx_err:
+                    print(f"[CAN] tx_err/s={self.tx_err} of {self.tx_ok + self.tx_err}  "
+                          f"(bus problem? check bitrate / 120R termination)  ERR: {self.last_err}")
+                self.tx_ok = 0; self.tx_err = 0
 
             dt = period - (time.time() - t0)
             if dt > 0:

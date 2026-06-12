@@ -58,26 +58,34 @@ static float wheelToBike(float dwMagDeg, bool inner) {
 static CalFit calFitL, calFitR;
 
 static void calFitReset(CalFit &f) { memset(&f, 0, sizeof(f)); }
-static void calFitAdd(CalFit &f, double tick, double w, double b) {
+// Accumulate one (tick, wheel-angle) sample; both bike conversions are pre-computed
+// so the inner/outer choice can be deferred to the end (robust to encoder polarity).
+static void calFitAdd(CalFit &f, double tick, double wheelDeg) {
+    double bi = wheelToBike((float)wheelDeg, true);     // bike if this side is inner
+    double bo = wheelToBike((float)wheelDeg, false);    // bike if this side is outer
     f.n++; f.Sx += tick; f.Sxx += tick*tick;
-    f.Sw += w; f.Swx += tick*w; f.Sww += w*w;
-    f.Sb += b; f.Sbx += tick*b; f.Sbb += b*b;
+    f.Sw += wheelDeg; f.Swx += tick*wheelDeg; f.Sww += wheelDeg*wheelDeg;
+    f.Si += bi; f.Six += tick*bi; f.Sii += bi*bi;
+    f.So += bo; f.Sox += tick*bo; f.Soo += bo*bo;
+    if (wheelDeg > f.maxW) f.maxW = wheelDeg;
 }
-// ticks/deg from the fit (useBike picks the bike or wheel column); rmsOut = deg residual.
-static float calFitTicksPerDeg(const CalFit &f, bool useBike, float &rmsOut) {
+// Generic least-squares: y(angle) vs x(tick) → ticks/deg = 1/slope, RMS in degrees.
+// col 0 = wheel, 1 = bike-inner, 2 = bike-outer.
+static float calFitSlope(const CalFit &f, uint8_t col, float &rmsOut) {
     rmsOut = 0;
     if (f.n < 5) return 0;
     double n = f.n, Sx = f.Sx, Sxx = f.Sxx;
-    double Sy  = useBike ? f.Sb  : f.Sw;
-    double Sxy = useBike ? f.Sbx : f.Swx;
-    double Syy = useBike ? f.Sbb : f.Sww;
+    double Sy, Sxy, Syy;
+    if      (col == 0) { Sy = f.Sw; Sxy = f.Swx; Syy = f.Sww; }
+    else if (col == 1) { Sy = f.Si; Sxy = f.Six; Syy = f.Sii; }
+    else               { Sy = f.So; Sxy = f.Sox; Syy = f.Soo; }
     double denom = n*Sxx - Sx*Sx;
     if (fabs(denom) < 1e-6) return 0;
     double slope = (n*Sxy - Sx*Sy) / denom;             // deg per tick
     if (fabs(slope) < 1e-9) return 0;
     double Sxy_c = Sxy - Sx*Sy/n;
     double Syy_c = Syy - Sy*Sy/n;
-    double ssres = Syy_c - slope*Sxy_c;                 // residual sum of squares (deg²)
+    double ssres = Syy_c - slope*Sxy_c;
     if (ssres < 0) ssres = 0;
     rmsOut = (float)sqrt(ssres / n);
     return (float)(1.0 / fabs(slope));                  // ticks per degree
@@ -239,15 +247,20 @@ void calibrationLoop()
     }
 
     // ── Manual (Tool B): motor OFF, operator captures locks via the web handler ─
+    // NB: do NOT call calStop() every iteration — during calibration autosteerLoop
+    // returns early and runs thousands of Hz; SteerKeya writes 2 CAN frames each
+    // call and would flood the bus, blocking the Keya heartbeat (encoder freezes).
     case CAL_MANUAL_RANGE: {
-        calStop();
+        static elapsedMillis manStop = 0;
+        if (manStop > 500) { manStop = 0; calStop(); }   // keep motor off, rate-limited
         break;
     }
 
     // ── Sweep (Tool A): motor OFF, operator turns lock-to-lock by hand. Sample at
     // ~10 Hz: sort by steer-sign side, convert wheel→bike, feed the per-side fit. ─
     case CAL_SWEEP: {
-        calStop();
+        static elapsedMillis swStop = 0;
+        if (swStop > 500) { swStop = 0; calStop(); }     // keep motor off, rate-limited
         static elapsedMillis sweepSamp = 0;
         if (sweepSamp < 100) break;                     // ~10 Hz
         sweepSamp = 0;
@@ -256,13 +269,10 @@ void calibrationLoop()
         float   dwMag   = fabs(refWheelAngle - calRefCenter);
         float   tickMag = fabs((float)dtick);
         if (tickMag < 20.0f || dwMag < 0.5f) break;     // skip the dead band around centre
-        if (sgnTick > 0) {                              // right turn: right (IMU) wheel = inner
-            calFitAdd(calFitR, tickMag, dwMag, wheelToBike(dwMag, true));
-            if (dwMag > calResMaxR) calResMaxR = dwMag;
-        } else {                                        // left turn: right (IMU) wheel = outer
-            calFitAdd(calFitL, tickMag, dwMag, wheelToBike(dwMag, false));
-            if (dwMag > calResMaxL) calResMaxL = dwMag;
-        }
+        // Just sort by encoder sign into two buckets; which bucket is inner/outer
+        // (i.e. right/left turn) is decided in calStopSweep from the max wheel angle.
+        if (sgnTick > 0) calFitAdd(calFitR, tickMag, dwMag);
+        else             calFitAdd(calFitL, tickMag, dwMag);
         break;
     }
     }
@@ -279,11 +289,25 @@ static void calUpdateBase() {
 void calStopSweep() {
     if (calState != CAL_SWEEP) return;
     calStop();
+    // Inner side detection (robust to encoder polarity AND sweep extent): the inner
+    // wheel turns MORE per tick → SMALLER wheel ticks/deg. Compare the two buckets'
+    // wheel slopes; smaller = inner = right turn. Fall back to max angle if a slope
+    // is unavailable (one side not swept enough).
+    float dwR, dwL;
+    float wR = calFitSlope(calFitR, 0, dwR);
+    float wL = calFitSlope(calFitL, 0, dwL);
+    bool rBucketInner;
+    if (wR > 0.1f && wL > 0.1f) rBucketInner = (wR <= wL);          // smaller wheel t/d = inner
+    else                        rBucketInner = (calFitR.maxW >= calFitL.maxW);
+    CalFit &inner = rBucketInner ? calFitR : calFitL;
+    CalFit &outer = rBucketInner ? calFitL : calFitR;
     float dummy;
-    calResWheelR = calFitTicksPerDeg(calFitR, false, dummy);   // raw wheel t/d (compare)
-    calResWheelL = calFitTicksPerDeg(calFitL, false, dummy);
-    calResTR     = calFitTicksPerDeg(calFitR, true,  calRmsR); // bike t/d (applied) + RMS
-    calResTL     = calFitTicksPerDeg(calFitL, true,  calRmsL);
+    calResTR     = calFitSlope(inner, 1, calRmsR);   // bike, inner column → right
+    calResTL     = calFitSlope(outer, 2, calRmsL);   // bike, outer column → left
+    calResWheelR = calFitSlope(inner, 0, dummy);     // raw wheel t/d (compare)
+    calResWheelL = calFitSlope(outer, 0, dummy);
+    calResMaxR   = (float)inner.maxW;
+    calResMaxL   = (float)outer.maxW;
     calUpdateBase();
     char m[80];
     if (!calHaveRange)
