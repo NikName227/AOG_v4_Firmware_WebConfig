@@ -280,8 +280,10 @@ void autosteerSetup()
 // ── Shared GPS auto-zero (drift correction) ──────────────────────────────────
 // Used by both Keya-encoder WAS and IMU-as-WAS. Slowly trims 'offset' so that
 // (rawAngle + offset) tracks the GPS-derived wheel angle while driving straight.
-// Flodu-model behaviour: window-averaging, a lag-free wheel-rate guard, a DIRECT
-// jump when NOT engaged (fast) vs a gentle beta when engaged, and a 2 s cooldown.
+// Flodu-model behaviour: window-averaging, a lag-free wheel-rate guard, a 2 s
+// cooldown, and a fractional correction — beta when NOT engaged, beta/5 when
+// engaged (5x gentler so it doesn't fight the PID). No full jump (fast first-time
+// settle is the separate boot initial-zero).
 // (AzCfg / AzState are defined in zConfig.h so the auto-prototype resolves them.)
 // Returns true on the cycle it applies a correction (used to clear the boot lock).
 bool gpsDriftAutoZero(float rawAngle, float &offset, AzState &s, const AzCfg &c)
@@ -312,8 +314,13 @@ bool gpsDriftAutoZero(float rawAngle, float &offset, AzState &s, const AzCfg &c)
         s.diffCnt++;
         if (s.window > azTimeMs && s.diffCnt > 0) {
             float meanDiff = (float)(s.diffSum / s.diffCnt);
-            if (watchdogTimer < WATCHDOG_THRESHOLD) offset -= meanDiff * c.beta;  // engaged: gentle
-            else                                    offset -= meanDiff;            // not engaged: direct jump
+            // Always a fractional correction (no full jump): beta when NOT engaged,
+            // beta/5 when autosteer is active (5x gentler so it doesn't fight the PID).
+            // Bounding the step this way means a spurious large reading (noise, back-
+            // and-forth manoeuvring, reverse) can only move the offset a fraction.
+            // The fast first-time settle is the separate boot initial-zero.
+            float k = (watchdogTimer < WATCHDOG_THRESHOLD) ? (c.beta / 5.0f) : c.beta;
+            offset -= meanDiff * k;
             s.diffSum = 0; s.diffCnt = 0; s.window = 0; s.cooldown = 0;
             return true;
         }

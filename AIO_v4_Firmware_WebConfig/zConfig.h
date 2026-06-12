@@ -133,7 +133,7 @@ struct ModuleConfig {
     uint8_t  keyaEncInvert    = 0;      // default OFF: base logic already gives right-turn = positive
     int32_t  keyaZeroTicks    = 0;      // int32 — matches cumulative encoder accumulator
     uint8_t  keyaAzEnable     = 1;
-    float    keyaAzBeta       = 0.05f;
+    float    keyaAzBeta       = 0.2f;    // fraction/cycle when NOT engaged; beta/5 when engaged
     float    keyaAzSpeedMin   = 2.5f;   // Flodu default — below this auto-zero blocked
     float    keyaAzYawMax     = 0.6f;   // 0.3 too strict (hard to reach even on bench)
     uint8_t  keyaAzSpeedSlow  = 5;
@@ -161,7 +161,7 @@ struct ModuleConfig {
     uint8_t  imuWasInvert    = 0;       // flip sign of measured wheel angle
     float    imuWasCpdScale  = 1.0f;    // sensitivity scale factor
     uint8_t  imuWasAzEnable  = 1;       // auto-zero (nudges offset toward 0 when straight)
-    float    imuWasAzBeta    = 0.05f;   // auto-zero step toward 0
+    float    imuWasAzBeta    = 0.2f;    // fraction/cycle when NOT engaged; beta/5 when engaged
     float    imuWasSpeedMin  = 1.0f;    // min GPS speed km/h for auto-zero
     float    imuWasYawMax    = 0.8f;    // max chassis yaw rate deg/s for straight detection
     float    imuWasAzDeltaMax = 20.0f;  // auto-zero only if |steer| below this (deg)

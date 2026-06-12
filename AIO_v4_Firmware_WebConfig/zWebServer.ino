@@ -347,9 +347,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Enable <small style="color:#64748b">(def ON)</small></span>
 <input type="checkbox" id="iw2" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">While driving straight the steering angle should be ~0, so this slowly nudges the offset toward 0 to cancel residual IMU drift.</p>
-<div class="row"><span class="lbl">Beta / correction fraction <small style="color:#64748b">(def 0.05)</small></span>
+<div class="row"><span class="lbl">Beta / correction fraction <small style="color:#64748b">(def 0.2)</small></span>
 <input type="number" id="iw3" min="0.001" max="1" step="0.001" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How aggressively auto-zero corrects drift each cycle. 0.05 = slow and stable, 0.3 = fast but may hunt.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Fraction of the error corrected per cycle when <b>not engaged</b> (0.2 = 20%). When autosteer is active it's reduced <b>5×</b> (to 4%) so it doesn't fight the PID. Always fractional — no sudden jump.</p>
 <div class="row"><span class="lbl">Min GPS speed km/h <small style="color:#64748b">(def 1.0)</small></span>
 <input type="number" id="iw4" min="0" max="25" step="0.5" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Auto-zero only runs above this speed. Prevents false corrections when stationary or moving very slowly.</p>
@@ -571,9 +571,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Wheelbase (m) <small style="color:#64748b">(def 3.20, shared)</small></span>
 <input type="number" id="kwwb" min="0.5" max="6" step="0.01" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Distance between front and rear axles. Used to compute the theoretical steer angle from GPS yaw rate and speed (bicycle model). The GPS-derived wheel angle is the reference the auto-zero corrects the WAS toward — set this to your tractor's real wheelbase. Shared with IMU as WAS.</p>
-<div class="row"><span class="lbl">Beta / correction fraction <small style="color:#64748b">(def 0.05)</small></span>
+<div class="row"><span class="lbl">Beta / correction fraction <small style="color:#64748b">(def 0.2)</small></span>
 <input type="number" id="kw5" min="0.001" max="1" step="0.001" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Soft correction speed — 5% of error per cycle. 0.05 = slow and stable. When autosteer is active, correction is automatically reduced 5x to avoid fighting the PID.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Fraction of the error corrected per cycle when <b>not engaged</b> (0.2 = 20%). When autosteer is active it's automatically reduced <b>5×</b> (to 4%) so it doesn't fight the PID. Always fractional — no sudden jump. The fast first-time settle is the separate initial zero.</p>
 <div class="row"><span class="lbl">Min speed km/h <small style="color:#64748b">(def 2.5)</small></span>
 <input type="number" id="kw6" min="0" max="25" step="0.5" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed auto-zero is completely blocked. Prevents false corrections when stationary.</p>
