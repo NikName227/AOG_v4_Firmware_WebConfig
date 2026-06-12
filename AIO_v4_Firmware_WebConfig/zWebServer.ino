@@ -178,7 +178,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <input type="number" id="yawFilter" min="0" max="0.99" step="0.05" style="flex:1">
 <button class="btn" onclick="applyYawFilter()">Apply (live)</button>
 </div>
-<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">EMA smoothing applied to the heading <b>before</b> the yaw rate is computed (cleaner than filtering the rate — avoids amplifying glitches). Yaw rate feeds the WAS auto-zero (Keya and IMU-as-WAS). 0 = off (raw), 0.3 = medium, 0.1 = heavy — lower is smoother but slower. <b>Apply (live)</b> takes effect immediately, no restart (the main Save below restarts because of the source changes).</p>
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">EMA smoothing applied to the heading <b>before</b> the yaw rate is computed (cleaner than filtering the rate — avoids amplifying glitches). Yaw rate feeds the WAS auto-zero (Keya and IMU-as-WAS). 0 = off (raw), 0.2 = default, 0.1 = heavy — lower is smoother but slower. <b>Apply (live)</b> takes effect immediately, no restart (the main Save below restarts because of the source changes).</p>
 <button class="btn green" onclick="saveDataSource()" style="margin-top:8px">Save Data Source (restart)</button>
 </div>
 
@@ -577,10 +577,10 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Min speed km/h <small style="color:#64748b">(def 2.5)</small></span>
 <input type="number" id="kw6" min="0" max="25" step="0.5" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed auto-zero is completely blocked. Prevents false corrections when stationary.</p>
-<div class="row"><span class="lbl">Max yaw rate deg/s <small style="color:#64748b">(def 0.3)</small></span>
+<div class="row"><span class="lbl">Max yaw rate deg/s <small style="color:#64748b">(def 0.6)</small></span>
 <input type="number" id="kw7" min="0.05" max="5" step="0.05" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Yaw rate threshold for "driving straight" — below this the vehicle counts as straight and auto-zero may correct. Lower = stricter.</p>
-<div class="row"><span class="lbl">Speed slow threshold km/h <small style="color:#64748b">(def 3)</small></span>
+<div class="row"><span class="lbl">Speed slow threshold km/h <small style="color:#64748b">(def 5)</small></span>
 <input type="number" id="kw8" min="0" max="25" step="1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed the slow straight-time applies. Longer wait at low speed reduces false corrections on headland turns.</p>
 <div class="row"><span class="lbl">Speed fast threshold km/h <small style="color:#64748b">(def 12)</small></span>

@@ -111,7 +111,7 @@ struct ModuleConfig {
     uint8_t  rollSource     = ROLL_SRC_IMU;       // roll data source (see ROLL_SRC_*)
     uint8_t  headingSource  = HDG_SRC_IMU;        // heading data source (see HDG_SRC_*)
     uint8_t  nmeaType       = NMEA_TYPE_PANDA;    // NMEA sentence type to AgIO
-    float    yawRateFilter  = 0.3f;               // EMA on auto-zero yaw rate (0=off, 0.3=medium)
+    float    yawRateFilter  = 0.2f;               // EMA on auto-zero yaw rate (0=off, lower=smoother)
     uint8_t  gpsSerial      = 7;                  // GPS receiver hardware serial (Serial1-8)
     uint8_t  tm171Serial    = 2;                  // TM171 IMU hardware serial (Serial1-8)
     uint32_t tm171Baud      = 115200;             // TM171 baud rate
@@ -135,8 +135,8 @@ struct ModuleConfig {
     uint8_t  keyaAzEnable     = 1;
     float    keyaAzBeta       = 0.05f;
     float    keyaAzSpeedMin   = 2.5f;   // Flodu default — below this auto-zero blocked
-    float    keyaAzYawMax     = 0.3f;   // Flodu default — stricter straight detection
-    uint8_t  keyaAzSpeedSlow  = 3;
+    float    keyaAzYawMax     = 0.6f;   // 0.3 too strict (hard to reach even on bench)
+    uint8_t  keyaAzSpeedSlow  = 5;
     float    keyaAzSpeedFast  = 12.0f;  // above this → fast (timeFast) applies
     float    wheelBase        = 3.20f;  // tractor wheelbase (m) for GPS bicycle-model wheel angle
     uint16_t keyaAzTimeSlowMs = 500;
