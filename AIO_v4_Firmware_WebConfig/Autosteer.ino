@@ -527,17 +527,18 @@ void autosteerLoop()
                 }
             }
         
-            /*sensorSample = (float)analogRead(CURRENT_SENSOR_PIN);
+            sensorSample = (float)analogRead(CURRENT_SENSOR_PIN);
             sensorSample = (abs(775 - sensorSample)) * 0.5;
             sensorReading = sensorReading * 0.7 + sensorSample * 0.3;
             sensorReading = min(sensorReading, 255);
 
             if (sensorReading >= steerConfig.PulseCountMax)
             {
+                if (steerSwitch == 0) disengageLog("current sensor over limit");
                 steerSwitch = 1;
                 currentState = 1;
                 previous = 0;
-            }*/
+            }
         }
     }
 
