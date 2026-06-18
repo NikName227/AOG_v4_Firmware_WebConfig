@@ -984,7 +984,7 @@ function showTab(t, el) {
   document.getElementById(t).classList.add('active');
   el.classList.add('active');
   restartTick();
-  if (t === 'live' && lvMode === 'graph' && gLogging) gStart();
+  if (t === 'live' && lvMode === 'graph' && gLogging) fetch(gCfgUrl(false));
   if (t === 'debug') pollLog();
   if (t === 'um98x') pollGpsRaw();
 }
