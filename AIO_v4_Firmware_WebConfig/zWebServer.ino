@@ -984,6 +984,7 @@ function showTab(t, el) {
   document.getElementById(t).classList.add('active');
   el.classList.add('active');
   restartTick();
+  if (t === 'live' && lvMode === 'graph' && gLogging) gStart();
   if (t === 'debug') pollLog();
   if (t === 'um98x') pollGpsRaw();
 }
@@ -2440,6 +2441,7 @@ void handleApiGraphData(EthernetClient& client)
     graphPollTimer = 0;          // browser is alive → keep sampling
     sendHeaders(client, "application/json");
     uint16_t n = graphBufCount;
+    if (n > 60) n = 60;          // cap: ~2KB max response, prevents TCP TX overflow on tab-return burst
     client.print(F("{\"n\":")); client.print(n);
     client.print(F(",\"dt\":")); client.print(graphRateMs);
     client.print(F(",\"d\":["));
