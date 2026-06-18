@@ -136,6 +136,7 @@ struct ModuleConfig {
     float    keyaAzBeta       = 0.2f;    // fraction/cycle when NOT engaged; beta/5 when engaged
     float    keyaAzSpeedMin   = 2.5f;   // Flodu default — below this auto-zero blocked
     float    keyaAzYawMax     = 0.6f;   // 0.3 too strict (hard to reach even on bench)
+    float    keyaAzYawMaxInit = 5.0f;  // initial zero only — bicycle model corrects for curvature so strict limit not needed
     uint8_t  keyaAzSpeedSlow  = 5;
     float    keyaAzSpeedFast  = 12.0f;  // above this → fast (timeFast) applies
     float    wheelBase        = 3.20f;  // tractor wheelbase (m) for GPS bicycle-model wheel angle

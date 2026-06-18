@@ -577,6 +577,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Min speed km/h <small style="color:#64748b">(def 2.5)</small></span>
 <input type="number" id="kw6" min="0" max="25" step="0.5" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Below this speed auto-zero is completely blocked. Prevents false corrections when stationary.</p>
+<div class="row"><span class="lbl">Initial zero max yaw rate deg/s <small style="color:#64748b">(def 5.0)</small></span>
+<input type="number" id="kw7i" min="0.1" max="20" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Yaw rate limit for initial zero only. Bicycle model corrects for curvature so a strict limit is not needed here — higher value means initial zero locks faster even in a turn.</p>
 <div class="row"><span class="lbl">Max yaw rate deg/s <small style="color:#64748b">(def 0.6)</small></span>
 <input type="number" id="kw7" min="0.05" max="5" step="0.05" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Yaw rate threshold for "driving straight" — below this the vehicle counts as straight and auto-zero may correct. Lower = stricter.</p>
@@ -1089,6 +1092,7 @@ function upd(d) {
     document.getElementById('kw4').checked = !!d.keya_was.azEnable;
     document.getElementById('kw5').value   = d.keya_was.azBeta;
     document.getElementById('kw6').value   = d.keya_was.azSpeedMin;
+    document.getElementById('kw7i').value  = d.keya_was.azYawMaxInit;
     document.getElementById('kw7').value   = d.keya_was.azYawMax;
     document.getElementById('kw8').value   = d.keya_was.azSpeedSlow;
     document.getElementById('kw9').value   = d.keya_was.azSpeedFast;
@@ -1508,6 +1512,7 @@ function saveKeyaWas() {
     + '&keyaAzEn='    + (document.getElementById('kw4').checked ? 1 : 0)
     + '&keyaAzBeta='  + document.getElementById('kw5').value
     + '&keyaAzVmin='  + document.getElementById('kw6').value
+    + '&keyaAzYawMaxInit='+ document.getElementById('kw7i').value
     + '&keyaAzYawMax='+ document.getElementById('kw7').value
     + '&keyaAzVslow=' + document.getElementById('kw8').value
     + '&keyaAzVfast=' + document.getElementById('kw9').value
@@ -2241,6 +2246,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"azBeta\":")); client.print(moduleConfig.keyaAzBeta, 4);
     client.print(F(",\"azSpeedMin\":")); client.print(moduleConfig.keyaAzSpeedMin, 1);
     client.print(F(",\"azYawMax\":")); client.print(moduleConfig.keyaAzYawMax, 2);
+    client.print(F(",\"azYawMaxInit\":")); client.print(moduleConfig.keyaAzYawMaxInit, 2);
     client.print(F(",\"azSpeedSlow\":")); client.print(moduleConfig.keyaAzSpeedSlow);
     client.print(F(",\"azSpeedFast\":")); client.print(moduleConfig.keyaAzSpeedFast, 1);
     client.print(F(",\"azTimeSlowMs\":")); client.print(moduleConfig.keyaAzTimeSlowMs);
@@ -3009,6 +3015,7 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "keyaAzEn="))     != NULL) moduleConfig.keyaAzEnable    = (uint8_t)atoi(p + 9);
     if ((p = strstr(req, "keyaAzBeta="))   != NULL) moduleConfig.keyaAzBeta      = atof(p + 11);
     if ((p = strstr(req, "keyaAzVmin="))   != NULL) moduleConfig.keyaAzSpeedMin  = atof(p + 11);
+    if ((p = strstr(req, "keyaAzYawMaxInit=")) != NULL) moduleConfig.keyaAzYawMaxInit = atof(p + 17);
     if ((p = strstr(req, "keyaAzYawMax=")) != NULL) moduleConfig.keyaAzYawMax    = atof(p + 13);
     if ((p = strstr(req, "keyaAzVslow="))  != NULL) moduleConfig.keyaAzSpeedSlow = (uint8_t)atoi(p + 12);
     if ((p = strstr(req, "keyaAzVfast="))  != NULL) moduleConfig.keyaAzSpeedFast = atof(p + 12);
