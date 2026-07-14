@@ -9,6 +9,9 @@ build/
 *.bak
 *.tmp
 
+# Ad-hoc test folder (quick function tests, not structured — stays local)
+testing/
+
 # Test logs and output files
 *.log
 *.csv
@@ -23,3 +26,7 @@ __pycache__/
 # Windows
 Thumbs.db
 desktop.ini
+
+# Local-only, ne dijeli se u repo (Claude dir, moj lokalni setup/compile naputak)
+.claude/
+Teensy_arduinosetup.png
