@@ -104,7 +104,7 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title("Wheel Calib Bridge")
-        root.geometry("360x350")
+        root.geometry("360x380")
 
         f = ttk.Frame(root, padding=12)
         f.pack(fill="both", expand=True)
@@ -195,6 +195,7 @@ class App:
         self.lr.config(text=f"Roll  : {state['roll']:+7.2f}")
         self.lp.config(text=f"Pitch : {state['pitch']:+7.2f}")
         relyaw = state["yaw"] - self.zero
+        relyaw = (relyaw + 180) % 360 - 180   # wrap to -180..+180 across sensor 0/360 boundary
         self.ly.config(text=f"Yaw   : {relyaw:+7.2f}  (ref)")
 
         # Forward whenever the ESP link is up (real OR simulated). Send valid=1 so

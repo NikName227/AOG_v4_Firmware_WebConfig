@@ -46,7 +46,7 @@ struct CalFit {
 #define FW_VERSION "v0.9-proto"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
-#define EEP_MODULE_IDENT 0xCF   // change to force EEPROM reset on next boot
+#define EEP_MODULE_IDENT 0xD1   // change to force EEPROM reset on next boot
 
 // Free-text setup note, stored well past ModuleConfig (~250 B, ends ~330).
 // Teensy 4.1 EEPROM is 4284 B total → 1024..2025 leaves huge margin both ways.
@@ -112,6 +112,7 @@ struct ModuleConfig {
     uint8_t  headingSource  = HDG_SRC_IMU;        // heading data source (see HDG_SRC_*)
     uint8_t  nmeaType       = NMEA_TYPE_PANDA;    // NMEA sentence type to AgIO
     float    yawRateFilter  = 0.2f;               // EMA on auto-zero yaw rate (0=off, lower=smoother)
+    float    adsEmaAlpha    = 0.0f;               // EMA on ADS1115 WAS raw counts (0=off, lower=smoother)
     uint8_t  gpsSerial      = 7;                  // GPS receiver hardware serial (Serial1-8)
     uint8_t  tm171Serial    = 2;                  // TM171 IMU hardware serial (Serial1-8)
     uint32_t tm171Baud      = 115200;             // TM171 baud rate

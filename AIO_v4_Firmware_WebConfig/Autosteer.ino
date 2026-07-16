@@ -339,7 +339,17 @@ void readAdsRaw()
                                           : ADS1115_REG_CONFIG_MUX_DIFF_0_1);
     int16_t v = adc.getConversion();
     adc.triggerConversion();
-    adsRawCounts = v >> 1;
+    int16_t raw = v >> 1;
+    float a = moduleConfig.adsEmaAlpha;
+    if (a > 0.0f && a < 1.0f) {
+        static float emaWas  = 0;
+        static bool  emaInit = false;
+        if (!emaInit) { emaWas = (float)raw; emaInit = true; }
+        emaWas += a * ((float)raw - emaWas);
+        adsRawCounts = (int16_t)emaWas;
+    } else {
+        adsRawCounts = raw;
+    }
     helloSteerPosition = adsRawCounts - 6800;
 }
 
@@ -360,6 +370,9 @@ void autosteerLoop()
       calibrationLoop();
       return;
   }
+
+  // Test pulse active — keyaCfgTestLoop() handles the motor heartbeat; skip normal control
+  if (keyaTestActive()) return;
 
   // Loop triggers every 100 msec and sends back gyro heading, and roll, steer angle etc
   currentTime = systick_millis_count;

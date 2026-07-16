@@ -53,6 +53,18 @@ static float wheelToBike(float dwMagDeg, bool inner) {
     return atanf(L * t / denom) * (float)RAD_TO_DEG;
 }
 
+// Live virtual (bicycle) angle from the CURRENT reference wheel reading, relative to
+// the sweep centre. Both inner/outer candidates are exposed (the inner/outer decision
+// is only finalised at sweep end) so the operator can eyeball the geometry conversion
+// while turning. Refreshed on demand from the web status poll.
+void calLiveVirtual() {
+    float d = refWheelAngle - calRefCenter;          // signed wheel delta from centre (deg)
+    float s = (d < 0.0f) ? -1.0f : 1.0f;
+    float m = fabs(d);
+    calBikeInner = s * wheelToBike(m, true);
+    calBikeOuter = s * wheelToBike(m, false);
+}
+
 // CalFit struct lives in zConfig.h (early header) so the auto-prototypes see it.
 // Fits angle(y) vs tick(x): slope = deg/tick → ticks/deg = 1/slope ; RMS in degrees.
 static CalFit calFitL, calFitR;
@@ -193,17 +205,21 @@ void calibrationLoop()
     switch (calState) {
 
     // ── Reaction: sweep +, confirm ref moves; then sweep -, confirm ───────────
+    // Phase 0 accepts reaction in EITHER direction so the dead zone cal works
+    // even when motor+ drives the IMU angle negative (inverted mount / CAN polarity).
+    // calDir is set here and preserved through the dead zone cycles.
     case CAL_REACT: {
         if (calPhase == 0) {                       // sweep +
             calMotor(+calSpeed);
-            if (refDelta >= CAL_REACT_THRESH) { calStop(); calPhase = 1; calStateTimer = 0; strncpy(calMsg,"reaction check: sweeping -",sizeof(calMsg)); }
-            else if (calStateTimer > CAL_REACT_TIMEOUT) { calStop(); calSet(CAL_FAIL, "no reaction (+) - check IMU mount"); }
-        } else {                                   // sweep - back toward/below center
+            if      (refDelta >=  CAL_REACT_THRESH) { calDir = +1; calStop(); calPhase = 1; calStateTimer = 0; strncpy(calMsg,"reaction OK: sweeping back",sizeof(calMsg)); }
+            else if (refDelta <= -CAL_REACT_THRESH) { calDir = -1; calStop(); calPhase = 1; calStateTimer = 0; strncpy(calMsg,"reaction OK (inv): sweeping back",sizeof(calMsg)); }
+            else if (calStateTimer > CAL_REACT_TIMEOUT) { calStop(); calSet(CAL_FAIL, "no reaction - check IMU link/mount"); }
+        } else {                                   // sweep back toward center
             calMotor(-calSpeed);
-            if (refDelta <= 0.0f) {                // returned through center
+            if (refDelta * calDir >= 0.0f) {       // returned through center (direction-aware)
                 calStop();
                 calRefCenter = refWheelAngle; calEncCenter = keyaEncoderRaw;  // re-zero
-                calDir = +1; calRevEnc = keyaEncoderRaw; calCycleStartRef = refWheelAngle;
+                calRevEnc = keyaEncoderRaw; calCycleStartRef = refWheelAngle;
                 calSet(CAL_DEADZONE, "dead zone: cycle 1");
             } else if (calStateTimer > CAL_REACT_TIMEOUT) { calStop(); calSet(CAL_FAIL, "no reaction (-)"); }
         }

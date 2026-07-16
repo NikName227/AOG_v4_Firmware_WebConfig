@@ -179,6 +179,12 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <button class="btn" onclick="applyYawFilter()">Apply (live)</button>
 </div>
 <p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">EMA smoothing applied to the heading <b>before</b> the yaw rate is computed (cleaner than filtering the rate — avoids amplifying glitches). Yaw rate feeds the WAS auto-zero (Keya and IMU-as-WAS). 0 = off (raw), 0.2 = default, 0.1 = heavy — lower is smoother but slower. <b>Apply (live)</b> takes effect immediately, no restart (the main Save below restarts because of the source changes).</p>
+<div class="lbl" style="margin:8px 0 3px">ADS1115 WAS filter (EMA)</div>
+<div style="display:flex;gap:8px;align-items:center">
+<input type="number" id="adsEmaFilter" min="0" max="0.99" step="0.05" style="flex:1">
+<button class="btn" onclick="applyAdsEma()">Apply (live)</button>
+</div>
+<p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">EMA smoothing on raw ADS1115 WAS counts — reduces electrical noise from the tractor. 0 = off (raw, default), 0.3 = light, 0.1 = heavy — lower is smoother but adds lag. <b>Apply (live)</b> takes effect immediately without restart.</p>
 <button class="btn green" onclick="saveDataSource()" style="margin-top:8px">Save Data Source (restart)</button>
 </div>
 
@@ -502,7 +508,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <h2>Keya WAS — auto-calibration <span style="color:#64748b;font-weight:normal;font-size:11px">(reference IMU + manual)</span></h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">Calibrates Keya counts → <b>bicycle (virtual-centre) angle</b>. Dead zone is auto (motor turns). Range: <b>A — IMU sweep</b> (turn lock-to-lock, least-squares fit) or <b>B — manual</b> (protractor, no IMU). Both report per-side ticks/deg in <b>wheel</b> and <b>bike</b> terms. Vehicle stationary, stand clear.</p>
 <div class="row"><span class="lbl">Reference IMU link</span><span id="calRefBadge" class="badge fail">--</span></div>
-<div class="row"><span class="lbl">Reference angle</span><span class="val" id="calRefAngle">—</span></div>
+<div class="row"><span class="lbl">Reference angle <small style="color:#64748b">(raw wheel)</small></span><span class="val" id="calRefAngle">—</span></div>
+<div class="row"><span class="lbl">Virtual angle <small style="color:#64748b">(bike: inner | outer)</small></span><span class="val" id="calVirt">—</span></div>
 
 <div class="lbl" style="margin:10px 0 3px">Geometry — wheel→bicycle conversion</div>
 <div class="row"><span class="lbl">Wheelbase L <small style="color:#64748b">(m)</small></span>
@@ -1117,6 +1124,7 @@ function upd(d) {
     document.getElementById('headingSource').value = d.cfg.headingSource || 0;
     document.getElementById('nmeaType').value      = d.cfg.nmeaType      || 0;
     document.getElementById('yawFilter').value     = (d.cfg.yawRateFilter != null) ? d.cfg.yawRateFilter : 0.3;
+    document.getElementById('adsEmaFilter').value  = (d.cfg.adsEmaAlpha   != null) ? d.cfg.adsEmaAlpha   : 0;
     document.getElementById('gpsSerial').value     = d.cfg.gpsSerial     || 7;
     document.getElementById('gpsBaud2').value      = d.cfg.gpsBaud       || 115200;
     document.getElementById('tm171Serial').value   = d.cfg.tm171Serial   || 2;
@@ -1333,6 +1341,8 @@ function updLive(d) {
   if (rb) { rb.className = 'badge ' + (d.refFresh ? 'ok' : 'fail'); rb.textContent = d.refFresh ? 'OK' : '--'; }
   var ra = document.getElementById('calRefAngle');
   if (ra) ra.textContent = d.refFresh ? (d.refAngle.toFixed(2) + ' °') : '—';
+  var va = document.getElementById('calVirt');
+  if (va && d.calBI !== undefined) va.textContent = d.refFresh ? (d.calBI.toFixed(1) + ' | ' + d.calBO.toFixed(1) + ' °') : '—';
   var csv = document.getElementById('calState');
   if (csv && d.calMsg !== undefined) {
     csv.textContent = d.calMsg;
@@ -1482,6 +1492,11 @@ function applyYawFilter() {
   // Only the yaw filter → no restart (the handler doesn't flag it as restart-required)
   fetch('/api/save?yawFilter=' + document.getElementById('yawFilter').value).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'Yaw rate filter applied (live).' : 'Error.';
+  });
+}
+function applyAdsEma() {
+  fetch('/api/save?adsEmaFilter=' + document.getElementById('adsEmaFilter').value).then(function(r) {
+    document.getElementById('sb').textContent = r.ok ? 'ADS1115 WAS filter applied (live).' : 'Error.';
   });
 }
 
@@ -2318,6 +2333,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"headingSource\":")); client.print(moduleConfig.headingSource);
     client.print(F(",\"nmeaType\":")); client.print(moduleConfig.nmeaType);
     client.print(F(",\"yawRateFilter\":")); client.print(moduleConfig.yawRateFilter, 2);
+    client.print(F(",\"adsEmaAlpha\":")); client.print(moduleConfig.adsEmaAlpha, 2);
     client.print(F(",\"gpsSerial\":")); client.print(moduleConfig.gpsSerial);
     client.print(F(",\"tm171Serial\":")); client.print(moduleConfig.tm171Serial);
     client.print(F(",\"tm171Baud\":")); client.print(moduleConfig.tm171Baud);
@@ -2621,6 +2637,9 @@ void handleApiLive(EthernetClient& client)
     // Reference IMU (calib bridge)
     client.print(F(",\"refAngle\":")); client.print(refWheelAngle, 2);
     client.print(F(",\"refFresh\":")); client.print((refAngleTime < 1000 && refAngleValid) ? F("true") : F("false"));
+    calLiveVirtual();   // refresh live bike-angle candidates from the current reference reading
+    client.print(F(",\"calBI\":")); client.print(calBikeInner, 1);
+    client.print(F(",\"calBO\":")); client.print(calBikeOuter, 1);
     client.print(F(",\"calState\":")); client.print(calState);
     client.print(F(",\"calMsg\":\"")); client.print(calMsg); client.print('"');
     client.print(F(",\"calSpeed\":")); client.print(calSpeed);
@@ -3042,6 +3061,7 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "headingSource=")) != NULL) { moduleConfig.headingSource  = (uint8_t)atoi(p + 14); needRestart = true; }
     if ((p = strstr(req, "nmeaType="))      != NULL) { moduleConfig.nmeaType       = (uint8_t)atoi(p + 9);  needRestart = true; }
     if ((p = strstr(req, "yawFilter="))     != NULL) { moduleConfig.yawRateFilter  = atof(p + 10); }   // live, no restart
+    if ((p = strstr(req, "adsEmaFilter=")) != NULL) { moduleConfig.adsEmaAlpha    = atof(p + 13); }   // live, no restart
     if ((p = strstr(req, "gpsSerial="))     != NULL) { moduleConfig.gpsSerial      = (uint8_t)atoi(p + 10); needRestart = true; }
     if ((p = strstr(req, "tm171Serial="))   != NULL) { moduleConfig.tm171Serial    = (uint8_t)atoi(p + 12); needRestart = true; }
     if ((p = strstr(req, "tm171Baud="))     != NULL) { moduleConfig.tm171Baud      = (uint32_t)atol(p + 10); needRestart = true; }

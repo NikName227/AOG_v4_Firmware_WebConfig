@@ -74,23 +74,31 @@ void keyaCfgWrite(uint8_t id, uint8_t val) {
 // One click = drive at 'speed' for 'durMs' then auto-stop (firmware-timed, so the
 // motor stops itself even if the stop command is lost).
 static elapsedMillis keyaTestTimer;
-static uint16_t      keyaTestDur = 0;   // 0 = idle
+static uint16_t      keyaTestDur   = 0;    // 0 = idle
+static int16_t       keyaTestSpeed = 0;    // commanded speed+dir of the running test
 
 void keyaCfgTest(int8_t dir, int16_t speed, uint16_t durMs) {
     if (gpsSpeed > 0.5f) { webLog("Keya test blocked: vehicle moving"); return; }
     if (speed < 0) speed = 0; if (speed > 250) speed = 250;
     if (durMs < 50)  durMs = 50;
     if (durMs > 5000) durMs = 5000;
+    keyaTestSpeed = dir * speed;
     keyaTestTimer = 0;
     keyaTestDur   = durMs;
-    SteerKeya(dir * speed, true);
+    SteerKeya(keyaTestSpeed, true);
 }
 void keyaCfgTestStop() { keyaTestDur = 0; SteerKeya(0, false); }
+bool keyaTestActive()  { return keyaTestDur > 0; }
 
-// Call from the main loop: auto-stops the test pulse when its time elapses.
+// Call from the main loop: sends a heartbeat while the test pulse is active,
+// then auto-stops when the duration elapses.
 void keyaCfgTestLoop() {
-    if (keyaTestDur && keyaTestTimer > keyaTestDur) {
+    if (!keyaTestDur) return;
+    if (keyaTestTimer > keyaTestDur) {
         keyaTestDur = 0;
         SteerKeya(0, false);
+        return;
     }
+    static elapsedMillis hb;
+    if (hb >= 50) { hb = 0; SteerKeya(keyaTestSpeed, true); }
 }

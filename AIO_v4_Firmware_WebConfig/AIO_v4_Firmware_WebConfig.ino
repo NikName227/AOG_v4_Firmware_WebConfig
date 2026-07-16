@@ -167,6 +167,10 @@ float    calResWheelL = 0.0f;          // raw wheel-angle ticks/deg (display/com
 float    calResWheelR = 0.0f;
 float    calRmsL      = 0.0f;          // sweep linear-fit RMS residual (deg), 0 = manual
 float    calRmsR      = 0.0f;
+// Live virtual (bike) angle from the current reference reading — both inner/outer
+// candidates, so the operator can eyeball the geometry conversion while sweeping.
+float    calBikeInner = 0.0f;
+float    calBikeOuter = 0.0f;
 bool     calHaveDz    = false;         // a fresh dead-zone result is ready to apply
 bool     calHaveRange = false;         // a fresh range (ticks/deg) result is ready to apply
 
