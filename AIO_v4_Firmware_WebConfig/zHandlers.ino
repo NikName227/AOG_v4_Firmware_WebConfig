@@ -21,7 +21,7 @@ char vtgHeading[12] = { };
 char speedKnots[10] = { };
 
 // IMU
-char imuHeading[6];
+char imuHeading[10];   // fits "360.00" (PAOGI decimal) or "65535" (PANDA sentinel)
 char imuRoll[6];
 char imuPitch[6];
 char imuYawRate[6];
@@ -132,7 +132,7 @@ void GGA_Handler() //Rec'd GGA
     bool hasIMU = useBNO08xI2C || useBNO08xRVC || useTMxx_IMU;
     if (!hasIMU) {
         // No IMU: 65535 tells AgIO to ignore IMU heading
-        itoa(65535, imuHeading, 10);
+        writeHeadingField(0.0f, false);   // no heading source → 65535 sentinel
         itoa(0, imuRoll,    10);
         itoa(0, imuPitch,   10);
         itoa(0, imuYawRate, 10);
@@ -288,11 +288,30 @@ void HPR_Handler()
     }
 }
 
+// ── Field-12 heading writer ──────────────────────────────────────────────────
+// The VALUE is always the selected heading source; the FORMAT follows the chosen
+// sentence, so any source works under either sentence (decouples source ↔ sentence).
+//   PANDA → AgIO reads field 12 as ushort imuHeading (×0.1 → deg) → send integer deg×10.
+//   PAOGI → AgIO reads field 12 as float headingTrueDual (deg)   → send decimal degrees.
+// valid=false writes the 65535 "ignore" sentinel (no heading source).
+void writeHeadingField(float deg, bool valid) {
+    if (!valid) { itoa(65535, imuHeading, 10); return; }
+    if (moduleConfig.nmeaType == NMEA_TYPE_PANDA) {
+        float d = fmodf(deg, 360.0f); if (d < 0) d += 360.0f;
+        int h10 = (int)(d * 10.0f + 0.5f); if (h10 >= 3600) h10 -= 3600;
+        itoa(h10, imuHeading, 10);              // integer deg×10
+    } else {
+        dtostrf(deg, 4, 2, imuHeading);         // decimal degrees
+    }
+}
+
 void imuHandler()
 {
-    // Write heading string only when source is not IMU (IMU sets imuHeading in loop())
+    // Write heading string only when source is not IMU (IMU sets imuHeading in loop()).
+    // Format follows the sentence type so HPR/RELPOS heading works under PANDA (deg×10)
+    // just as under PAOGI (decimal).
     if (moduleConfig.headingSource != HDG_SRC_IMU)
-        dtostrf(heading, 4, 2, imuHeading);
+        writeHeadingField(heading, true);
 
     // Write roll string only when source is not IMU (IMU sets imuRoll in loop())
     if (moduleConfig.rollSource != ROLL_SRC_IMU)
@@ -320,7 +339,7 @@ void readTM171()
         strcpy(imuPitch, TM171_IMU.getPitchStr());
         strcpy(imuRoll,  TM171_IMU.getRollStr());
     }
-    strcpy(imuHeading, TM171_IMU.getYawStr());
+    writeHeadingField(TM171_IMU.getYaw() / 100.0f, true);   // TM171 yaw is deg×100
 
     // Yaw rate from successive yaw readings (TM171 sends no gyro/angular velocity)
     static double        tmPrevYaw = 0;
@@ -344,7 +363,7 @@ void readBNO_RVC()
         yaw   = bnoData.yawX10;
         roll  = bnoData.rollX10;
         pitch = bnoData.pitchX10;
-        itoa(yaw,            imuHeading, 10);
+        writeHeadingField(yaw / 10.0f, true);   // RVC yaw is deg×10
         itoa(pitch,          imuPitch,   10);
         itoa(roll,           imuRoll,    10);
         itoa(bnoData.angVel, imuYawRate, 10);
@@ -397,7 +416,7 @@ void readBNO()
             roll = atan2(t0, t1) * RAD_TO_DEG_X_10;
         }
 
-        itoa(yaw, imuHeading, 10);
+        writeHeadingField(yaw / 10.0f, true);   // BNO yaw is deg×10
         itoa(pitch, imuPitch, 10);
         itoa(roll, imuRoll, 10);
 
