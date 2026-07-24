@@ -420,6 +420,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="lvtoggle">
 <button class="subtab on" id="lvValuesTab" onclick="lvShow('values')">Values</button>
 <button class="subtab" id="lvGraphTab" onclick="lvShow('graph')">Graph</button>
+<button class="subtab" id="lvKeyaTab" onclick="lvShow('keya')" style="display:none">Keya WAS Geometry</button>
 </div>
 
 <!-- VALUES sub-panel -->
@@ -462,6 +463,22 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 <canvas id="gcanvas" width="720" height="340" style="width:100%;margin-top:10px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px;cursor:crosshair"></canvas>
 <div id="gReadout" style="font-size:12px;color:#94a3b8;margin-top:6px;font-family:monospace">Paused: drag = pan, wheel = zoom, move = read</div>
+</div>
+</div>
+<!-- KEYA WAS GEOMETRY sub-panel (Ackermann scatter, final check) -->
+<div id="lvKeya" style="display:none">
+<div class="card">
+<h2>Keya WAS Geometry — Ackermann check</h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Final check after calibration + auto-zero. Reconnect the reference (wheel) IMU, press Start, then turn the steering lock-to-lock. Dots = AOG steer vs reference wheel angle; the red line is the ideal bicycle (Ackermann) curve from wheelbase &amp; track. Dots on the curve = geometry &amp; calibration good.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0">
+<button class="btn green" id="kgBtn" onclick="kgToggle()">&#9654; Start</button>
+<button class="btn" onclick="kgClear()">Clear</button>
+<button class="btn" onclick="kgExportPng()">&#11015; PNG</button>
+<button class="btn" onclick="kgExportCsv()">&#11015; CSV</button>
+<label class="chk-row" style="padding:0"><input type="checkbox" id="kgZero" onchange="kgDraw()"> remove zero offset</label>
+<span id="kgStat" style="font-family:monospace;font-size:12px;color:#94a3b8"></span>
+</div>
+<canvas id="kgcanvas" width="720" height="430" style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
 </div>
 </div>
 </div><!-- /live -->
@@ -847,9 +864,95 @@ function lvShow(m) {
   lvMode = m;
   document.getElementById('lvValues').style.display = (m === 'values') ? '' : 'none';
   document.getElementById('lvGraph').style.display  = (m === 'graph')  ? '' : 'none';
+  document.getElementById('lvKeya').style.display   = (m === 'keya')   ? '' : 'none';
   document.getElementById('lvValuesTab').classList.toggle('on', m === 'values');
   document.getElementById('lvGraphTab').classList.toggle('on', m === 'graph');
+  var kt = document.getElementById('lvKeyaTab'); if (kt) kt.classList.toggle('on', m === 'keya');
   if (m === 'graph' && typeof gDraw === 'function') gDraw();
+  if (m === 'keya') kgDraw();
+}
+
+// ── Keya WAS Geometry: Ackermann scatter (final check) ───────────────────────
+var kgCapture = false, kgPts = [], kgWB = 0, kgT = 0;
+function wheelToBikeJS(dw, inner, L, T) {
+  var s = dw >= 0 ? 1 : -1, a = Math.abs(dw);
+  if (L < 0.1) return dw;
+  var t = Math.tan(a * Math.PI / 180);
+  var denom = L + (inner ? 1 : -1) * (T / 2) * t;
+  if (denom < 0.01) return dw;
+  return s * Math.atan(L * t / denom) * 180 / Math.PI;
+}
+function kgIdeal(ref) { return wheelToBikeJS(ref, ref >= 0, kgWB, kgT); }  // right-wheel sensor: +ref = that wheel inner
+function kgSign() {
+  var dot = 0;
+  for (var i = 0; i < kgPts.length; i++) dot += kgIdeal(kgPts[i].r) * kgPts[i].s;
+  return dot >= 0 ? 1 : -1;
+}
+function kgToggle() {
+  kgCapture = !kgCapture;
+  var b = document.getElementById('kgBtn');
+  b.innerHTML = kgCapture ? '&#9209; Stop' : '&#9654; Start';
+  b.classList.toggle('green', !kgCapture);
+}
+function kgClear() { kgPts = []; kgDraw(); }
+function kgPush(ref, steer) {
+  if (kgPts.length && Math.abs(kgPts[kgPts.length - 1].r - ref) < 0.15) return;  // skip when still
+  kgPts.push({ r: ref, s: steer });
+  if (kgPts.length > 3000) kgPts.shift();
+  if (lvMode === 'keya') kgDraw();
+}
+function kgDraw() {
+  var cv = document.getElementById('kgcanvas'); if (!cv) return;
+  var ctx = cv.getContext('2d'), W = cv.width, H = cv.height, pad = 34;
+  ctx.clearRect(0, 0, W, H);
+  var sign = kgSign(), off = 0;
+  var zc = document.getElementById('kgZero');
+  if (zc && zc.checked && kgPts.length) {
+    var so = 0; for (var i = 0; i < kgPts.length; i++) so += kgPts[i].s - sign * kgIdeal(kgPts[i].r);
+    off = so / kgPts.length;
+  }
+  var mx = 45;
+  for (var i = 0; i < kgPts.length; i++) mx = Math.max(mx, Math.abs(kgPts[i].r), Math.abs(kgPts[i].s));
+  mx = Math.ceil(mx / 10) * 10;
+  function X(v) { return pad + (v + mx) / (2 * mx) * (W - 2 * pad); }
+  function Y(v) { return H - pad - (v + mx) / (2 * mx) * (H - 2 * pad); }
+  ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(X(-mx), Y(0)); ctx.lineTo(X(mx), Y(0)); ctx.moveTo(X(0), Y(-mx)); ctx.lineTo(X(0), Y(mx)); ctx.stroke();
+  ctx.fillStyle = '#64748b'; ctx.font = '11px monospace';
+  ctx.fillText('reference wheel deg', W - 140, Y(0) - 6);
+  ctx.fillText('AOG steer deg', X(0) + 6, 14);
+  ctx.strokeStyle = '#c23a2b'; ctx.lineWidth = 2; ctx.beginPath();
+  var first = true;
+  for (var v = -mx; v <= mx + 0.001; v += mx / 60) {
+    var yy = sign * kgIdeal(v) + off;
+    if (first) { ctx.moveTo(X(v), Y(yy)); first = false; } else ctx.lineTo(X(v), Y(yy));
+  }
+  ctx.stroke();
+  var ss = 0;
+  for (var i = 0; i < kgPts.length; i++) {
+    var p = kgPts[i], ideal = sign * kgIdeal(p.r) + off, res = p.s - ideal; ss += res * res;
+    ctx.fillStyle = Math.abs(res) < 1.5 ? '#4ade80' : (Math.abs(res) < 3 ? '#e2b23e' : '#f0776a');
+    ctx.beginPath(); ctx.arc(X(p.r), Y(p.s), 3, 0, 6.2832); ctx.fill();
+  }
+  var rms = kgPts.length ? Math.sqrt(ss / kgPts.length) : 0;
+  var st = document.getElementById('kgStat');
+  if (st) st.textContent = kgPts.length + ' pts  RMS ' + rms.toFixed(2) + ' deg'
+    + (off ? '  (offset ' + off.toFixed(2) + ')' : '')
+    + '  L=' + kgWB.toFixed(2) + ' T=' + kgT.toFixed(2);
+}
+function kgExportPng() {
+  var cv = document.getElementById('kgcanvas'); var a = document.createElement('a');
+  a.href = cv.toDataURL('image/png'); a.download = 'keya_geometry_' + Date.now() + '.png'; a.click();
+}
+function kgExportCsv() {
+  var sign = kgSign(), rows = 'reference_wheel_deg,aog_steer_deg,ideal_bike_deg,residual_deg\n';
+  for (var i = 0; i < kgPts.length; i++) {
+    var p = kgPts[i], ideal = sign * kgIdeal(p.r);
+    rows += p.r.toFixed(2) + ',' + p.s.toFixed(2) + ',' + ideal.toFixed(2) + ',' + (p.s - ideal).toFixed(2) + '\n';
+  }
+  var blob = new Blob([rows], { type: 'text/csv' });
+  var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'keya_geometry_' + Date.now() + '.csv'; a.click();
 }
 
 function setGroup(n, btn) {
@@ -1120,6 +1223,8 @@ function upd(d) {
     document.getElementById('can2Baud').value = d.cfg.can2Baud || 250000;
     document.getElementById('can3Baud').value = d.cfg.can3Baud || 250000;
     document.getElementById('wasSource').value     = d.cfg.wasSource     || 0;
+    var _kg = document.getElementById('lvKeyaTab');
+    if (_kg) _kg.style.display = ((d.cfg.wasSource || 0) == 1) ? '' : 'none';
     document.getElementById('rollSource').value    = d.cfg.rollSource    || 0;
     document.getElementById('headingSource').value = d.cfg.headingSource || 0;
     document.getElementById('nmeaType').value      = d.cfg.nmeaType      || 0;
@@ -1343,6 +1448,9 @@ function updLive(d) {
   if (ra) ra.textContent = d.refFresh ? (d.refAngle.toFixed(2) + ' °') : '—';
   var va = document.getElementById('calVirt');
   if (va && d.calBI !== undefined) va.textContent = d.refFresh ? (d.calBI.toFixed(1) + ' | ' + d.calBO.toFixed(1) + ' °') : '—';
+  // Keya WAS Geometry scatter: keep geometry fresh, capture (ref, steer) points while running
+  if (d.wheelBase !== undefined) { kgWB = d.wheelBase; kgT = d.trackT; }
+  if (kgCapture && d.refFresh && d.steerAngle !== undefined) kgPush(d.refAngle, d.steerAngle);
   var csv = document.getElementById('calState');
   if (csv && d.calMsg !== undefined) {
     csv.textContent = d.calMsg;
@@ -2640,6 +2748,10 @@ void handleApiLive(EthernetClient& client)
     calLiveVirtual();   // refresh live bike-angle candidates from the current reference reading
     client.print(F(",\"calBI\":")); client.print(calBikeInner, 1);
     client.print(F(",\"calBO\":")); client.print(calBikeOuter, 1);
+    // F07-style geometry check: AOG steer angle + geometry, for the Keya WAS Geometry scatter
+    client.print(F(",\"steerAngle\":")); client.print(steerAngleActual, 2);
+    client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
+    client.print(F(",\"trackT\":")); client.print(moduleConfig.keyaTrackT, 2);
     client.print(F(",\"calState\":")); client.print(calState);
     client.print(F(",\"calMsg\":\"")); client.print(calMsg); client.print('"');
     client.print(F(",\"calSpeed\":")); client.print(calSpeed);
