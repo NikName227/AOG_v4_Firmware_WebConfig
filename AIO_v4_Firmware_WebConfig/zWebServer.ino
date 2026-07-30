@@ -478,6 +478,17 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <label class="chk-row" style="padding:0"><input type="checkbox" id="kgZero" onchange="kgDraw()"> remove zero offset</label>
 <span id="kgStat" style="font-family:monospace;font-size:12px;color:#94a3b8"></span>
 </div>
+<!-- Live inputs feeding the scatter — check all values are present & changing before/while capturing -->
+<div id="kgLive" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px 16px;margin:8px 0;padding:10px 12px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-family:monospace;font-size:13px">
+<div>Ref IMU <span id="kgvFresh" style="float:right;color:#f0776a">stale</span></div>
+<div>Ref wheel ° <small style="color:#64748b">(X in)</small> <span id="kgvRef" style="float:right;color:#e2e8f0">—</span></div>
+<div>AOG steer ° <small style="color:#64748b">(Y in)</small> <span id="kgvSteer" style="float:right;color:#e2e8f0">—</span></div>
+<div>Ideal bike ° <small style="color:#64748b">@ref</small> <span id="kgvIdeal" style="float:right;color:#e2e8f0">—</span></div>
+<div>Wheelbase L <small style="color:#64748b">(m)</small> <span id="kgvWB" style="float:right;color:#e2e8f0">—</span></div>
+<div>Track T <small style="color:#64748b">(m)</small> <span id="kgvT" style="float:right;color:#e2e8f0">—</span></div>
+<div>Captured pts <span id="kgvPts" style="float:right;color:#e2e8f0">0</span></div>
+<div>Input <span id="kgvGate" style="float:right;color:#94a3b8">idle</span></div>
+</div>
 <canvas id="kgcanvas" width="720" height="430" style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
 </div>
 </div>
@@ -921,6 +932,22 @@ function kgDraw() {
   ctx.fillStyle = '#64748b'; ctx.font = '11px monospace';
   ctx.fillText('reference wheel deg', W - 140, Y(0) - 6);
   ctx.fillText('AOG steer deg', X(0) + 6, 14);
+  // numeric tick values on both axes
+  ctx.font = '10px monospace';
+  var kgStep = mx <= 30 ? 10 : (mx <= 60 ? 20 : 30);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (var t = -mx; t <= mx + 0.001; t += kgStep) {
+    if (Math.abs(t) < 0.001) continue;
+    ctx.strokeStyle = '#334155'; ctx.beginPath(); ctx.moveTo(X(t), Y(0) - 3); ctx.lineTo(X(t), Y(0) + 3); ctx.stroke();
+    ctx.fillText(t.toFixed(0), X(t), Y(0) + 5);
+  }
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (var t = -mx; t <= mx + 0.001; t += kgStep) {
+    if (Math.abs(t) < 0.001) continue;
+    ctx.strokeStyle = '#334155'; ctx.beginPath(); ctx.moveTo(X(0) - 3, Y(t)); ctx.lineTo(X(0) + 3, Y(t)); ctx.stroke();
+    ctx.fillText(t.toFixed(0), X(0) - 5, Y(t));
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   ctx.strokeStyle = '#c23a2b'; ctx.lineWidth = 2; ctx.beginPath();
   var first = true;
   for (var v = -mx; v <= mx + 0.001; v += mx / 60) {
@@ -1042,7 +1069,7 @@ function renderGroup(d) {
   else if (activeGroup === 4) {
     hdr = 'Group 4 — Keya';
     h += lvRow('Detected', d.det ? 'YES' : 'NO');
-    h += lvRow('Initial zero', d.zero ? 'DONE' : 'PENDING');
+    h += '<div class="row"><span class="lbl">Initial zero <button class="btn sm" onclick="fetch(\'/api/keyaforceinit\')">Init</button></span><span class="val">' + (d.zero ? 'DONE' : 'PENDING') + '</span></div>';
     h += lvRow('Encoder', d.enc + ' ticks');
     h += '<div class="row"><span class="lbl">Rel position <button class="btn sm" onclick="fetch(\'/api/keyaposzero\')">Zero</button></span><span class="val">' + d.relPos.toFixed(2) + ' ° wheel (' + d.relTicks + ' ticks)</span></div>';
     h += lvRow('Steering wheel pos', d.swPos.toFixed(1) + ' ° (1:1 motor)');
@@ -1423,6 +1450,12 @@ function tick() {
         .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
     } else if (lvMode === 'graph') {
       gPoll();
+    } else if (lvMode === 'keya') {
+      // Keya WAS Geometry scatter needs the full live payload (refAngle, steerAngle, geometry)
+      fetch('/api/live', { cache: 'no-store' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) { updLive(d); })
+        .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
     }
     return;
   }
@@ -1451,6 +1484,26 @@ function updLive(d) {
   // Keya WAS Geometry scatter: keep geometry fresh, capture (ref, steer) points while running
   if (d.wheelBase !== undefined) { kgWB = d.wheelBase; kgT = d.trackT; }
   if (kgCapture && d.refFresh && d.steerAngle !== undefined) kgPush(d.refAngle, d.steerAngle);
+  // Live input readout above the scatter — shows every value feeding the Ackermann calc
+  var kgf = document.getElementById('kgvFresh');
+  if (kgf) {
+    var fresh = !!d.refFresh;
+    kgf.textContent = fresh ? 'OK' : 'stale'; kgf.style.color = fresh ? '#4ade80' : '#f0776a';
+    document.getElementById('kgvRef').textContent   = (d.refAngle   !== undefined) ? d.refAngle.toFixed(2)   : '—';
+    document.getElementById('kgvSteer').textContent = (d.steerAngle !== undefined) ? d.steerAngle.toFixed(2) : '—';
+    document.getElementById('kgvIdeal').textContent = (fresh && d.refAngle !== undefined && kgWB > 0.1) ? kgIdeal(d.refAngle).toFixed(2) : '—';
+    document.getElementById('kgvWB').textContent = (kgWB > 0) ? kgWB.toFixed(2) : '—';
+    document.getElementById('kgvT').textContent  = (kgT  > 0) ? kgT.toFixed(2)  : '—';
+    document.getElementById('kgvPts').textContent = kgPts.length;
+    var kgg = document.getElementById('kgvGate');
+    if (!kgCapture)   { kgg.textContent = 'idle (press Start)'; kgg.style.color = '#94a3b8'; }
+    else if (!fresh)  { kgg.textContent = 'no ref IMU';         kgg.style.color = '#f0776a'; }
+    else {
+      var moving = !kgPts.length || Math.abs(kgPts[kgPts.length - 1].r - d.refAngle) >= 0.15;
+      kgg.textContent = moving ? 'capturing' : 'still — turn wheel';
+      kgg.style.color = moving ? '#4ade80' : '#e2b23e';
+    }
+  }
   var csv = document.getElementById('calState');
   if (csv && d.calMsg !== undefined) {
     csv.textContent = d.calMsg;
@@ -2259,6 +2312,13 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/gpsraw")      != NULL) handleApiGpsRaw(client, reqLine);
     else if (strstr(reqLine, "/api/gpscmd")      != NULL) handleApiGpsCmd(client, reqLine);
     else if (strstr(reqLine, "/api/gpsbaud")     != NULL) handleApiGpsBaud(client, reqLine);
+    else if (strstr(reqLine, "/api/keyaforceinit") != NULL) {
+      // Manual force: set zero at current position and unlock (for testing, no GPS drive needed)
+      moduleConfig.keyaZeroTicks = keyaEncoderRaw - (int32_t)(wheelAngleGPS * moduleConfig.keyaTicksPerDeg);
+      keyaInitialZeroDone = true;
+      webLog("Keya WAS: initial zero FORCED (manual) — autosteer unlocked");
+      sendHeaders(client, "text/plain"); client.print(F("OK"));
+    }
     else if (strstr(reqLine, "/api/keyaposzero") != NULL) { keyaPosRef = keyaEncoderRaw; sendHeaders(client, "text/plain"); client.print(F("OK")); }
     else if (strstr(reqLine, "/api/keyazero")    != NULL) handleApiKeyaZero(client);
     else if (strstr(reqLine, "/api/imuwaszero")  != NULL) handleApiImuWasZero(client);
