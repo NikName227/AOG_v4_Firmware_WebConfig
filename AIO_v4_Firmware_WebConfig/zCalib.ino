@@ -198,8 +198,8 @@ void calApply() {
     }
     // Variable Steering: the analog-WAS calibration measured in the same sweep.
     if (calHaveWas) {
-        moduleConfig.vsWasDegPerCount = calResWasA;
-        moduleConfig.vsWasIntercept   = calResWasB;
+        moduleConfig.vs.wasDegPerCount = calResWasA;
+        moduleConfig.vs.wasIntercept   = calResWasB;
     }
     moduleConfigSave();
     calSet(CAL_IDLE, "applied & saved");

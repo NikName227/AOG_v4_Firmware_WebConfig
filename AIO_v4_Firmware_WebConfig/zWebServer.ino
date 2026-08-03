@@ -499,6 +499,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="lvtoggle">
 <button class="subtab on" id="kyTuningTab" onclick="kyShow('tuning')">Tuning</button>
 <button class="subtab" id="kyMotorTab" onclick="kyShow('motor')">Motor Config</button>
+<button class="subtab" id="kyVsTab" onclick="kyShow('vs')">Variable Steering</button>
 </div>
 
 <div id="keyaTuning">
@@ -686,6 +687,100 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 </div>
 </div><!-- /keyaMotorCfg -->
+
+<!-- VARIABLE STEERING sub-panel (custom: noisy OEM WAS + twin orbital) -->
+<div id="keyaVs" style="display:none">
+
+<div class="card">
+<h2>Status <span style="color:#64748b;font-weight:normal;font-size:11px">— live</span></h2>
+<div id="vsLive" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 16px;padding:10px 12px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-family:monospace;font-size:13px">
+<div>WAS counts (median) <span id="vsvCnt" style="float:right;color:#e2e8f0">—</span></div>
+<div>WAS angle ° <span id="vsvWas" style="float:right;color:#e2e8f0">—</span></div>
+<div>Steer actual ° <span id="vsvSteer" style="float:right;color:#e2e8f0">—</span></div>
+<div>Innovation ° <small style="color:#64748b">(WAS−enc)</small> <span id="vsvInnov" style="float:right;color:#e2e8f0">—</span></div>
+<div>WAS offset ° <span id="vsvOff" style="float:right;color:#e2e8f0">—</span></div>
+<div>Gate rejects/s <span id="vsvRej" style="float:right;color:#e2e8f0">—</span></div>
+<div>Orbital active <span id="vsvMode" style="float:right;color:#e2e8f0">—</span></div>
+<div>Ratio estimate <span id="vsvRatio" style="float:right;color:#e2e8f0">—</span></div>
+<div style="grid-column:1/-1">Detection <span id="vsvDet" style="float:right;color:#94a3b8">—</span></div>
+<div style="grid-column:1/-1">Initial zero <span id="vsvZero" style="float:right;color:#94a3b8">—</span></div>
+</div>
+</div>
+
+<div class="card">
+<h2>Orbital ratio <span style="color:#64748b;font-weight:normal;font-size:11px">— 125 / 250 ccm</span></h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Calibrate ticks/deg in <b>125 ccm</b> — that is the base. 250 ccm passes twice the oil per steering-wheel turn, so ticks/deg halves and the dead zone doubles; both are derived, not calibrated separately. The mode is <b>measured, never remembered</b>: the tractor may be started in either mode and the module powers up independently, so a stored value would be confidently wrong. The first turn past a few degrees resolves it, and the zero is then recomputed exactly.</p>
+<div class="row"><span class="lbl">Twin orbital handling</span>
+<input type="checkbox" id="vs20" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div class="row"><span class="lbl">Active ratio</span>
+<select id="vs21" style="min-width:120px"><option value="0">125 ccm (base)</option><option value="1">250 ccm</option></select></div>
+<p style="color:#f59e0b;font-size:12px;margin:-2px 0 5px;line-height:1.3">&#9888; Cannot be changed while autosteer is engaged — changing the gain under active control would step the feedback and jerk the wheel.</p>
+<div class="row"><span class="lbl">Auto-switch from estimate</span>
+<input type="checkbox" id="vs22" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Off = the estimate is only reported (validate it first, then enable). On = the ratio switches by itself when confirmed, but never while engaged.</p>
+<div class="row"><span class="lbl">Displacement ratio <small style="color:#64748b">(250/125 = 2)</small></span>
+<input type="number" id="vs23" min="1" max="4" step="0.01" class="ninput"></div>
+<div class="row"><span class="lbl">Travel per estimate ° <small style="color:#64748b">(def 8)</small></span>
+<input type="number" id="vs24" min="2" max="45" step="0.5" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">WAS movement required before a window counts. Larger = noise matters even less, but needs a bigger turn.</p>
+<div class="row"><span class="lbl">Confirming windows <small style="color:#64748b">(def 3)</small></span>
+<input type="number" id="vs25" min="1" max="20" class="ninput"></div>
+<div class="row"><span class="lbl">Disengage on wrong ratio</span>
+<input type="checkbox" id="vs26" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Only fires in the dangerous direction — running 125 when it is really 250 under-reports the angle 2x, so AOG keeps steering into the turn and overshoots. Hands control back instead of fighting it. The ratio itself still stays untouched.</p>
+</div>
+
+<div class="card">
+<h2>WAS as slow anchor</h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">The encoder stays primary and carries all the dynamics. The OEM WAS only moves a slow offset (seconds), far below the control bandwidth, so the PID cannot see it — but it stops the angle drifting, and unlike GPS auto-zero it works standing still and mid-manoeuvre.</p>
+<div class="row"><span class="lbl">Enable WAS fusion</span>
+<input type="checkbox" id="vs10" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div class="row"><span class="lbl">Median-5 on ADS counts</span>
+<input type="checkbox" id="vs11" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">For impulsive spikes a median is the right tool, not an EMA — it removes an isolated spike completely without shifting the baseline or adding lag.</p>
+<div class="row"><span class="lbl">Correction beta <small style="color:#64748b">(def 0.01 ≈ 5 s)</small></span>
+<input type="number" id="vs12" min="0" max="0.5" step="0.001" class="ninput"></div>
+<div class="row"><span class="lbl">Innovation gate ° <small style="color:#64748b">(def 4)</small></span>
+<input type="number" id="vs13" min="0.5" max="30" step="0.5" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">A WAS sample this far from the encoder prediction is physically impossible and is dropped. Watch "gate rejects/s" — high is fine, it means the gate is doing its job.</p>
+<div class="row"><span class="lbl">Max offset rate °/s <small style="color:#64748b">(def 0.5)</small></span>
+<input type="number" id="vs14" min="0.01" max="10" step="0.01" class="ninput"></div>
+<div class="row"><span class="lbl">Max offset ° <small style="color:#64748b">(def 15)</small></span>
+<input type="number" id="vs15" min="1" max="45" step="0.5" class="ninput"></div>
+</div>
+
+<div class="card">
+<h2>Initial zero from WAS</h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Unlocks autosteer without waiting for GPS speed + straight driving. Gated on <b>encoder still</b>, not vehicle stopped — if the encoder is not moving the true angle is constant by definition, so every WAS variation is noise and can be rejected. That also makes power-up while driving straight work.</p>
+<div class="row"><span class="lbl">Zero from WAS</span>
+<input type="checkbox" id="vs30" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<p style="color:#f59e0b;font-size:12px;margin:-2px 0 5px;line-height:1.3">&#9888; The one place where a wrong value gives a wrong angle from the first second. Validate against the GPS zero over a few power-ups before trusting it.</p>
+<div class="row"><span class="lbl">Still time ms <small style="color:#64748b">(def 2000)</small></span>
+<input type="number" id="vs31" min="200" max="10000" step="100" class="ninput"></div>
+<div class="row"><span class="lbl">Still tolerance (ticks) <small style="color:#64748b">(def 3)</small></span>
+<input type="number" id="vs32" min="1" max="200" step="1" class="ninput"></div>
+<div class="row"><span class="lbl">Max angle to zero at ° <small style="color:#64748b">(def 4)</small></span>
+<input type="number" id="vs33" min="0.5" max="20" step="0.5" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Keeps zeroing ratio-neutral: the zero depends on ticks/deg once the angle is non-zero, and at power-up the orbital mode is not yet known. Small angle → a 2x ratio error costs only 1–2°.</p>
+<div class="row"><span class="lbl">Max sample spread ° <small style="color:#64748b">(def 1)</small></span>
+<input type="number" id="vs34" min="0.1" max="10" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">With the encoder still the truth is constant, so a wide spread means noise got through. Then it refuses to zero and falls back to GPS.</p>
+</div>
+
+<div class="card">
+<h2>WAS calibration <span style="color:#64748b;font-weight:normal;font-size:11px">— from the sweep</span></h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Measured by the same lock-to-lock sweep that produces ticks/deg (Keya cal panel), since the reference IMU is already on the wheel — no extra time on the tractor. Maps ADS counts to bike degrees, the same space as steer actual, so the two are directly comparable.</p>
+<div class="row"><span class="lbl">deg per count</span><span class="val" id="vsCalA">-</span></div>
+<div class="row"><span class="lbl">intercept (deg)</span><span class="val" id="vsCalB">-</span></div>
+<div class="row"><span class="lbl">fit RMS (deg)</span><span class="val" id="vsCalRms">-</span></div>
+<div class="row"><span class="lbl">samples</span><span class="val" id="vsCalN">-</span></div>
+<p style="color:#94a3b8;font-size:12px;margin:4px 0 0;line-height:1.3">RMS tells you how straight the WAS actually is. Large = the sensor is non-linear or the spikes got into the fit, and the anchor will be correspondingly rough.</p>
+</div>
+
+<button class="btn green" onclick="saveVs()" style="margin-top:8px">Save Variable Steering</button>
+<span id="vsSaveMsg" style="margin-left:10px;font-size:12px;color:#94a3b8"></span>
+
+</div><!-- /keyaVs -->
 
 </div><!-- /keya -->
 
@@ -1233,6 +1328,29 @@ function upd(d) {
     document.getElementById('kw7').value   = d.keya_was.azYawMax;
     document.getElementById('kw8').value   = d.keya_was.azSpeedSlow;
     document.getElementById('kw9').value   = d.keya_was.azSpeedFast;
+    // Variable Steering
+    document.getElementById('vs10').checked = !!d.vs.fuse;
+    document.getElementById('vs11').checked = !!d.vs.median;
+    document.getElementById('vs12').value   = d.vs.beta;
+    document.getElementById('vs13').value   = d.vs.gate;
+    document.getElementById('vs14').value   = d.vs.rate;
+    document.getElementById('vs15').value   = d.vs.offMax;
+    document.getElementById('vs20').checked = !!d.vs.orbital;
+    document.getElementById('vs21').value   = d.vs.mode;
+    document.getElementById('vs22').checked = !!d.vs.auto;
+    document.getElementById('vs23').value   = d.vs.ratio;
+    document.getElementById('vs24').value   = d.vs.detMin;
+    document.getElementById('vs25').value   = d.vs.detCnf;
+    document.getElementById('vs26').checked = !!d.vs.disBad;
+    document.getElementById('vs30').checked = !!d.vs.zero;
+    document.getElementById('vs31').value   = d.vs.zeroStill;
+    document.getElementById('vs32').value   = d.vs.zeroTicks;
+    document.getElementById('vs33').value   = d.vs.zeroMax;
+    document.getElementById('vs34').value   = d.vs.zeroSpread;
+    document.getElementById('vsCalA').textContent   = d.vs.calA.toFixed(6);
+    document.getElementById('vsCalB').textContent   = d.vs.calB.toFixed(3);
+    document.getElementById('vsCalRms').textContent = d.vs.calRms.toFixed(3) + ' °';
+    document.getElementById('vsCalN').textContent   = d.vs.calN;
     document.getElementById('kwwb').value  = d.keya_was.wheelBase;
     document.getElementById('calWB').value = d.keya_was.wheelBase;
     document.getElementById('calT').value  = d.keya_was.trackT;
@@ -1252,6 +1370,8 @@ function upd(d) {
     document.getElementById('wasSource').value     = d.cfg.wasSource     || 0;
     var _kg = document.getElementById('lvKeyaTab');
     if (_kg) _kg.style.display = ((d.cfg.wasSource || 0) == 1) ? '' : 'none';
+    var _vs = document.getElementById('kyVsTab');   // Variable Steering is Keya-WAS only
+    if (_vs) _vs.style.display = ((d.cfg.wasSource || 0) == 1) ? '' : 'none';
     document.getElementById('rollSource').value    = d.cfg.rollSource    || 0;
     document.getElementById('headingSource').value = d.cfg.headingSource || 0;
     document.getElementById('nmeaType').value      = d.cfg.nmeaType      || 0;
@@ -1331,11 +1451,40 @@ function saveKeyaGeom() {
   });
 }
 
+function saveVs() {
+  var url = '/api/save?vsFuse='   + (document.getElementById('vs10').checked ? 1 : 0)
+          + '&vsMedian='          + (document.getElementById('vs11').checked ? 1 : 0)
+          + '&vsBeta='            + document.getElementById('vs12').value
+          + '&vsGate='            + document.getElementById('vs13').value
+          + '&vsRate='            + document.getElementById('vs14').value
+          + '&vsOffMax='          + document.getElementById('vs15').value
+          + '&vsOrbital='         + (document.getElementById('vs20').checked ? 1 : 0)
+          + '&vsMode='            + document.getElementById('vs21').value
+          + '&vsAuto='            + (document.getElementById('vs22').checked ? 1 : 0)
+          + '&vsRatio='           + document.getElementById('vs23').value
+          + '&vsDetMin='          + document.getElementById('vs24').value
+          + '&vsDetCnf='          + document.getElementById('vs25').value
+          + '&vsDisBad='          + (document.getElementById('vs26').checked ? 1 : 0)
+          + '&vsZero='            + (document.getElementById('vs30').checked ? 1 : 0)
+          + '&vsZeroStill='       + document.getElementById('vs31').value
+          + '&vsZeroTicks='       + document.getElementById('vs32').value
+          + '&vsZeroMax='         + document.getElementById('vs33').value
+          + '&vsZeroSpread='      + document.getElementById('vs34').value;
+  fetch(url).then(function(r) { return r.text(); }).then(function(t) {
+    // The firmware refuses a ratio change while engaged — report that, don't hide it.
+    document.getElementById('vsSaveMsg').textContent = t;
+    document.getElementById('vsSaveMsg').style.color = (t.indexOf('engaged') >= 0) ? '#f59e0b' : '#4ade80';
+    document.getElementById('sb').textContent = r.ok ? 'Variable Steering saved.' : 'ERROR saving.';
+  });
+}
+
 function kyShow(m) {
   document.getElementById('keyaTuning').style.display   = (m === 'tuning') ? '' : 'none';
   document.getElementById('keyaMotorCfg').style.display = (m === 'motor')  ? '' : 'none';
+  document.getElementById('keyaVs').style.display       = (m === 'vs')     ? '' : 'none';
   document.getElementById('kyTuningTab').classList.toggle('on', m === 'tuning');
   document.getElementById('kyMotorTab').classList.toggle('on', m === 'motor');
+  document.getElementById('kyVsTab').classList.toggle('on', m === 'vs');
 }
 function kcCmd(c) { fetch('/api/keyacfg?cmd=' + c); }
 function kcWrite(id, fld) {
@@ -1504,6 +1653,30 @@ function updLive(d) {
       kgg.style.color = moving ? '#4ade80' : '#e2b23e';
     }
   }
+  // Variable Steering live status
+  var vsc = document.getElementById('vsvCnt');
+  if (vsc && d.vsWas !== undefined) {
+    vsc.textContent = d.vsCnt;
+    document.getElementById('vsvWas').textContent   = d.vsUse ? d.vsWas.toFixed(2) : '— (uncalibrated)';
+    document.getElementById('vsvSteer').textContent = d.steerAngle.toFixed(2);
+    document.getElementById('vsvInnov').textContent = d.vsInnov.toFixed(2);
+    document.getElementById('vsvOff').textContent   = d.vsOff.toFixed(3);
+    var rj = document.getElementById('vsvRej');
+    rj.textContent = d.vsRej;
+    rj.style.color = (d.vsRej > 0) ? '#e2b23e' : '#4ade80';   // rejecting is the gate working
+    var md = document.getElementById('vsvMode');
+    md.textContent = d.vsMode ? '250 ccm' : '125 ccm';
+    md.style.color = d.vsOrb ? '#e2e8f0' : '#64748b';
+    document.getElementById('vsvRatio').textContent = d.vsRatio > 0 ? d.vsRatio.toFixed(2) : '—';
+    var dt = document.getElementById('vsvDet');
+    dt.textContent = d.vsOrbMsg;
+    dt.style.color = (d.vsOrbMsg.indexOf('WRONG') >= 0) ? '#f87171'
+                   : (d.vsOrbMsg.indexOf('confirmed') >= 0 ? '#4ade80' : '#94a3b8');
+    var zr = document.getElementById('vsvZero');
+    zr.textContent = d.vsZeroMsg + (d.vsZeroWas ? ' [from WAS]' : '');
+    zr.style.color = (d.vsZeroMsg.indexOf('zeroed') >= 0) ? '#4ade80' : '#94a3b8';
+  }
+
   var csv = document.getElementById('calState');
   if (csv && d.calMsg !== undefined) {
     csv.textContent = d.calMsg;
@@ -2036,6 +2209,10 @@ var gSignals = [
  {id:41,n:'Gr5 current sensor (A17)'},{id:42,n:'Gr5 pressure sensor (A10)'},{id:43,n:'Gr5 sensor reading'},
  // ── Gr6 CAN Steer ──
  {id:32,n:'Gr6 valveReady'},{id:33,n:'Gr6 estCurve'},{id:34,n:'Gr6 setCurve'},{id:35,n:'Gr6 hitch'},
+ // ── Variable Steering ──
+ {id:47,n:'VS WAS counts (median)'},{id:48,n:'VS WAS angle (deg)'},
+ {id:49,n:'VS innovation (deg)'},{id:50,n:'VS WAS offset (deg)'},
+ {id:51,n:'VS orbital ratio est'},{id:52,n:'VS gate rejects/s'},
  // ── Performance (no group) ──
  {id:36,n:'Perf loop time ms'},{id:37,n:'Perf loop max ms'}
 ];
@@ -2446,6 +2623,30 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"trackT\":")); client.print(moduleConfig.keyaTrackT, 2);
     client.print(F(",\"initialZeroDone\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
 
+    client.print(F("},\"vs\":{"));
+    client.print(F("\"fuse\":")); client.print(moduleConfig.vs.fuseEnable);
+    client.print(F(",\"median\":")); client.print(moduleConfig.vs.medianEnable);
+    client.print(F(",\"beta\":")); client.print(moduleConfig.vs.fuseBeta, 4);
+    client.print(F(",\"gate\":")); client.print(moduleConfig.vs.gateDeg, 2);
+    client.print(F(",\"rate\":")); client.print(moduleConfig.vs.rateMaxDegS, 3);
+    client.print(F(",\"offMax\":")); client.print(moduleConfig.vs.offsetMaxDeg, 1);
+    client.print(F(",\"orbital\":")); client.print(moduleConfig.vs.orbitalEnable);
+    client.print(F(",\"mode\":")); client.print(moduleConfig.vs.orbitalMode);
+    client.print(F(",\"auto\":")); client.print(moduleConfig.vs.orbitalAuto);
+    client.print(F(",\"ratio\":")); client.print(moduleConfig.vs.orbitalRatio, 2);
+    client.print(F(",\"detMin\":")); client.print(moduleConfig.vs.detectMinDeg, 1);
+    client.print(F(",\"detCnf\":")); client.print(moduleConfig.vs.detectConfirm);
+    client.print(F(",\"disBad\":")); client.print(moduleConfig.vs.disengageOnBad);
+    client.print(F(",\"zero\":")); client.print(moduleConfig.vs.zeroEnable);
+    client.print(F(",\"zeroStill\":")); client.print(moduleConfig.vs.zeroStillMs);
+    client.print(F(",\"zeroTicks\":")); client.print(moduleConfig.vs.zeroStillTicks, 1);
+    client.print(F(",\"zeroMax\":")); client.print(moduleConfig.vs.zeroMaxDeg, 1);
+    client.print(F(",\"zeroSpread\":")); client.print(moduleConfig.vs.zeroSpreadDeg, 2);
+    client.print(F(",\"calA\":")); client.print(moduleConfig.vs.wasDegPerCount, 6);
+    client.print(F(",\"calB\":")); client.print(moduleConfig.vs.wasIntercept, 3);
+    client.print(F(",\"calRms\":")); client.print(calResWasRms, 3);
+    client.print(F(",\"calN\":")); client.print(calResWasN);
+
     client.print(F("},\"imu_was\":{"));
     client.print(F("\"invert\":")); client.print(moduleConfig.imuWasInvert);
     client.print(F(",\"cpdScale\":")); client.print(moduleConfig.imuWasCpdScale, 3);
@@ -2594,6 +2795,13 @@ float getSignalValue(uint8_t id)
     case 45: return (float)(keyaEncoderRaw - keyaPosRef) * 360.0f / 65536.0f;
     // Reference IMU wheel angle from the calibration bridge (PGN 0xD6)
     case 46: return refWheelAngle;
+    // ── Variable Steering ──
+    case 47: return (float)adsMedCounts;   // median-filtered WAS counts (vs 17 = raw)
+    case 48: return vsLastWasAngle;        // WAS in bike degrees — same space as steer actual
+    case 49: return vsLastInnov;           // WAS − encoder prediction; the gate works on this
+    case 50: return vsWasOffset;           // slow absolute correction being applied
+    case 51: return vsRatioEst;            // orbital ratio estimate (~1 = 125, ~2 = 250)
+    case 52: return (float)vsRejectPerSec; // gate rejections/s — live noise severity
     default: return 0;
     }
 }
@@ -2812,6 +3020,19 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"steerAngle\":")); client.print(steerAngleActual, 2);
     client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
     client.print(F(",\"trackT\":")); client.print(moduleConfig.keyaTrackT, 2);
+    // ── Variable Steering live ──
+    client.print(F(",\"vsCnt\":"));    client.print(adsMedCounts);
+    client.print(F(",\"vsWas\":"));    client.print(vsLastWasAngle, 2);
+    client.print(F(",\"vsUse\":"));    client.print(vsWasUsable ? F("true") : F("false"));
+    client.print(F(",\"vsInnov\":"));  client.print(vsLastInnov, 2);
+    client.print(F(",\"vsOff\":"));    client.print(vsWasOffset, 3);
+    client.print(F(",\"vsRej\":"));    client.print(vsRejectPerSec);
+    client.print(F(",\"vsMode\":"));   client.print(moduleConfig.vs.orbitalMode);
+    client.print(F(",\"vsOrb\":"));    client.print(moduleConfig.vs.orbitalEnable ? F("true") : F("false"));
+    client.print(F(",\"vsRatio\":"));  client.print(vsRatioEst, 2);
+    client.print(F(",\"vsOrbMsg\":\"")); client.print(vsOrbitalMsg); client.print('"');
+    client.print(F(",\"vsZeroMsg\":\"")); client.print(vsZeroMsg); client.print('"');
+    client.print(F(",\"vsZeroWas\":")); client.print(vsZeroFromWas ? F("true") : F("false"));
     client.print(F(",\"calState\":")); client.print(calState);
     client.print(F(",\"calMsg\":\"")); client.print(calMsg); client.print('"');
     client.print(F(",\"calSpeed\":")); client.print(calSpeed);
@@ -3282,10 +3503,40 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "adsAzT="))    != NULL) moduleConfig.adsAzTimeMs   = (uint16_t)atoi(p + 7);
     if (strstr(req, "adsAzReset=") != NULL) { moduleConfig.adsAutoOffset = 0.0f; moduleConfigSave(); }
 
+    // ── Variable Steering — all live, no restart ─────────────────────────────
+    bool vsRatioRefused = false;
+    if ((p = strstr(req, "vsFuse="))       != NULL) moduleConfig.vs.fuseEnable     = (uint8_t)atoi(p + 7);
+    if ((p = strstr(req, "vsMedian="))     != NULL) moduleConfig.vs.medianEnable   = (uint8_t)atoi(p + 9);
+    if ((p = strstr(req, "vsBeta="))       != NULL) moduleConfig.vs.fuseBeta       = atof(p + 7);
+    if ((p = strstr(req, "vsGate="))       != NULL) moduleConfig.vs.gateDeg        = atof(p + 7);
+    if ((p = strstr(req, "vsRate="))       != NULL) moduleConfig.vs.rateMaxDegS    = atof(p + 7);
+    if ((p = strstr(req, "vsOffMax="))     != NULL) moduleConfig.vs.offsetMaxDeg   = atof(p + 9);
+    if ((p = strstr(req, "vsOrbital="))    != NULL) moduleConfig.vs.orbitalEnable  = (uint8_t)atoi(p + 10);
+    if ((p = strstr(req, "vsAuto="))       != NULL) moduleConfig.vs.orbitalAuto    = (uint8_t)atoi(p + 7);
+    if ((p = strstr(req, "vsRatio="))      != NULL) moduleConfig.vs.orbitalRatio   = atof(p + 8);
+    if ((p = strstr(req, "vsDetMin="))     != NULL) moduleConfig.vs.detectMinDeg   = atof(p + 9);
+    if ((p = strstr(req, "vsDetCnf="))     != NULL) moduleConfig.vs.detectConfirm  = (uint8_t)atoi(p + 9);
+    if ((p = strstr(req, "vsDisBad="))     != NULL) moduleConfig.vs.disengageOnBad = (uint8_t)atoi(p + 9);
+    if ((p = strstr(req, "vsZero="))       != NULL) moduleConfig.vs.zeroEnable     = (uint8_t)atoi(p + 7);
+    if ((p = strstr(req, "vsZeroStill="))  != NULL) moduleConfig.vs.zeroStillMs    = (uint16_t)atoi(p + 12);
+    if ((p = strstr(req, "vsZeroTicks="))  != NULL) moduleConfig.vs.zeroStillTicks = atof(p + 12);
+    if ((p = strstr(req, "vsZeroMax="))    != NULL) moduleConfig.vs.zeroMaxDeg     = atof(p + 10);
+    if ((p = strstr(req, "vsZeroSpread=")) != NULL) moduleConfig.vs.zeroSpreadDeg  = atof(p + 13);
+    // The ratio goes through vsSetOrbitalMode (recomputes the zero) and is REFUSED
+    // while engaged — changing the gain under active control jerks the wheel.
+    if ((p = strstr(req, "vsMode=")) != NULL) {
+        uint8_t m = (uint8_t)atoi(p + 7);
+        if (m != moduleConfig.vs.orbitalMode) {
+            if (watchdogTimer < WATCHDOG_THRESHOLD) vsRatioRefused = true;
+            else                                    vsSetOrbitalMode(m);
+        }
+    }
+
     moduleConfigSave();
 
     sendHeaders(client, "text/plain");
-    client.print(F("OK"));
+    if (vsRatioRefused) client.print(F("saved, but ratio NOT changed - autosteer engaged"));
+    else                client.print(F("OK"));
 
     if (needRestart) {
         Serial.println("Config saved – restart pending...");

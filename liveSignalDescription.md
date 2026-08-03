@@ -186,6 +186,23 @@ Pick up to 4 signals (dual Y-axis). IDs below are the firmware signal IDs.
 
 ---
 
+## Variable Steering (custom branch)
+
+Diagnostics for the twin-orbital / noisy-OEM-WAS setup. Signal 47 against 17 shows
+what the median actually removes; 49 and 52 together tell you whether the gate is
+carrying the load or the WAS has genuinely drifted.
+
+| ID | Name | Unit | Source |
+|---|---|---|---|
+| 47 | VS WAS counts (median) | counts | `adsMedCounts` — median-5 of the raw ADS counts (cf. 17 = unfiltered) |
+| 48 | VS WAS angle | ° | WAS in bike degrees via the sweep calibration — same space as steer actual (22/27) |
+| 49 | VS innovation | ° | WAS minus the encoder prediction; the gate rejects on this |
+| 50 | VS WAS offset | ° | the slow absolute correction currently applied |
+| 51 | VS orbital ratio est | – | windowed d(WAS)/d(encoder at base scale): ~1 = 125 ccm, ~2 = 250 ccm |
+| 52 | VS gate rejects/s | 1/s | samples dropped by the innovation gate — nonzero is normal, it means it is working |
+
+---
+
 ## Notes
 - Graph IDs are fixed — they are the contract between the JS dropdown and
   `getSignalValue()`. When adding a signal, append a new ID; do not renumber.

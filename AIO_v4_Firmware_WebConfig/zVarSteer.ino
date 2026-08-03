@@ -33,6 +33,13 @@
 // the wheel.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Explicit forward declarations rather than relying on the Arduino auto-prototype
+// generator — its insertion point has already caused one build break in this sketch.
+void  vsApplyZero(int32_t encRaw, float angleDeg);
+void  vsSetOrbitalMode(uint8_t mode);
+float vsTicksPerDeg();
+float vsRatioDiv();
+
 // ── Median-5 on the raw ADS counts ───────────────────────────────────────────
 // Impulsive noise is the wrong problem for an EMA: a single 10 deg spike through
 // an EMA leaves a tail that decays over seconds. A median rejects an isolated
@@ -48,7 +55,7 @@ void vsMedianPush(int16_t raw)
 {
     // Disabled → pass through, and reset the window so re-enabling starts clean
     // (otherwise the warm-up would read stale slots).
-    if (!moduleConfig.vsMedianEnable) { adsMedCounts = raw; vsMedCnt = 0; vsMedIdx = 0; return; }
+    if (!moduleConfig.vs.medianEnable) { adsMedCounts = raw; vsMedCnt = 0; vsMedIdx = 0; return; }
 
     vsMedBuf[vsMedIdx] = raw;
     vsMedIdx = (uint8_t)((vsMedIdx + 1) % VS_MED_N);
@@ -73,9 +80,9 @@ void vsMedianPush(int16_t raw)
 bool vsWasAngle(float &angleOut)
 {
     if (!adcConnected) return false;
-    if (fabs(moduleConfig.vsWasDegPerCount) < 1e-9f) return false;   // uncalibrated
-    angleOut = moduleConfig.vsWasDegPerCount * (float)adsMedCounts
-             + moduleConfig.vsWasIntercept;
+    if (fabs(moduleConfig.vs.wasDegPerCount) < 1e-9f) return false;   // uncalibrated
+    angleOut = moduleConfig.vs.wasDegPerCount * (float)adsMedCounts
+             + moduleConfig.vs.wasIntercept;
     return true;
 }
 
@@ -111,9 +118,9 @@ void vsFuseUpdate(float predBase)
     // Master switch off (or no usable WAS) → ramp the offset back out at the same
     // rate limit, so flipping the switch returns to stock behaviour without a step
     // in the feedback signal.
-    if (!moduleConfig.vsFuseEnable || !vsWasUsable || !keyaInitialZeroDone) {
+    if (!moduleConfig.vs.fuseEnable || !vsWasUsable || !keyaInitialZeroDone) {
         vsGateBlocked = 0;
-        float maxStep = moduleConfig.vsRateMaxDegS * (VS_FUSE_STEP_MS / 1000.0f);
+        float maxStep = moduleConfig.vs.rateMaxDegS * (VS_FUSE_STEP_MS / 1000.0f);
         if      (vsWasOffset >  maxStep) vsWasOffset -= maxStep;
         else if (vsWasOffset < -maxStep) vsWasOffset += maxStep;
         else                             vsWasOffset  = 0.0f;
@@ -125,24 +132,24 @@ void vsFuseUpdate(float predBase)
     // Rejection rate — how hard the noise is hitting right now (diagnostic).
     if (vsRejWindow > 1000) { vsRejectPerSec = vsRejCount; vsRejCount = 0; vsRejWindow = 0; }
 
-    if (fabs(vsLastInnov) > moduleConfig.vsGateDeg) {
+    if (fabs(vsLastInnov) > moduleConfig.vs.gateDeg) {
         vsRejCount++;
         return;                       // impossible jump — drop it, keep vsGateBlocked running
     }
     vsGateBlocked = 0;                // a sample got through: the anchor is alive
 
     // Gentler while engaged, exactly like the GPS auto-zero, so it cannot fight the PID.
-    float k = (watchdogTimer < WATCHDOG_THRESHOLD) ? (moduleConfig.vsFuseBeta / 5.0f)
-                                                   : moduleConfig.vsFuseBeta;
+    float k = (watchdogTimer < WATCHDOG_THRESHOLD) ? (moduleConfig.vs.fuseBeta / 5.0f)
+                                                   : moduleConfig.vs.fuseBeta;
     float step = vsLastInnov * k;
 
-    float maxStep = moduleConfig.vsRateMaxDegS * (VS_FUSE_STEP_MS / 1000.0f);
+    float maxStep = moduleConfig.vs.rateMaxDegS * (VS_FUSE_STEP_MS / 1000.0f);
     if (step >  maxStep) step =  maxStep;
     if (step < -maxStep) step = -maxStep;
 
     vsWasOffset += step;
-    if (vsWasOffset >  moduleConfig.vsOffsetMaxDeg) vsWasOffset =  moduleConfig.vsOffsetMaxDeg;
-    if (vsWasOffset < -moduleConfig.vsOffsetMaxDeg) vsWasOffset = -moduleConfig.vsOffsetMaxDeg;
+    if (vsWasOffset >  moduleConfig.vs.offsetMaxDeg) vsWasOffset =  moduleConfig.vs.offsetMaxDeg;
+    if (vsWasOffset < -moduleConfig.vs.offsetMaxDeg) vsWasOffset = -moduleConfig.vs.offsetMaxDeg;
 }
 
 // ── Orbital ratio detection ──────────────────────────────────────────────────
@@ -160,7 +167,7 @@ void vsFuseUpdate(float predBase)
 // agreeing windows before acting, so a single bad reading cannot flip the gain.
 void vsOrbitalDetect(float encAngleBase)
 {
-    if (!moduleConfig.vsOrbitalEnable) { strncpy(vsOrbitalMsg, "off", sizeof(vsOrbitalMsg) - 1); return; }
+    if (!moduleConfig.vs.orbitalEnable) { strncpy(vsOrbitalMsg, "off", sizeof(vsOrbitalMsg) - 1); return; }
 
     static elapsedMillis step = 0;
     static bool  have = false;
@@ -177,10 +184,10 @@ void vsOrbitalDetect(float encAngleBase)
 
     float dWas = wasAngle - wasStart;
     float dEnc = encAngleBase - encStart;
-    if (fabs(dWas) < moduleConfig.vsDetectMinDeg) {
+    if (fabs(dWas) < moduleConfig.vs.detectMinDeg) {
         // Not enough travel yet. If the encoder moved a lot while the WAS did not,
         // the window is stale (reversal) — restart it.
-        if (fabs(dEnc) > moduleConfig.vsDetectMinDeg * 2.0f) { wasStart = wasAngle; encStart = encAngleBase; }
+        if (fabs(dEnc) > moduleConfig.vs.detectMinDeg * 2.0f) { wasStart = wasAngle; encStart = encAngleBase; }
         strncpy(vsOrbitalMsg, "turn more to measure", sizeof(vsOrbitalMsg) - 1);
         return;
     }
@@ -191,18 +198,18 @@ void vsOrbitalDetect(float encAngleBase)
     have = false;                                            // start a fresh window
 
     // sqrt(ratio) is the geometric mean between 1x and 2x — the natural split.
-    float thresh = sqrtf((moduleConfig.vsOrbitalRatio > 0.1f) ? moduleConfig.vsOrbitalRatio : 2.0f);
+    float thresh = sqrtf((moduleConfig.vs.orbitalRatio > 0.1f) ? moduleConfig.vs.orbitalRatio : 2.0f);
     uint8_t seen = (vsRatioEst > thresh) ? 1 : 0;
 
     if (seen == vsDetectMode) { if (vsDetectCnt < 250) vsDetectCnt++; }
     else                      { vsDetectMode = seen; vsDetectCnt = 1; }
 
-    if (vsDetectCnt < moduleConfig.vsDetectConfirm) {
+    if (vsDetectCnt < moduleConfig.vs.detectConfirm) {
         snprintf(vsOrbitalMsg, sizeof(vsOrbitalMsg), "est %.2f (%u/%u)",
-                 vsRatioEst, vsDetectCnt, moduleConfig.vsDetectConfirm);
+                 vsRatioEst, vsDetectCnt, moduleConfig.vs.detectConfirm);
         return;
     }
-    if (vsDetectMode == moduleConfig.vsOrbitalMode) {
+    if (vsDetectMode == moduleConfig.vs.orbitalMode) {
         snprintf(vsOrbitalMsg, sizeof(vsOrbitalMsg), "confirmed %s ccm (est %.2f)",
                  vsDetectMode ? "250" : "125", vsRatioEst);
         return;
@@ -219,7 +226,7 @@ void vsOrbitalDetect(float encAngleBase)
         // UNDER-reported 2x, so AOG keeps steering into the turn and overshoots. Hand
         // control back rather than fight it. The benign direction (over-reported →
         // sluggish) only warns. Disengaging is not a gain change, so the rule holds.
-        if (moduleConfig.vsDisengageOnBad && vsDetectMode == 1 && moduleConfig.vsOrbitalMode == 0) {
+        if (moduleConfig.vs.disengageOnBad && vsDetectMode == 1 && moduleConfig.vs.orbitalMode == 0) {
             if (steerSwitch == 0) disengageLog("VS: orbital ratio mismatch");
             steerSwitch = 1;
             currentState = 1;
@@ -228,7 +235,7 @@ void vsOrbitalDetect(float encAngleBase)
         return;
     }
 
-    if (!moduleConfig.vsOrbitalAuto) {
+    if (!moduleConfig.vs.orbitalAuto) {
         snprintf(vsOrbitalMsg, sizeof(vsOrbitalMsg), "suggests %s ccm (auto off)",
                  vsDetectMode ? "250" : "125");
         return;
@@ -258,7 +265,7 @@ void vsOrbitalDetect(float encAngleBase)
 // default-off switch.
 void vsZeroFromWasUpdate()
 {
-    if (!moduleConfig.vsZeroEnable || keyaInitialZeroDone) return;
+    if (!moduleConfig.vs.zeroEnable || keyaInitialZeroDone) return;
     if (moduleConfig.wasSource != WAS_SOURCE_KEYA) return;
     if (!keyaDetected || !keyaEncInitDone) return;
 
@@ -274,7 +281,7 @@ void vsZeroFromWasUpdate()
     }
 
     // Encoder still? Any movement beyond the tolerance restarts the window.
-    if (!armed || labs(keyaEncoderRaw - refTicks) > (int32_t)moduleConfig.vsZeroStillTicks) {
+    if (!armed || labs(keyaEncoderRaw - refTicks) > (int32_t)moduleConfig.vs.zeroStillTicks) {
         armed = true;
         refTicks = keyaEncoderRaw;
         stillTimer = 0;
@@ -286,17 +293,17 @@ void vsZeroFromWasUpdate()
     if (wasAngle < wMin) wMin = wasAngle;
     if (wasAngle > wMax) wMax = wasAngle;
 
-    if (fabs(wasAngle) > moduleConfig.vsZeroMaxDeg) {
+    if (fabs(wasAngle) > moduleConfig.vs.zeroMaxDeg) {
         strncpy(vsZeroMsg, "angle too large - straighten up", sizeof(vsZeroMsg) - 1);
         return;
     }
-    if (stillTimer < moduleConfig.vsZeroStillMs) {
+    if (stillTimer < moduleConfig.vs.zeroStillMs) {
         strncpy(vsZeroMsg, "settling...", sizeof(vsZeroMsg) - 1);
         return;
     }
     // Quality: with the encoder still the truth is constant, so a wide spread means
     // the noise got through the median. Don't zero on that — fall back to GPS.
-    if ((wMax - wMin) > moduleConfig.vsZeroSpreadDeg) {
+    if ((wMax - wMin) > moduleConfig.vs.zeroSpreadDeg) {
         armed = false;
         strncpy(vsZeroMsg, "WAS too noisy - not zeroing", sizeof(vsZeroMsg) - 1);
         return;
@@ -318,8 +325,8 @@ void vsZeroFromWasUpdate()
 // empirical number, which is why correcting a wrong guess is exact too.
 float vsRatioDiv()
 {
-    if (!moduleConfig.vsOrbitalEnable || moduleConfig.vsOrbitalMode == 0) return 1.0f;
-    float r = moduleConfig.vsOrbitalRatio;
+    if (!moduleConfig.vs.orbitalEnable || moduleConfig.vs.orbitalMode == 0) return 1.0f;
+    float r = moduleConfig.vs.orbitalRatio;
     return (r > 0.1f) ? r : 1.0f;
 }
 
@@ -346,8 +353,8 @@ float vsDeadZone()
 // active control steps the feedback signal and jerks the wheel.
 void vsSetOrbitalMode(uint8_t mode)
 {
-    if (mode == moduleConfig.vsOrbitalMode) return;
-    moduleConfig.vsOrbitalMode = mode;
+    if (mode == moduleConfig.vs.orbitalMode) return;
+    moduleConfig.vs.orbitalMode = mode;
     // Recompute the zero for the new scale from the stored inputs.
     moduleConfig.keyaZeroTicks = vsZeroEncRaw - (int32_t)(vsZeroWasAngle * vsTicksPerDeg());
     vsWasOffset = 0.0f;             // the old trim belonged to the old scale

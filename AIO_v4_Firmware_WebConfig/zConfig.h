@@ -48,6 +48,43 @@ struct WasFit {
     double So, Sox, Soo;     // bike-if-outer (magnitude)
 };
 
+// ── Variable Steering config (custom: Deutz-Fahr twin orbital + noisy OEM WAS) ──
+// Kept as its own struct so it can be migrated independently: growing ModuleConfig
+// would otherwise load whatever was in the untouched EEPROM tail (0xFF) into these
+// fields — enabling every feature with a NaN calibration. VS_MAGIC guards that.
+// Bumping the module ident instead would work, but at the cost of wiping every
+// existing setting on the tractor.
+//
+// Encoder stays primary and carries all the dynamics; the analog WAS is only a slow
+// absolute anchor. Everything that changes behaviour defaults OFF → stock firmware.
+#define VS_MAGIC 0x5A
+struct VsConfig {
+    uint8_t  magic          = VS_MAGIC; // must stay first — migration marker
+    uint8_t  medianEnable   = 1;        // median-5 on raw ADS counts (VS reference only)
+    float    wasDegPerCount = 0.0f;     // WAS calibration: angle = a*counts + b (0 = uncalibrated)
+    float    wasIntercept   = 0.0f;     // b
+    // WAS as a slow absolute anchor for the encoder (master switch, default OFF)
+    uint8_t  fuseEnable     = 0;        // 0=off 1=on
+    float    fuseBeta       = 0.01f;    // correction fraction per accepted sample @20 Hz (~5 s TC)
+    float    gateDeg        = 4.0f;     // reject a WAS sample this far from the encoder prediction
+    float    rateMaxDegS    = 0.5f;     // hard cap on how fast the WAS offset may move (deg/s)
+    float    offsetMaxDeg   = 15.0f;    // clamp on the accumulated WAS offset (deg)
+    // Initial zero taken from the WAS (unlocks autosteer without waiting for GPS)
+    uint8_t  zeroEnable     = 0;        // 0=off (stock GPS initial zero) 1=on
+    uint16_t zeroStillMs    = 2000;     // encoder must be still this long
+    float    zeroStillTicks = 3.0f;     // |tick movement| below this counts as still
+    float    zeroMaxDeg     = 4.0f;     // only zero while |WAS| under this (keeps it ratio-neutral)
+    float    zeroSpreadDeg  = 1.0f;     // max spread of accepted samples in the window
+    // Twin orbital: 125 ccm is the calibrated base, 250 ccm halves ticks/deg exactly
+    uint8_t  orbitalEnable  = 0;        // 0=off (single ratio) 1=twin orbital handling
+    uint8_t  orbitalMode    = 0;        // active ratio: 0 = 125 ccm (base), 1 = 250 ccm
+    uint8_t  orbitalAuto    = 0;        // 0=manual only, 1=auto-switch from the estimate
+    float    orbitalRatio   = 2.0f;     // displacement ratio 250/125 (exact from ccm)
+    float    detectMinDeg   = 8.0f;     // WAS travel needed before an estimate counts
+    uint8_t  detectConfirm  = 3;        // consecutive agreeing windows before switching
+    uint8_t  disengageOnBad = 1;        // wrong ratio while engaged → drop autosteer
+};
+
 // ── EEPROM layout ──────────────────────────────────────────────────────────────
 // addr  0  : EEP_Ident (uint16)   – steer settings identity (existing)
 // addr 10  : steerSettings        – 11 bytes (existing)
@@ -203,32 +240,7 @@ struct ModuleConfig {
     uint32_t customEngageId      = 0;          // CAN ID to match
     uint8_t  customEngageMatch[8] = {0,0,0,0,0,0,0,0};  // expected byte values
     uint8_t  customEngageMask[8]  = {0,0,0,0,0,0,0,0};   // per-byte mask (0=ignore byte)
-    // ── Variable Steering (custom: Deutz-Fahr twin-orbital + noisy OEM WAS) ──────
-    // Encoder stays primary and carries all the dynamics; the analog WAS is only a
-    // slow absolute anchor. Everything here defaults OFF → stock behaviour.
-    uint8_t  vsMedianEnable   = 1;      // median-5 on raw ADS counts (VS reference only)
-    float    vsWasDegPerCount = 0.0f;   // WAS calibration: angle = a*counts + b (0 = uncalibrated)
-    float    vsWasIntercept   = 0.0f;   // b
-    // WAS as a slow absolute anchor for the encoder (master switch, default OFF)
-    uint8_t  vsFuseEnable     = 0;      // 0=off 1=on
-    float    vsFuseBeta       = 0.01f;  // correction fraction per accepted sample @20 Hz (~5 s TC)
-    float    vsGateDeg        = 4.0f;   // reject a WAS sample this far from the encoder prediction
-    float    vsRateMaxDegS    = 0.5f;   // hard cap on how fast the WAS offset may move (deg/s)
-    float    vsOffsetMaxDeg   = 15.0f;  // clamp on the accumulated WAS offset (deg)
-    // Initial zero taken from the WAS (unlocks autosteer without waiting for GPS)
-    uint8_t  vsZeroEnable     = 0;      // 0=off (stock GPS initial zero) 1=on
-    uint16_t vsZeroStillMs    = 2000;   // encoder must be still this long
-    float    vsZeroStillTicks = 3.0f;   // |tick movement| below this counts as still
-    float    vsZeroMaxDeg     = 4.0f;   // only zero while |WAS| under this (keeps it ratio-neutral)
-    float    vsZeroSpreadDeg  = 1.0f;   // max spread of accepted samples in the window
-    // Twin orbital: 125 ccm is the calibrated base, 250 ccm halves ticks/deg exactly
-    uint8_t  vsOrbitalEnable  = 0;      // 0=off (single ratio) 1=twin orbital handling
-    uint8_t  vsOrbitalMode    = 0;      // active ratio: 0 = 125 ccm (base), 1 = 250 ccm
-    uint8_t  vsOrbitalAuto    = 0;      // 0=manual only, 1=auto-switch from the estimate
-    float    vsOrbitalRatio   = 2.0f;   // displacement ratio 250/125 (exact from ccm)
-    float    vsDetectMinDeg   = 8.0f;   // WAS travel needed before an estimate counts
-    uint8_t  vsDetectConfirm  = 3;      // consecutive agreeing windows before switching
-    uint8_t  vsDisengageOnBad = 1;      // wrong ratio while engaged → drop autosteer
+    VsConfig vs;                        // Variable Steering (custom) — see VsConfig
 };
 extern ModuleConfig moduleConfig;
 
@@ -250,6 +262,16 @@ inline void moduleConfigLoad()
         EEPROM.get(EEP_MODULE_ADDR, moduleConfig);
         EEPROM.get(EEP_NOTE_ADDR, setupNote);
         setupNote[EEP_NOTE_MAX] = 0;        // guarantee null-terminated
+        // Variable Steering block added after this EEPROM image was written → the
+        // bytes are untouched flash (0xFF), which would read back as "everything
+        // enabled" with a NaN calibration. Reset just that block; all other saved
+        // settings survive.
+        if (moduleConfig.vs.magic != VS_MAGIC) {
+            ModuleConfig fresh;
+            moduleConfig.vs = fresh.vs;
+            EEPROM.put(EEP_MODULE_ADDR, moduleConfig);
+            Serial.println("ModuleConfig: Variable Steering block initialised to defaults");
+        }
         Serial.println("ModuleConfig: loaded from EEPROM");
     } else {
         EEPROM.put(EEP_MODULE_ADDR, moduleConfig);
