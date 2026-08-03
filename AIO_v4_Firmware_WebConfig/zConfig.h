@@ -215,6 +215,12 @@ struct ModuleConfig {
     float    vsGateDeg        = 4.0f;   // reject a WAS sample this far from the encoder prediction
     float    vsRateMaxDegS    = 0.5f;   // hard cap on how fast the WAS offset may move (deg/s)
     float    vsOffsetMaxDeg   = 15.0f;  // clamp on the accumulated WAS offset (deg)
+    // Initial zero taken from the WAS (unlocks autosteer without waiting for GPS)
+    uint8_t  vsZeroEnable     = 0;      // 0=off (stock GPS initial zero) 1=on
+    uint16_t vsZeroStillMs    = 2000;   // encoder must be still this long
+    float    vsZeroStillTicks = 3.0f;   // |tick movement| below this counts as still
+    float    vsZeroMaxDeg     = 4.0f;   // only zero while |WAS| under this (keeps it ratio-neutral)
+    float    vsZeroSpreadDeg  = 1.0f;   // max spread of accepted samples in the window
 };
 extern ModuleConfig moduleConfig;
 

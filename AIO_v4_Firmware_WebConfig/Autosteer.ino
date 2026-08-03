@@ -573,8 +573,11 @@ void autosteerLoop()
         static elapsedMillis keyaInitTimer = 0;
         if ((float)abs(headingRate) <= moduleConfig.keyaAzYawMaxInit) {
             if (keyaInitTimer > (float)moduleConfig.keyaAzTimeSlowMs) {
-                // Fast direct offset to GPS wheel angle (Flodu model)
-                moduleConfig.keyaZeroTicks = keyaEncoderRaw - (int32_t)(wheelAngleGPS * moduleConfig.keyaTicksPerDeg);
+                // Fast direct offset to GPS wheel angle (Flodu model).
+                // Routed through vsApplyZero so the zero INPUTS are recorded — that
+                // is what makes an orbital-ratio correction an exact recompute.
+                vsApplyZero(keyaEncoderRaw, wheelAngleGPS);
+                vsZeroFromWas = false;
                 keyaInitialZeroDone = true;
                 webLog("Keya WAS: initial zero done — autosteer unlocked");
                 Serial.println("Keya WAS: initial zero done");
@@ -595,6 +598,11 @@ void autosteerLoop()
             if (adsMonTimer > 50) { adsMonTimer = 0; readAdsRaw(); }
         }
     }
+
+    // Variable Steering: initial zero straight from the analog WAS (fresh counts).
+    // Gated on "encoder still" rather than "vehicle stopped", so it also works when
+    // the module is powered up while already driving straight.
+    vsZeroFromWasUpdate();
 
     switch (moduleConfig.wasSource)
     {

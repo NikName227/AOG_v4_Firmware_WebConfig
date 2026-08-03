@@ -144,3 +144,91 @@ void vsFuseUpdate(float predBase)
     if (vsWasOffset >  moduleConfig.vsOffsetMaxDeg) vsWasOffset =  moduleConfig.vsOffsetMaxDeg;
     if (vsWasOffset < -moduleConfig.vsOffsetMaxDeg) vsWasOffset = -moduleConfig.vsOffsetMaxDeg;
 }
+
+// ── Initial zero from the WAS ────────────────────────────────────────────────
+// Unlocks autosteer without waiting for the GPS conditions (speed + straight),
+// which is the difference between working immediately and idling at the headland.
+//
+// The gate is "encoder still", NOT "vehicle stopped". If the encoder is not
+// moving, the true angle is constant BY DEFINITION, so every variation on the WAS
+// is noise and can be measured and rejected. That also makes this work while
+// driving straight — powering up mid-drive is fine.
+//
+// |WAS| must be small. keyaZeroTicks depends on ticks/deg whenever the zero angle
+// is non-zero, and at power-up the orbital mode is unknown (it is measured, never
+// remembered — the tractor may be started in either mode, and the Teensy may be
+// powered independently). At a small angle a 2x ratio error contributes only 1-2
+// deg, which the GPS auto-zero then trims away.
+//
+// This is the one place where a wrong value gives a wrong angle from the very
+// first second, before anything else can react — hence the quality checks and the
+// default-off switch.
+void vsZeroFromWasUpdate()
+{
+    if (!moduleConfig.vsZeroEnable || keyaInitialZeroDone) return;
+    if (moduleConfig.wasSource != WAS_SOURCE_KEYA) return;
+    if (!keyaDetected || !keyaEncInitDone) return;
+
+    static elapsedMillis stillTimer = 0;
+    static int32_t  refTicks = 0;
+    static float    wMin = 0, wMax = 0;
+    static bool     armed = false;
+
+    float wasAngle;
+    if (!vsWasAngle(wasAngle) || fabs(wasAngle) >= 90.0f) {
+        armed = false; strncpy(vsZeroMsg, "no calibrated WAS", sizeof(vsZeroMsg) - 1);
+        return;
+    }
+
+    // Encoder still? Any movement beyond the tolerance restarts the window.
+    if (!armed || labs(keyaEncoderRaw - refTicks) > (int32_t)moduleConfig.vsZeroStillTicks) {
+        armed = true;
+        refTicks = keyaEncoderRaw;
+        stillTimer = 0;
+        wMin = wMax = wasAngle;
+        strncpy(vsZeroMsg, "encoder moving", sizeof(vsZeroMsg) - 1);
+        return;
+    }
+
+    if (wasAngle < wMin) wMin = wasAngle;
+    if (wasAngle > wMax) wMax = wasAngle;
+
+    if (fabs(wasAngle) > moduleConfig.vsZeroMaxDeg) {
+        strncpy(vsZeroMsg, "angle too large - straighten up", sizeof(vsZeroMsg) - 1);
+        return;
+    }
+    if (stillTimer < moduleConfig.vsZeroStillMs) {
+        strncpy(vsZeroMsg, "settling...", sizeof(vsZeroMsg) - 1);
+        return;
+    }
+    // Quality: with the encoder still the truth is constant, so a wide spread means
+    // the noise got through the median. Don't zero on that — fall back to GPS.
+    if ((wMax - wMin) > moduleConfig.vsZeroSpreadDeg) {
+        armed = false;
+        strncpy(vsZeroMsg, "WAS too noisy - not zeroing", sizeof(vsZeroMsg) - 1);
+        return;
+    }
+
+    vsApplyZero(keyaEncoderRaw, wasAngle);
+    keyaInitialZeroDone = true;
+    vsZeroFromWas = true;
+    vsWasOffset = 0.0f;
+    armed = false;
+    strncpy(vsZeroMsg, "zeroed from WAS", sizeof(vsZeroMsg) - 1);
+    webLogf("VS: initial zero from WAS at %.2f deg - autosteer unlocked", wasAngle);
+}
+
+// Base ticks/deg used for zeroing. Phase 4 extends this with the orbital ratio.
+float vsTicksPerDeg()
+{
+    return moduleConfig.keyaTicksPerDeg;
+}
+
+// Set keyaZeroTicks from a (ticks, angle) pair and REMEMBER the inputs, so the
+// same zero can be recomputed exactly for a different ticks/deg later.
+void vsApplyZero(int32_t encRaw, float angleDeg)
+{
+    vsZeroEncRaw   = encRaw;
+    vsZeroWasAngle = angleDeg;
+    moduleConfig.keyaZeroTicks = encRaw - (int32_t)(angleDeg * vsTicksPerDeg());
+}

@@ -144,6 +144,12 @@ float    vsLastInnov    = 0.0f;   // last innovation: WAS - encoder prediction (
 bool     vsWasUsable    = false;  // WAS calibrated, ADS present, sane reading
 uint16_t vsRejectPerSec = 0;      // gate rejections/s — how bad the noise is right now
 elapsedMillis vsGateBlocked = 0;  // time since a WAS sample last passed the gate
+// Zero inputs are kept, not just the result — that makes an orbital-ratio change an
+// exact recompute instead of waiting for a fresh acquisition window (see phase 4).
+int32_t  vsZeroEncRaw   = 0;      // encoder ticks at the moment of zeroing
+float    vsZeroWasAngle = 0.0f;   // WAS angle (bike deg) at that same moment
+bool     vsZeroFromWas  = false;  // true if the current zero came from the WAS
+char     vsZeroMsg[40]  = "waiting";
 
 // ── HPR RTK quality monitoring (UM982 second antenna) ────────────────────────
 bool          hprRtkLost      = false;  // true when main=RTK but secondary lost RTK
