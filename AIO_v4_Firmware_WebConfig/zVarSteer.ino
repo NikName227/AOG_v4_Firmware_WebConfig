@@ -86,6 +86,19 @@ bool vsWasAngle(float &angleOut)
     return true;
 }
 
+// ── WAS angle monitor ────────────────────────────────────────────────────────
+// Runs every cycle from autosteerLoop, independent of the WAS source, of the
+// initial zero and of the fusion switch. The Keya branch breaks out early until
+// the initial zero is done, so keeping this here is what makes the tractor WAS
+// visible from power-up — which is exactly when you want to compare it against
+// the encoder before enabling anything.
+void vsWasMonitor()
+{
+    float a;
+    vsWasUsable = vsWasAngle(a) && fabs(a) < 90.0f;
+    if (vsWasUsable) vsLastWasAngle = a;
+}
+
 // ── WAS as a slow absolute anchor ────────────────────────────────────────────
 // Runs at a fixed 20 Hz (one step per new ADS sample) so the tuning is not tied
 // to the loop rate. 'predBase' is the encoder angle plus the GPS offset, i.e.
@@ -108,9 +121,8 @@ void vsFuseUpdate(float predBase)
     static elapsedMillis vsRejWindow = 0;
     static uint16_t      vsRejCount = 0;
 
-    float wasAngle;
-    vsWasUsable = vsWasAngle(wasAngle) && fabs(wasAngle) < 90.0f;
-    if (vsWasUsable) vsLastWasAngle = wasAngle;
+    // vsWasMonitor() already refreshed these this cycle.
+    float wasAngle = vsLastWasAngle;
 
     if (vsStep < VS_FUSE_STEP_MS) return;
     vsStep = 0;
@@ -173,10 +185,10 @@ void vsOrbitalDetect(float encAngleBase)
     static bool  have = false;
     static float wasStart = 0, encStart = 0;
 
-    float wasAngle;
-    if (!vsWasAngle(wasAngle) || fabs(wasAngle) >= 90.0f) {
+    if (!vsWasUsable) {
         have = false; strncpy(vsOrbitalMsg, "no WAS", sizeof(vsOrbitalMsg) - 1); return;
     }
+    float wasAngle = vsLastWasAngle;
     if (step < 50) return;
     step = 0;
 
@@ -274,11 +286,11 @@ void vsZeroFromWasUpdate()
     static float    wMin = 0, wMax = 0;
     static bool     armed = false;
 
-    float wasAngle;
-    if (!vsWasAngle(wasAngle) || fabs(wasAngle) >= 90.0f) {
+    if (!vsWasUsable) {
         armed = false; strncpy(vsZeroMsg, "no calibrated WAS", sizeof(vsZeroMsg) - 1);
         return;
     }
+    float wasAngle = vsLastWasAngle;
 
     // Encoder still? Any movement beyond the tolerance restarts the window.
     if (!armed || labs(keyaEncoderRaw - refTicks) > (int32_t)moduleConfig.vs.zeroStillTicks) {

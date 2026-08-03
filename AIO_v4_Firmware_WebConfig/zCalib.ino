@@ -219,6 +219,15 @@ void calibrationLoop()
     if (calState == CAL_IDLE || calState == CAL_DONE || calState == CAL_FAIL) { calStop(); return; }
     if (!calGuard()) return;
 
+    // autosteerLoop() returns to us BEFORE its own ADS read, so the analog WAS would
+    // stay frozen for the whole sweep — every sample would carry the same count and
+    // the WAS fit would silently collapse (zero variance). Refresh it here at the
+    // same 20 Hz the main loop uses.
+    if (adcConnected) {
+        static elapsedMillis calAdsTimer = 0;
+        if (calAdsTimer > 50) { calAdsTimer = 0; readAdsRaw(); }
+    }
+
     float refDelta = refWheelAngle - calRefCenter;
     float tpd = (moduleConfig.keyaTicksPerDeg > 1.0f) ? moduleConfig.keyaTicksPerDeg : 24.0f;
 

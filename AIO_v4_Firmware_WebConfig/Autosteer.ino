@@ -599,6 +599,11 @@ void autosteerLoop()
         }
     }
 
+    // Variable Steering: refresh the WAS angle for every consumer below. Kept out of
+    // the Keya branch so it is live from power-up — that branch breaks out until the
+    // initial zero is done, which is exactly when you want to compare WAS vs encoder.
+    vsWasMonitor();
+
     // Variable Steering: initial zero straight from the analog WAS (fresh counts).
     // Gated on "encoder still" rather than "vehicle stopped", so it also works when
     // the module is powered up while already driving straight.
