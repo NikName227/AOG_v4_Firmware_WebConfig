@@ -13,6 +13,8 @@ Grana `feature/variable-steering`. Povratak na poznato stanje = flash s `master`
 - [ ] Keya → Variable Steering: sve isključeno, `WAS angle` = `— (uncalibrated)`
 - [ ] Graf 17 + 47 → median radi
 - [ ] Nosač referentnog IMU-a za kotač spreman ⚠️ *ovo zna pojesti sat vremena*
+- [ ] **ESP32 bridge** provjeren: napajanje, WiFi, PGN 0xD6 stiže do Teensyja
+      (isti bridge kao za Keya kalibraciju — **CAN se ne koristi nigdje**)
 
 ---
 
@@ -57,40 +59,32 @@ Opcionalno: prebaci na 250, kratki scatter 5 min, provjeri dead zone.
 
 ---
 
-## 4. CAN sniff — 10 min, usput
+## 4. Podešavanje u vožnji — 90 min
 
-- [ ] CAN plot uključen, prebaci ventil nekoliko puta, gledaj ima li poruke
-
-Čista izvidnica. Ako nema — nema, plan ne ovisi o tome.
-
----
-
-## 5. Podešavanje u vožnji — 90 min
-
-### 5a. Usporedba (ništa uključeno)
+### 4a. Usporedba (ništa uključeno)
 - [ ] Graf: **48** (traktorski WAS) + **22** (Keya) + **49** (innovation)
 - [ ] Poklapaju se? Konstantan razmak = zero. Razmak raste s kutom = skala.
 
-### 5b. Fuzija
+### 4b. Fuzija
 - [ ] `Enable WAS fusion` ON
 - [ ] Gledaj `Gate rejects/s` — **nije nula i to je dobro**, gate radi
 - [ ] `WAS offset` treba puzati, ne skakati
 - [ ] Ako offset trči u limit → gate preširok ili kalibracija ne valja
 
-### 5c. Orbital, observe-only
+### 4c. Orbital, observe-only
 - [ ] `Twin orbital handling` ON, `Active ratio` = **125**, `Auto-switch` **OFF**
 - [ ] Prebaci ventil ~10× (u mjestu, u vožnji, u zavoju)
 - [ ] `Ratio estimate` skoči na ~2? Koliko joj treba? Griješi li ikad?
 - [ ] Ako 100 % i brzo → `Auto-switch` ON, odvozi krug
 
-### 5d. Zero iz WAS-a
+### 4d. Zero iz WAS-a
 - [ ] `Zero from WAS` OFF još — samo gledaj `Initial zero` redak kroz par paljenja
 - [ ] Usporedi prikazani WAS zero s onim što GPS naknadno ispadne
 - [ ] Poklapa se unutar ~1° kroz nekoliko paljenja → upali
 
 ---
 
-## 6. Rezerva + kraj — 30 min
+## 5. Rezerva + kraj — 40 min
 
 - [ ] Export svih logova / CSV-ova
 - [ ] Zapiši finalne parametre
