@@ -137,6 +137,14 @@ bool     keyaEncInitDone     = false;
 bool     keyaInitialZeroDone = false;  // autosteer blocked until first auto-zero done
 float    keyaGpsOffset       = 0.0f;  // runtime drift correction (degrees)
 
+// ── Variable Steering runtime state ──────────────────────────────────────────
+float    vsWasOffset    = 0.0f;   // slow absolute correction from the analog WAS (deg)
+float    vsLastWasAngle = 0.0f;   // last WAS angle in bike degrees (display)
+float    vsLastInnov    = 0.0f;   // last innovation: WAS - encoder prediction (deg)
+bool     vsWasUsable    = false;  // WAS calibrated, ADS present, sane reading
+uint16_t vsRejectPerSec = 0;      // gate rejections/s — how bad the noise is right now
+elapsedMillis vsGateBlocked = 0;  // time since a WAS sample last passed the gate
+
 // ── HPR RTK quality monitoring (UM982 second antenna) ────────────────────────
 bool          hprRtkLost      = false;  // true when main=RTK but secondary lost RTK
 bool          hprCutoffActive = false;  // true when lost >10s, fixQuality forced to 0

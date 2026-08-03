@@ -763,7 +763,12 @@ void autosteerLoop()
                      moduleConfig.keyaAzTimeSlowMs, moduleConfig.keyaAzTimeFastMs };
         gpsDriftAutoZero(rawAngle, keyaGpsOffset, keyaAz, kc);
 
-        float correctedAngle = rawAngle + keyaGpsOffset;
+        // Variable Steering: the analog WAS as a second, slower anchor. It works
+        // standing still and mid-manoeuvre — exactly where GPS auto-zero cannot.
+        // Never touches the dynamics, only trims vsWasOffset.
+        vsFuseUpdate(rawAngle + keyaGpsOffset);
+
+        float correctedAngle = rawAngle + keyaGpsOffset + vsWasOffset;
         static float keyaEmaOut = 0.0f;
         if (moduleConfig.keyaEmaAlpha > 0.0f) {
             keyaEmaOut = moduleConfig.keyaEmaAlpha * correctedAngle + (1.0f - moduleConfig.keyaEmaAlpha) * keyaEmaOut;

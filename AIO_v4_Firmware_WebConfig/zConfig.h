@@ -209,6 +209,12 @@ struct ModuleConfig {
     uint8_t  vsMedianEnable   = 1;      // median-5 on raw ADS counts (VS reference only)
     float    vsWasDegPerCount = 0.0f;   // WAS calibration: angle = a*counts + b (0 = uncalibrated)
     float    vsWasIntercept   = 0.0f;   // b
+    // WAS as a slow absolute anchor for the encoder (master switch, default OFF)
+    uint8_t  vsFuseEnable     = 0;      // 0=off 1=on
+    float    vsFuseBeta       = 0.01f;  // correction fraction per accepted sample @20 Hz (~5 s TC)
+    float    vsGateDeg        = 4.0f;   // reject a WAS sample this far from the encoder prediction
+    float    vsRateMaxDegS    = 0.5f;   // hard cap on how fast the WAS offset may move (deg/s)
+    float    vsOffsetMaxDeg   = 15.0f;  // clamp on the accumulated WAS offset (deg)
 };
 extern ModuleConfig moduleConfig;
 
