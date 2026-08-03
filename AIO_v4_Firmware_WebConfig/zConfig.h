@@ -36,6 +36,18 @@ struct CalFit {
     double maxW;             // max |wheel| seen (inner detection)
 };
 
+// ── Variable Steering: per-side accumulator for the analog-WAS sweep fit ────────
+// Fits ADS counts (x) → bike angle (y, signed) so the noisy OEM WAS can be used as
+// a slow absolute reference for the Keya encoder. Filled during the same sweep that
+// calibrates ticks/deg, so it costs no extra time on the tractor. Both bike columns
+// are accumulated; the inner/outer choice is resolved in calStopSweep().
+struct WasFit {
+    uint32_t n;
+    double Sx, Sxx;          // Σcounts, Σcounts²
+    double Si, Six, Sii;     // bike-if-inner (magnitude)
+    double So, Sox, Soo;     // bike-if-outer (magnitude)
+};
+
 // ── EEPROM layout ──────────────────────────────────────────────────────────────
 // addr  0  : EEP_Ident (uint16)   – steer settings identity (existing)
 // addr 10  : steerSettings        – 11 bytes (existing)
@@ -191,6 +203,12 @@ struct ModuleConfig {
     uint32_t customEngageId      = 0;          // CAN ID to match
     uint8_t  customEngageMatch[8] = {0,0,0,0,0,0,0,0};  // expected byte values
     uint8_t  customEngageMask[8]  = {0,0,0,0,0,0,0,0};   // per-byte mask (0=ignore byte)
+    // ── Variable Steering (custom: Deutz-Fahr twin-orbital + noisy OEM WAS) ──────
+    // Encoder stays primary and carries all the dynamics; the analog WAS is only a
+    // slow absolute anchor. Everything here defaults OFF → stock behaviour.
+    uint8_t  vsMedianEnable   = 1;      // median-5 on raw ADS counts (VS reference only)
+    float    vsWasDegPerCount = 0.0f;   // WAS calibration: angle = a*counts + b (0 = uncalibrated)
+    float    vsWasIntercept   = 0.0f;   // b
 };
 extern ModuleConfig moduleConfig;
 

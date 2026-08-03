@@ -119,6 +119,7 @@ float steerAngleSpeedActual = 0;
 float steerAngleSetPoint = 0; //the desired angle from AgOpen
 int16_t steeringPosition = 0; //from steering sensor
 int16_t adsRawCounts = 0;    //latest raw ADS1115 reading (always updated when ADS present, any WAS source)
+int16_t adsMedCounts = 0;    //median-filtered ADS counts — Variable Steering reference only, never the control path
 float steerAngleError = 0; //setpoint - actual
 
 //pwm variables
@@ -340,6 +341,9 @@ void readAdsRaw()
     int16_t v = adc.getConversion();
     adc.triggerConversion();
     int16_t raw = v >> 1;
+    // Median runs on the UNfiltered counts and feeds only the Variable Steering
+    // reference — the control path below is untouched.
+    vsMedianPush(raw);
     float a = moduleConfig.adsEmaAlpha;
     if (a > 0.0f && a < 1.0f) {
         static float emaWas  = 0;

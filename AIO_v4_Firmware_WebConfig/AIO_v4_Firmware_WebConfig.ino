@@ -173,6 +173,13 @@ float    calBikeInner = 0.0f;
 float    calBikeOuter = 0.0f;
 bool     calHaveDz    = false;         // a fresh dead-zone result is ready to apply
 bool     calHaveRange = false;         // a fresh range (ticks/deg) result is ready to apply
+// Variable Steering: analog-WAS fit from the SAME sweep (angle = a*counts + b).
+// Free to collect — the reference IMU is already on the wheel for the ticks/deg fit.
+float    calResWasA   = 0.0f;          // deg per ADS count
+float    calResWasB   = 0.0f;          // intercept (deg at 0 counts)
+float    calResWasRms = 0.0f;          // fit residual (deg) — how straight the WAS is
+uint32_t calResWasN   = 0;             // samples in the WAS fit
+bool     calHaveWas   = false;         // a fresh WAS calibration is ready to apply
 
 // ── Custom CAN engage runtime state ──────────────────────────────────────────
 uint8_t  customEngLastBuf[8] = {0};  // last frame seen on configured ID (for Learn)

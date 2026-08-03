@@ -69,6 +69,19 @@ void calLiveVirtual() {
 // Fits angle(y) vs tick(x): slope = deg/tick → ticks/deg = 1/slope ; RMS in degrees.
 static CalFit calFitL, calFitR;
 
+// Variable Steering: analog-WAS accumulators, same two buckets as the tick fit.
+static WasFit wasFitL, wasFitR;
+static void wasFitReset(WasFit &f) { memset(&f, 0, sizeof(f)); }
+// One (ADS counts, wheel-angle magnitude) sample. Both bike conversions are stored
+// so the inner/outer decision can be deferred to calStopSweep(), exactly like CalFit.
+static void wasFitAdd(WasFit &f, double counts, double wheelDeg) {
+    double bi = wheelToBike((float)wheelDeg, true);
+    double bo = wheelToBike((float)wheelDeg, false);
+    f.n++; f.Sx += counts; f.Sxx += counts*counts;
+    f.Si += bi; f.Six += counts*bi; f.Sii += bi*bi;
+    f.So += bo; f.Sox += counts*bo; f.Soo += bo*bo;
+}
+
 static void calFitReset(CalFit &f) { memset(&f, 0, sizeof(f)); }
 // Accumulate one (tick, wheel-angle) sample; both bike conversions are pre-computed
 // so the inner/outer choice can be deferred to the end (robust to encoder polarity).
@@ -152,6 +165,8 @@ void calStartSweep() {
     if (!calCommonGuards()) return;                // needs Keya + reference IMU + stationary
     calResetRange();
     calFitReset(calFitL); calFitReset(calFitR);
+    wasFitReset(wasFitL); wasFitReset(wasFitR);
+    calResWasA = calResWasB = calResWasRms = 0; calResWasN = 0; calHaveWas = false;
     calStop();
     calEncCenter = keyaEncoderRaw;
     calRefCenter = refWheelAngle;
@@ -180,6 +195,11 @@ void calApply() {
         if (calResTpd > 1.0f) moduleConfig.keyaTicksPerDeg = calResTpd;
         if (calResTR  > 1.0f) moduleConfig.keyaTicksRight   = calResTR;
         if (calResTL  > 1.0f) moduleConfig.keyaTicksLeft    = calResTL;
+    }
+    // Variable Steering: the analog-WAS calibration measured in the same sweep.
+    if (calHaveWas) {
+        moduleConfig.vsWasDegPerCount = calResWasA;
+        moduleConfig.vsWasIntercept   = calResWasB;
     }
     moduleConfigSave();
     calSet(CAL_IDLE, "applied & saved");
@@ -289,6 +309,12 @@ void calibrationLoop()
         // (i.e. right/left turn) is decided in calStopSweep from the max wheel angle.
         if (sgnTick > 0) calFitAdd(calFitR, tickMag, dwMag);
         else             calFitAdd(calFitL, tickMag, dwMag);
+        // Variable Steering: same sample, but against the analog WAS counts. Costs
+        // nothing extra on the tractor and gives the WAS its own calibration.
+        if (adcConnected) {
+            if (sgnTick > 0) wasFitAdd(wasFitR, (double)adsMedCounts, dwMag);
+            else             wasFitAdd(wasFitL, (double)adsMedCounts, dwMag);
+        }
         break;
     }
     }
@@ -299,6 +325,44 @@ static void calUpdateBase() {
     int nv = (calResTR > 1.0f) + (calResTL > 1.0f);
     calResTpd = nv ? ((calResTR * (calResTR > 1.0f) + calResTL * (calResTL > 1.0f)) / nv) : 0;
     calHaveRange = (nv > 0);
+}
+
+// ── Variable Steering: resolve the analog-WAS fit once inner/outer is known ────
+// The two buckets hold MAGNITUDES; the right bucket is +, the left bucket is −.
+// Sums are linear, so the signed fit is assembled by negating the left bucket's
+// first-order terms (the squared terms are sign-independent). Produces
+//   bikeAngle = a * counts + b   over the whole lock-to-lock range.
+static void wasFitResolve(bool rBucketInner) {
+    const WasFit &R = wasFitR, &L = wasFitL;
+    // Column choice mirrors the tick fit: right = inner if the R bucket is inner.
+    double SyR  = rBucketInner ? R.Si  : R.So;
+    double SxyR = rBucketInner ? R.Six : R.Sox;
+    double SyyR = rBucketInner ? R.Sii : R.Soo;
+    double SyL  = rBucketInner ? L.So  : L.Si;
+    double SxyL = rBucketInner ? L.Sox : L.Six;
+    double SyyL = rBucketInner ? L.Soo : L.Sii;
+
+    double n   = (double)(R.n + L.n);
+    double Sx  = R.Sx  + L.Sx;
+    double Sxx = R.Sxx + L.Sxx;
+    double Sy  = SyR  - SyL;      // left bucket is the negative side
+    double Sxy = SxyR - SxyL;
+    double Syy = SyyR + SyyL;
+
+    calResWasN = R.n + L.n;
+    if (n < 10) return;                       // too little to trust
+    double denom = n*Sxx - Sx*Sx;
+    if (fabs(denom) < 1e-6) return;           // WAS never moved (dead sensor)
+    double a = (n*Sxy - Sx*Sy) / denom;
+    if (fabs(a) < 1e-9) return;
+    double b = (Sy - a*Sx) / n;
+
+    double ssres = (Syy - Sy*Sy/n) - a*(Sxy - Sx*Sy/n);
+    if (ssres < 0) ssres = 0;
+    calResWasA   = (float)a;
+    calResWasB   = (float)b;
+    calResWasRms = (float)sqrt(ssres / n);
+    calHaveWas   = true;
 }
 
 // ── Tool A: finish the sweep — compute per-side least-squares slopes ──────────
@@ -325,6 +389,7 @@ void calStopSweep() {
     calResMaxR   = (float)inner.maxW;
     calResMaxL   = (float)outer.maxW;
     calUpdateBase();
+    wasFitResolve(rBucketInner);     // Variable Steering: analog-WAS fit from the same samples
     char m[80];
     if (!calHaveRange)
         snprintf(m, sizeof(m), "not enough sweep data - turn fuller/slower, both sides");
