@@ -145,6 +145,99 @@ void vsFuseUpdate(float predBase)
     if (vsWasOffset < -moduleConfig.vsOffsetMaxDeg) vsWasOffset = -moduleConfig.vsOffsetMaxDeg;
 }
 
+// ── Orbital ratio detection ──────────────────────────────────────────────────
+// The WAS sits AFTER the orbital: it measures the real wheel angle and is therefore
+// independent of the ratio. So over a window with enough travel,
+//
+//     ratio = d(WAS) / d(encoder angle at base scale)
+//
+// is ~1 in 125 ccm and ~2 in 250 ccm. The separation is a full factor of two, so
+// the threshold sits at the geometric mean (sqrt(2)) with plenty of margin — the
+// impulsive WAS noise is irrelevant here because the measurement is a DIFFERENCE
+// over a large movement, where signal utterly dominates noise.
+//
+// Requires a decent amount of travel per window (vsDetectMinDeg) and several
+// agreeing windows before acting, so a single bad reading cannot flip the gain.
+void vsOrbitalDetect(float encAngleBase)
+{
+    if (!moduleConfig.vsOrbitalEnable) { strncpy(vsOrbitalMsg, "off", sizeof(vsOrbitalMsg) - 1); return; }
+
+    static elapsedMillis step = 0;
+    static bool  have = false;
+    static float wasStart = 0, encStart = 0;
+
+    float wasAngle;
+    if (!vsWasAngle(wasAngle) || fabs(wasAngle) >= 90.0f) {
+        have = false; strncpy(vsOrbitalMsg, "no WAS", sizeof(vsOrbitalMsg) - 1); return;
+    }
+    if (step < 50) return;
+    step = 0;
+
+    if (!have) { have = true; wasStart = wasAngle; encStart = encAngleBase; return; }
+
+    float dWas = wasAngle - wasStart;
+    float dEnc = encAngleBase - encStart;
+    if (fabs(dWas) < moduleConfig.vsDetectMinDeg) {
+        // Not enough travel yet. If the encoder moved a lot while the WAS did not,
+        // the window is stale (reversal) — restart it.
+        if (fabs(dEnc) > moduleConfig.vsDetectMinDeg * 2.0f) { wasStart = wasAngle; encStart = encAngleBase; }
+        strncpy(vsOrbitalMsg, "turn more to measure", sizeof(vsOrbitalMsg) - 1);
+        return;
+    }
+    if (fabs(dEnc) < 1.0f) { have = false; return; }        // encoder barely moved → meaningless
+    if ((dWas > 0) != (dEnc > 0)) { have = false; return; } // opposite directions → not a clean sweep
+
+    vsRatioEst = fabs(dWas) / fabs(dEnc);
+    have = false;                                            // start a fresh window
+
+    // sqrt(ratio) is the geometric mean between 1x and 2x — the natural split.
+    float thresh = sqrtf((moduleConfig.vsOrbitalRatio > 0.1f) ? moduleConfig.vsOrbitalRatio : 2.0f);
+    uint8_t seen = (vsRatioEst > thresh) ? 1 : 0;
+
+    if (seen == vsDetectMode) { if (vsDetectCnt < 250) vsDetectCnt++; }
+    else                      { vsDetectMode = seen; vsDetectCnt = 1; }
+
+    if (vsDetectCnt < moduleConfig.vsDetectConfirm) {
+        snprintf(vsOrbitalMsg, sizeof(vsOrbitalMsg), "est %.2f (%u/%u)",
+                 vsRatioEst, vsDetectCnt, moduleConfig.vsDetectConfirm);
+        return;
+    }
+    if (vsDetectMode == moduleConfig.vsOrbitalMode) {
+        snprintf(vsOrbitalMsg, sizeof(vsOrbitalMsg), "confirmed %s ccm (est %.2f)",
+                 vsDetectMode ? "250" : "125", vsRatioEst);
+        return;
+    }
+
+    // ── Mismatch confirmed ───────────────────────────────────────────────────
+    bool engaged = (watchdogTimer < WATCHDOG_THRESHOLD);
+    if (engaged) {
+        // HARD RULE: the gain is never changed under active control.
+        snprintf(vsOrbitalMsg, sizeof(vsOrbitalMsg), "WRONG RATIO (%s ccm) - engaged, not changing",
+                 vsDetectMode ? "250" : "125");
+        webLogf("VS: wrong orbital ratio detected while engaged (est %.2f)", vsRatioEst);
+        // The dangerous direction is running 125 when it is really 250: the angle is
+        // UNDER-reported 2x, so AOG keeps steering into the turn and overshoots. Hand
+        // control back rather than fight it. The benign direction (over-reported →
+        // sluggish) only warns. Disengaging is not a gain change, so the rule holds.
+        if (moduleConfig.vsDisengageOnBad && vsDetectMode == 1 && moduleConfig.vsOrbitalMode == 0) {
+            if (steerSwitch == 0) disengageLog("VS: orbital ratio mismatch");
+            steerSwitch = 1;
+            currentState = 1;
+            previous = 0;
+        }
+        return;
+    }
+
+    if (!moduleConfig.vsOrbitalAuto) {
+        snprintf(vsOrbitalMsg, sizeof(vsOrbitalMsg), "suggests %s ccm (auto off)",
+                 vsDetectMode ? "250" : "125");
+        return;
+    }
+    vsSetOrbitalMode(vsDetectMode);
+    snprintf(vsOrbitalMsg, sizeof(vsOrbitalMsg), "auto-switched to %s ccm (est %.2f)",
+             vsDetectMode ? "250" : "125", vsRatioEst);
+}
+
 // ── Initial zero from the WAS ────────────────────────────────────────────────
 // Unlocks autosteer without waiting for the GPS conditions (speed + straight),
 // which is the difference between working immediately and idling at the headland.
@@ -218,10 +311,48 @@ void vsZeroFromWasUpdate()
     webLogf("VS: initial zero from WAS at %.2f deg - autosteer unlocked", wasAngle);
 }
 
-// Base ticks/deg used for zeroing. Phase 4 extends this with the orbital ratio.
+// ── Twin orbital: the active ticks/deg ───────────────────────────────────────
+// Calibration is done in 125 ccm, so that is the base. 250 ccm passes twice the
+// oil per steering-wheel turn → twice the wheel angle per turn → half the ticks
+// per degree. The factor is geometrically exact from the displacements, not an
+// empirical number, which is why correcting a wrong guess is exact too.
+float vsRatioDiv()
+{
+    if (!moduleConfig.vsOrbitalEnable || moduleConfig.vsOrbitalMode == 0) return 1.0f;
+    float r = moduleConfig.vsOrbitalRatio;
+    return (r > 0.1f) ? r : 1.0f;
+}
+
+// Base ticks/deg for zeroing, scaled by the active orbital ratio.
 float vsTicksPerDeg()
 {
-    return moduleConfig.keyaTicksPerDeg;
+    return moduleConfig.keyaTicksPerDeg / vsRatioDiv();
+}
+
+// The backlash dead zone is applied in OUTPUT degrees, but the free play is
+// physically in the column/orbital — the same number of TICKS. Half the ticks/deg
+// therefore means twice as many degrees.
+float vsDeadZone()
+{
+    return moduleConfig.keyaDeadZone * vsRatioDiv();
+}
+
+// ── Switch the active ratio and repair the zero exactly ──────────────────────
+// The zero inputs were kept, so this is arithmetic, not a new acquisition: no
+// waiting for a still window, no gap in the angle. Because the ratio is exactly
+// 2:1, the error is cancelled outright.
+//
+// Hard rule: NEVER call this while autosteer is engaged. Changing the gain under
+// active control steps the feedback signal and jerks the wheel.
+void vsSetOrbitalMode(uint8_t mode)
+{
+    if (mode == moduleConfig.vsOrbitalMode) return;
+    moduleConfig.vsOrbitalMode = mode;
+    // Recompute the zero for the new scale from the stored inputs.
+    moduleConfig.keyaZeroTicks = vsZeroEncRaw - (int32_t)(vsZeroWasAngle * vsTicksPerDeg());
+    vsWasOffset = 0.0f;             // the old trim belonged to the old scale
+    vsOrbitalSwitches++;
+    webLogf("VS: orbital ratio -> %s ccm (zero recomputed)", mode ? "250" : "125");
 }
 
 // Set keyaZeroTicks from a (ticks, angle) pair and REMEMBER the inputs, so the

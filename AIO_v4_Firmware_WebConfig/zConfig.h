@@ -221,6 +221,14 @@ struct ModuleConfig {
     float    vsZeroStillTicks = 3.0f;   // |tick movement| below this counts as still
     float    vsZeroMaxDeg     = 4.0f;   // only zero while |WAS| under this (keeps it ratio-neutral)
     float    vsZeroSpreadDeg  = 1.0f;   // max spread of accepted samples in the window
+    // Twin orbital: 125 ccm is the calibrated base, 250 ccm halves ticks/deg exactly
+    uint8_t  vsOrbitalEnable  = 0;      // 0=off (single ratio) 1=twin orbital handling
+    uint8_t  vsOrbitalMode    = 0;      // active ratio: 0 = 125 ccm (base), 1 = 250 ccm
+    uint8_t  vsOrbitalAuto    = 0;      // 0=manual only, 1=auto-switch from the estimate
+    float    vsOrbitalRatio   = 2.0f;   // displacement ratio 250/125 (exact from ccm)
+    float    vsDetectMinDeg   = 8.0f;   // WAS travel needed before an estimate counts
+    uint8_t  vsDetectConfirm  = 3;      // consecutive agreeing windows before switching
+    uint8_t  vsDisengageOnBad = 1;      // wrong ratio while engaged → drop autosteer
 };
 extern ModuleConfig moduleConfig;
 

@@ -744,15 +744,23 @@ void autosteerLoop()
         int32_t deltaTicks = keyaEncoderRaw - moduleConfig.keyaZeroTicks;
         float deltaSigned = moduleConfig.keyaEncInvert ? (float)deltaTicks : -(float)deltaTicks;
 
-        // Per-side ticks/deg (0 = use the base keyaTicksPerDeg for that side)
+        // Per-side ticks/deg (0 = use the base keyaTicksPerDeg for that side).
+        // Variable Steering: everything scales by the active orbital ratio — the
+        // per-side values were calibrated in 125 ccm just like the base.
+        float ratioDiv = vsRatioDiv();
         float tpd = moduleConfig.keyaTicksPerDeg;
         if (deltaSigned >= 0) { if (moduleConfig.keyaTicksRight > 0.1f) tpd = moduleConfig.keyaTicksRight; }
         else                  { if (moduleConfig.keyaTicksLeft  > 0.1f) tpd = moduleConfig.keyaTicksLeft;  }
+        tpd /= ratioDiv;
         float encAngle = deltaSigned / tpd;
+
+        // Ratio estimate runs on the BASE scale, so it reads ~1 in 125 ccm and ~2
+        // in 250 ccm regardless of which mode is currently assumed.
+        vsOrbitalDetect(deltaSigned / moduleConfig.keyaTicksPerDeg);
 
         // ── Hydraulic backlash (dead zone) — freeze output during reversal play ──
         static float backOut = 0.0f;
-        float dz = moduleConfig.keyaDeadZone;
+        float dz = vsDeadZone();
         if (dz > 0.001f) {
             if      (encAngle > backOut + dz * 0.5f) backOut = encAngle - dz * 0.5f;
             else if (encAngle < backOut - dz * 0.5f) backOut = encAngle + dz * 0.5f;

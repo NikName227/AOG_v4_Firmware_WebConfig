@@ -150,6 +150,12 @@ int32_t  vsZeroEncRaw   = 0;      // encoder ticks at the moment of zeroing
 float    vsZeroWasAngle = 0.0f;   // WAS angle (bike deg) at that same moment
 bool     vsZeroFromWas  = false;  // true if the current zero came from the WAS
 char     vsZeroMsg[40]  = "waiting";
+// Orbital ratio detection
+float    vsRatioEst     = 0.0f;   // last windowed estimate (1 = 125 ccm, 2 = 250 ccm)
+uint8_t  vsDetectMode   = 0;      // mode the estimator currently believes
+uint8_t  vsDetectCnt    = 0;      // consecutive agreeing windows
+uint16_t vsOrbitalSwitches = 0;   // switch count — repeated flipping means a fault
+char     vsOrbitalMsg[48]  = "idle";
 
 // ── HPR RTK quality monitoring (UM982 second antenna) ────────────────────────
 bool          hprRtkLost      = false;  // true when main=RTK but secondary lost RTK
