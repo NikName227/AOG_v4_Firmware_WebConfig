@@ -127,16 +127,21 @@ void vsFuseUpdate(float predBase)
     if (vsStep < VS_FUSE_STEP_MS) return;
     vsStep = 0;
 
-    // Master switch off (or no usable WAS) → ramp the offset back out at the same
-    // rate limit, so flipping the switch returns to stock behaviour without a step
-    // in the feedback signal.
-    if (!moduleConfig.vs.masterEnable || !moduleConfig.vs.fuseEnable
-        || !vsWasUsable || !keyaInitialZeroDone) {
+    // Switched off (or no usable WAS) → clear the offset. The rate limit only exists
+    // so the feedback signal does not step under active control; with autosteer off
+    // nobody is reading it in a loop, so it can simply snap to zero. That is also the
+    // realistic case — you disengage before flipping the switch.
+    if (!moduleConfig.vs.masterEnable || !moduleConfig.vs.wasPresent
+        || !moduleConfig.vs.fuseEnable || !vsWasUsable || !keyaInitialZeroDone) {
         vsGateBlocked = 0;
-        float maxStep = moduleConfig.vs.rateMaxDegS * (VS_FUSE_STEP_MS / 1000.0f);
-        if      (vsWasOffset >  maxStep) vsWasOffset -= maxStep;
-        else if (vsWasOffset < -maxStep) vsWasOffset += maxStep;
-        else                             vsWasOffset  = 0.0f;
+        if (watchdogTimer >= WATCHDOG_THRESHOLD) {
+            vsWasOffset = 0.0f;                        // not engaged → immediate
+        } else {
+            float maxStep = moduleConfig.vs.rateMaxDegS * (VS_FUSE_STEP_MS / 1000.0f);
+            if      (vsWasOffset >  maxStep) vsWasOffset -= maxStep;
+            else if (vsWasOffset < -maxStep) vsWasOffset += maxStep;
+            else                             vsWasOffset  = 0.0f;
+        }
         return;
     }
 
@@ -180,7 +185,10 @@ void vsFuseUpdate(float predBase)
 // agreeing windows before acting, so a single bad reading cannot flip the gain.
 void vsOrbitalDetect(float encAngleBase)
 {
-    if (!moduleConfig.vs.masterEnable)  { strncpy(vsOrbitalMsg, "master off", sizeof(vsOrbitalMsg) - 1); return; }
+    // A faulty WAS must never reach this: a garbage estimate could flip the gain 2x
+    // or spuriously disengage. With the sensor declared absent the ratio is manual only.
+    if (!moduleConfig.vs.wasPresent)    { strncpy(vsOrbitalMsg, "WAS disabled - manual only", sizeof(vsOrbitalMsg) - 1); return; }
+    if (!moduleConfig.vs.masterEnable)  { strncpy(vsOrbitalMsg, "master off - manual only", sizeof(vsOrbitalMsg) - 1); return; }
     if (!moduleConfig.vs.orbitalEnable) { strncpy(vsOrbitalMsg, "off", sizeof(vsOrbitalMsg) - 1); return; }
 
     static elapsedMillis step = 0;
@@ -279,7 +287,8 @@ void vsOrbitalDetect(float encAngleBase)
 // default-off switch.
 void vsZeroFromWasUpdate()
 {
-    if (!moduleConfig.vs.masterEnable || !moduleConfig.vs.zeroEnable || keyaInitialZeroDone) return;
+    if (!moduleConfig.vs.masterEnable || !moduleConfig.vs.wasPresent
+        || !moduleConfig.vs.zeroEnable || keyaInitialZeroDone) return;
     if (moduleConfig.wasSource != WAS_SOURCE_KEYA) return;
     if (!keyaDetected || !keyaEncInitDone) return;
 
@@ -337,12 +346,32 @@ void vsZeroFromWasUpdate()
 // oil per steering-wheel turn → twice the wheel angle per turn → half the ticks
 // per degree. The factor is geometrically exact from the displacements, not an
 // empirical number, which is why correcting a wrong guess is exact too.
+// Deliberately NOT gated on masterEnable: a manually chosen ratio is a calibration
+// choice, not a WAS-derived guess. Killing it with the master switch would leave the
+// angle 2x wrong whenever the tractor is actually in 250 ccm.
 float vsRatioDiv()
 {
-    if (!moduleConfig.vs.masterEnable) return 1.0f;     // kill switch → stock scale
     if (!moduleConfig.vs.orbitalEnable || moduleConfig.vs.orbitalMode == 0) return 1.0f;
     float r = moduleConfig.vs.orbitalRatio;
     return (r > 0.1f) ? r : 1.0f;
+}
+
+// ── Boot rule for the orbital ratio ──────────────────────────────────────────
+// Manual selection is REMEMBERED: set 250 ccm once for the orchard and it survives
+// power cycles. But when auto-detection is actually going to run, start from 125
+// (the base) every time — a remembered mode would be confidently wrong whenever the
+// tractor is started in the other one, and detection resolves it on the first turn
+// anyway. Called from setup() after the config load.
+void vsBootInit()
+{
+    bool autoWillRun = moduleConfig.vs.masterEnable
+                    && moduleConfig.vs.wasPresent
+                    && moduleConfig.vs.orbitalEnable
+                    && moduleConfig.vs.orbitalAuto;
+    if (autoWillRun && moduleConfig.vs.orbitalMode != 0) {
+        moduleConfig.vs.orbitalMode = 0;                 // RAM only — no EEPROM wear
+        Serial.println("VS: auto-detect active, orbital ratio starts at 125 ccm");
+    }
 }
 
 // Base ticks/deg for zeroing, scaled by the active orbital ratio.

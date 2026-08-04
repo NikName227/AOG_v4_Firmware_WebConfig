@@ -367,6 +367,7 @@ void setup()
 
     // ── Load module config from EEPROM ──────────────────────────────────────
     moduleConfigLoad();
+    vsBootInit();       // Variable Steering: orbital ratio boot rule (manual = remembered)
 
     // ── Apply configurable serial port assignment ───────────────────────────
     SerialGPS = serialByNum(moduleConfig.gpsSerial);

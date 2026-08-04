@@ -696,7 +696,11 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <p style="color:#94a3b8;font-size:12px;line-height:1.4">One switch for the whole feature. <b>Off = the firmware behaves exactly as it did before any of this existed</b> — no WAS offset, no WAS zero, no ratio scaling, every setting below ignored. This is the way out if it turns out unreliable in the field: no reflash needed. Readouts and graph signals keep working either way, so you can still see what the WAS is doing.</p>
 <div class="row"><span class="lbl"><b>Enable Variable Steering</b></span>
 <input type="checkbox" id="vs00" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
-<div id="vsMasterOff" style="display:none;margin-top:6px;padding:8px 10px;background:#2a1a0a;border:1px solid #7c4a12;border-radius:3px;color:#f59e0b;font-size:12px">&#9888; Master OFF — running on the stock Keya algorithm. Everything below is inactive.</div>
+<div id="vsMasterOff" style="display:none;margin-top:6px;padding:8px 10px;background:#2a1a0a;border:1px solid #7c4a12;border-radius:3px;color:#f59e0b;font-size:12px">&#9888; Master OFF — Keya encoder + GPS only. The orbital ratio below still applies (it is a calibration choice, not a WAS guess).</div>
+<div class="row" style="margin-top:8px"><span class="lbl">WAS sensor available</span>
+<input type="checkbox" id="vs01" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Turn OFF if the WAS sensor is faulty. Nothing then reads it — including ratio detection, which on a bad sensor could otherwise flip the gain 2x or disengage autosteer for no reason. The ratio becomes manual-only; Keya + GPS carry on as usual.</p>
+<div id="vsWasOff" style="display:none;margin-top:6px;padding:8px 10px;background:#2a1a0a;border:1px solid #7c4a12;border-radius:3px;color:#f59e0b;font-size:12px">&#9888; WAS sensor disabled — no fusion, no WAS zero, no ratio detection.</div>
 </div>
 
 <div class="card">
@@ -708,6 +712,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div>Innovation ° <small style="color:#64748b">(WAS−enc)</small> <span id="vsvInnov" style="float:right;color:#e2e8f0">—</span></div>
 <div>WAS offset ° <span id="vsvOff" style="float:right;color:#e2e8f0">—</span></div>
 <div>Gate rejects/s <span id="vsvRej" style="float:right;color:#e2e8f0">—</span></div>
+<div>WAS health <small style="color:#64748b">(last pass)</small> <span id="vsvHealth" style="float:right;color:#e2e8f0">—</span></div>
 <div>Orbital active <span id="vsvMode" style="float:right;color:#e2e8f0">—</span></div>
 <div>Ratio estimate <span id="vsvRatio" style="float:right;color:#e2e8f0">—</span></div>
 <div style="grid-column:1/-1">Detection <span id="vsvDet" style="float:right;color:#94a3b8">—</span></div>
@@ -1339,6 +1344,8 @@ function upd(d) {
     // Variable Steering
     document.getElementById('vs00').checked = !!d.vs.master;
     document.getElementById('vsMasterOff').style.display = d.vs.master ? 'none' : '';
+    document.getElementById('vs01').checked = !!d.vs.present;
+    document.getElementById('vsWasOff').style.display = d.vs.present ? 'none' : '';
     document.getElementById('vs10').checked = !!d.vs.fuse;
     document.getElementById('vs11').checked = !!d.vs.median;
     document.getElementById('vs12').value   = d.vs.beta;
@@ -1463,6 +1470,7 @@ function saveKeyaGeom() {
 
 function saveVs() {
   var url = '/api/save?vsMaster=' + (document.getElementById('vs00').checked ? 1 : 0)
+          + '&vsPresent='         + (document.getElementById('vs01').checked ? 1 : 0)
           + '&vsFuse='            + (document.getElementById('vs10').checked ? 1 : 0)
           + '&vsMedian='          + (document.getElementById('vs11').checked ? 1 : 0)
           + '&vsBeta='            + document.getElementById('vs12').value
@@ -1675,6 +1683,12 @@ function updLive(d) {
     var rj = document.getElementById('vsvRej');
     rj.textContent = d.vsRej;
     rj.style.color = (d.vsRej > 0) ? '#e2b23e' : '#4ade80';   // rejecting is the gate working
+    // Nothing passing the gate for a long time = the sensor is dying, not just noisy.
+    var hl = document.getElementById('vsvHealth');
+    if (!d.vsPresent)      { hl.textContent = 'sensor disabled'; hl.style.color = '#64748b'; }
+    else if (d.vsBlocked < 2000) { hl.textContent = 'OK';        hl.style.color = '#4ade80'; }
+    else { hl.textContent = (d.vsBlocked / 1000).toFixed(0) + ' s ago';
+           hl.style.color = (d.vsBlocked > 30000) ? '#f87171' : '#e2b23e'; }
     var md = document.getElementById('vsvMode');
     md.textContent = d.vsMode ? '250 ccm' : '125 ccm';
     md.style.color = d.vsOrb ? '#e2e8f0' : '#64748b';
@@ -2523,6 +2537,7 @@ void handleWebClient()
                          "\r\n"
                          "Autosteer active - open page when not steering."));
     }
+    else if (strstr(reqLine, "/setting")         != NULL) { isApi = false; handleSettingPage(client); }
     else { isApi = false; handleRoot(client); }
 
     // ── Close ─────────────────────────────────────────────────────────────────
@@ -2555,6 +2570,65 @@ void handleRoot(EthernetClient& client)
 {
     sendHeaders(client, "text/html");
     sendBuf(client, (const uint8_t*)HTML_PAGE, strlen(HTML_PAGE));
+}
+
+// ── /setting — quick orbital-ratio page ──────────────────────────────────────
+// Deliberately separate and tiny: this is the one thing you change out in the
+// orchard, from a phone, with gloves on. One tap sets the ratio (and enables twin
+// orbital handling so it actually applies). The engaged-refusal from /api/save is
+// surfaced here too — this page is meant to be tapped in passing.
+static const char SETTING_PAGE[] = R"AIOSET(<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orbital ratio</title><style>
+body{background:#0a0f1a;color:#e2e8f0;font-family:system-ui,sans-serif;margin:0;padding:18px;text-align:center}
+h1{font-size:17px;color:#94a3b8;font-weight:normal;margin:0 0 4px}
+#cur{font-size:52px;font-weight:bold;margin:14px 0 2px}
+#sub{color:#64748b;font-size:13px;margin-bottom:22px}
+button{display:block;width:100%;padding:26px;margin:12px 0;font-size:26px;font-weight:bold;
+border:2px solid #1e3a5f;border-radius:10px;background:#0f1c30;color:#e2e8f0;cursor:pointer}
+button.on{background:#14532d;border-color:#4ade80;color:#4ade80}
+#msg{margin-top:16px;font-size:14px;min-height:40px}
+a{color:#64748b;font-size:13px}
+</style></head><body>
+<h1>Orbital ratio</h1>
+<div id="cur">--</div>
+<div id="sub">&nbsp;</div>
+<button id="b0" onclick="setMode(0)">125 ccm</button>
+<button id="b1" onclick="setMode(1)">250 ccm</button>
+<div id="msg">&nbsp;</div>
+<a href="/">&larr; full config</a>
+<script>
+function paint(m,auto){
+  document.getElementById('cur').textContent = m ? '250' : '125';
+  document.getElementById('b0').className = m ? '' : 'on';
+  document.getElementById('b1').className = m ? 'on' : '';
+  document.getElementById('sub').textContent = auto ? 'auto-detect ON - may switch by itself' : 'manual - remembered across restarts';
+}
+function poll(){
+  fetch('/api/live',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+    paint(d.vsMode, d.vsAuto);
+  }).catch(function(){ document.getElementById('sub').textContent='no connection'; });
+}
+function setMode(m){
+  var msg=document.getElementById('msg');
+  msg.style.color='#94a3b8'; msg.textContent='setting...';
+  fetch('/api/save?vsOrbital=1&vsMode='+m,{cache:'no-store'})
+    .then(function(r){return r.text()}).then(function(t){
+      var bad = t.indexOf('engaged')>=0;
+      msg.style.color = bad ? '#f59e0b' : '#4ade80';
+      msg.textContent = bad ? 'NOT changed - autosteer is engaged. Disengage first.' : 'set to '+(m?'250':'125')+' ccm';
+      poll();
+    }).catch(function(){ msg.style.color='#f87171'; msg.textContent='no connection'; });
+}
+poll(); setInterval(poll,2000);
+</script></body></html>
+)AIOSET";
+
+void handleSettingPage(EthernetClient& client)
+{
+    sendHeaders(client, "text/html");
+    sendBuf(client, (const uint8_t*)SETTING_PAGE, strlen(SETTING_PAGE));
 }
 
 void handleApiStatus(EthernetClient& client)
@@ -2636,6 +2710,7 @@ void handleApiStatus(EthernetClient& client)
 
     client.print(F("},\"vs\":{"));
     client.print(F("\"master\":")); client.print(moduleConfig.vs.masterEnable);
+    client.print(F(",\"present\":")); client.print(moduleConfig.vs.wasPresent);
     client.print(F(",\"fuse\":")); client.print(moduleConfig.vs.fuseEnable);
     client.print(F(",\"median\":")); client.print(moduleConfig.vs.medianEnable);
     client.print(F(",\"beta\":")); client.print(moduleConfig.vs.fuseBeta, 4);
@@ -3041,6 +3116,11 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"vsRej\":"));    client.print(vsRejectPerSec);
     client.print(F(",\"vsMode\":"));   client.print(moduleConfig.vs.orbitalMode);
     client.print(F(",\"vsOrb\":"));    client.print(moduleConfig.vs.orbitalEnable ? F("true") : F("false"));
+    client.print(F(",\"vsAuto\":"));   client.print((moduleConfig.vs.masterEnable && moduleConfig.vs.wasPresent
+                                                    && moduleConfig.vs.orbitalEnable && moduleConfig.vs.orbitalAuto)
+                                                   ? F("true") : F("false"));
+    client.print(F(",\"vsPresent\":")); client.print(moduleConfig.vs.wasPresent ? F("true") : F("false"));
+    client.print(F(",\"vsBlocked\":")); client.print((uint32_t)vsGateBlocked);
     client.print(F(",\"vsRatio\":"));  client.print(vsRatioEst, 2);
     client.print(F(",\"vsOrbMsg\":\"")); client.print(vsOrbitalMsg); client.print('"');
     client.print(F(",\"vsZeroMsg\":\"")); client.print(vsZeroMsg); client.print('"');
@@ -3518,6 +3598,7 @@ void handleApiSave(EthernetClient& client, const char* req)
     // ── Variable Steering — all live, no restart ─────────────────────────────
     bool vsRatioRefused = false;
     if ((p = strstr(req, "vsMaster="))     != NULL) moduleConfig.vs.masterEnable   = (uint8_t)atoi(p + 9);
+    if ((p = strstr(req, "vsPresent="))    != NULL) moduleConfig.vs.wasPresent     = (uint8_t)atoi(p + 10);
     if ((p = strstr(req, "vsFuse="))       != NULL) moduleConfig.vs.fuseEnable     = (uint8_t)atoi(p + 7);
     if ((p = strstr(req, "vsMedian="))     != NULL) moduleConfig.vs.medianEnable   = (uint8_t)atoi(p + 9);
     if ((p = strstr(req, "vsBeta="))       != NULL) moduleConfig.vs.fuseBeta       = atof(p + 7);

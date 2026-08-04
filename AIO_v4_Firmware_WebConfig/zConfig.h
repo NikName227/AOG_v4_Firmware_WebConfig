@@ -57,16 +57,23 @@ struct WasFit {
 //
 // Encoder stays primary and carries all the dynamics; the analog WAS is only a slow
 // absolute anchor. Everything that changes behaviour defaults OFF → stock firmware.
-#define VS_MAGIC 0x5B                   // bumped when masterEnable was added
+#define VS_MAGIC 0x5C                   // bumped when wasPresent was added
 struct VsConfig {
     uint8_t  magic          = VS_MAGIC; // must stay first — migration marker
-    // Single kill switch for the whole feature. OFF = the firmware behaves exactly
-    // as it did before Variable Steering existed: no WAS offset, no WAS zero, no
-    // ratio scaling. Every sub-switch below is ignored. Kept so the whole thing can
-    // be abandoned in the field, without a reflash, if it proves unreliable.
-    // Monitoring/display stays live even when off — it reads the ADS the stock
+    // Kill switch for everything WAS-derived: fusion, WAS zero, ratio detection.
+    // OFF = Keya encoder + GPS only, i.e. the proven pre-VS behaviour. Kept so the
+    // whole thing can be abandoned in the field without a reflash.
+    // NOTE: the orbital ratio is deliberately NOT under this switch — a manually
+    // chosen ratio is just picking which calibrated scale to use, as deterministic
+    // as keyaTicksPerDeg itself, and switching it off mid-orchard would leave the
+    // angle 2x wrong in 250 ccm. For truly stock behaviour set 125 ccm as well.
+    // Monitoring/display stays live either way — it reads the ADS the stock
     // firmware already read, and is outside the control path.
-    uint8_t  masterEnable   = 0;        // 0=off (stock Keya behaviour) 1=on
+    uint8_t  masterEnable   = 0;        // 0=off (Keya + GPS only) 1=on
+    // Separate switch for a physically dead/faulty WAS. With this off nothing reads
+    // the sensor — importantly including ratio detection, which on a faulty WAS
+    // could otherwise flip the gain 2x or spuriously disengage autosteer.
+    uint8_t  wasPresent     = 1;        // 0 = WAS sensor unavailable, ignore it entirely
     uint8_t  medianEnable   = 1;        // median-5 on raw ADS counts (VS reference only)
     float    wasDegPerCount = 0.0f;     // WAS calibration: angle = a*counts + b (0 = uncalibrated)
     float    wasIntercept   = 0.0f;     // b

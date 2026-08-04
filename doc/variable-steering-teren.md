@@ -93,12 +93,30 @@ Opcionalno: prebaci na 250, kratki scatter 5 min, provjeri dead zone.
 
 ---
 
+## Tri razine (od pune do nikakve)
+
+| Razina | Postavka | Radi | Omjer 125/250 |
+|---|---|---|---|
+| **Hibrid** | Master ON, WAS ON | Keya + GPS + WAS sidro | automatski |
+| **Bez WAS-a** | Master ON, `WAS sensor available` OFF | Keya + GPS | **ručno** |
+| **Sve off** | Master OFF | Keya + GPS | **ručno** |
+
+Omjer **uvijek** radi, i u zadnje dvije razine — to je izbor kalibrirane skale, ne
+WAS procjena. Zato gašenje mastera ne ostavlja kut 2× kriv ako voziš u 250.
+
+**Pamćenje omjera:** ručno postavljen omjer se pamti kroz restart. Čim upališ
+auto-detekciju, boot uvijek kreće od 125 i detekcija razriješi.
+
+---
+
 ## Ako nešto pukne
 
-1. **`Enable Variable Steering` OFF** (master prekidač, vrh VS kartice) → sve staje,
-   vozi se po stock Keya algoritmu. Bez flashanja. Offset se izvozi u nulu pod rate
-   limitom, dakle nema stepenice — pusti par sekundi.
-2. Ne pomaže → flash s `master`
+1. **`Enable Variable Steering` OFF** (vrh VS kartice) → sve WAS-ovisno staje,
+   vozi se Keya + GPS. Bez flashanja, offset pada na nulu odmah (autosteer je
+   ionako isključen kad ovo radiš).
+2. **Sumnjaš na senzor?** `WAS sensor available` OFF — isto, ali zadržiš ručni omjer
+   i ostatak. Provjeri `WAS health` u statusu: crveno = ništa ne prolazi >30 s.
+3. Ne pomaže → flash s `master`
 3. Nemoj debugirati fuzijsku petlju u redu voćnjaka. Isključi, odvozi, nosi logove doma.
 
 **Na terenu mijenjaj samo konstante i pragove. Ne prestrukturiraj.**
@@ -116,3 +134,6 @@ Opcionalno: prebaci na 250, kratki scatter 5 min, provjeri dead zone.
 | `Max angle to zero at` | 4° | drži zero neovisnim o omjeru |
 
 **Signali:** 17 raw ADS · 47 median · 48 WAS kut · 49 innovation · 50 offset · 51 omjer · 52 rejects/s
+
+**Brza stranica za omjer:** `http://192.168.31.127/setting` — dva velika gumba, s mobitela.
+Odbija promjenu dok je autosteer uključen; prvo disengage.
