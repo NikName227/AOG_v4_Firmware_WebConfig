@@ -57,9 +57,16 @@ struct WasFit {
 //
 // Encoder stays primary and carries all the dynamics; the analog WAS is only a slow
 // absolute anchor. Everything that changes behaviour defaults OFF → stock firmware.
-#define VS_MAGIC 0x5A
+#define VS_MAGIC 0x5B                   // bumped when masterEnable was added
 struct VsConfig {
     uint8_t  magic          = VS_MAGIC; // must stay first — migration marker
+    // Single kill switch for the whole feature. OFF = the firmware behaves exactly
+    // as it did before Variable Steering existed: no WAS offset, no WAS zero, no
+    // ratio scaling. Every sub-switch below is ignored. Kept so the whole thing can
+    // be abandoned in the field, without a reflash, if it proves unreliable.
+    // Monitoring/display stays live even when off — it reads the ADS the stock
+    // firmware already read, and is outside the control path.
+    uint8_t  masterEnable   = 0;        // 0=off (stock Keya behaviour) 1=on
     uint8_t  medianEnable   = 1;        // median-5 on raw ADS counts (VS reference only)
     float    wasDegPerCount = 0.0f;     // WAS calibration: angle = a*counts + b (0 = uncalibrated)
     float    wasIntercept   = 0.0f;     // b

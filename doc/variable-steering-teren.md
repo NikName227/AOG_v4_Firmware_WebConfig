@@ -61,7 +61,8 @@ Opcionalno: prebaci na 250, kratki scatter 5 min, provjeri dead zone.
 
 ## 4. Podešavanje u vožnji — 90 min
 
-### 4a. Usporedba (ništa uključeno)
+### 4a. Usporedba (master ON, sve ostalo OFF)
+- [ ] `Enable Variable Steering` **ON** — bez toga ništa ispod ne radi
 - [ ] Graf: **48** (traktorski WAS) + **22** (Keya) + **49** (innovation)
 - [ ] Poklapaju se? Konstantan razmak = zero. Razmak raste s kutom = skala.
 
@@ -94,7 +95,9 @@ Opcionalno: prebaci na 250, kratki scatter 5 min, provjeri dead zone.
 
 ## Ako nešto pukne
 
-1. `Enable WAS fusion` **OFF** → vraća se na čisti enkoder + GPS, kao dosad
+1. **`Enable Variable Steering` OFF** (master prekidač, vrh VS kartice) → sve staje,
+   vozi se po stock Keya algoritmu. Bez flashanja. Offset se izvozi u nulu pod rate
+   limitom, dakle nema stepenice — pusti par sekundi.
 2. Ne pomaže → flash s `master`
 3. Nemoj debugirati fuzijsku petlju u redu voćnjaka. Isključi, odvozi, nosi logove doma.
 

@@ -692,6 +692,14 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div id="keyaVs" style="display:none">
 
 <div class="card">
+<h2>Variable Steering <span style="color:#64748b;font-weight:normal;font-size:11px">— master switch</span></h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">One switch for the whole feature. <b>Off = the firmware behaves exactly as it did before any of this existed</b> — no WAS offset, no WAS zero, no ratio scaling, every setting below ignored. This is the way out if it turns out unreliable in the field: no reflash needed. Readouts and graph signals keep working either way, so you can still see what the WAS is doing.</p>
+<div class="row"><span class="lbl"><b>Enable Variable Steering</b></span>
+<input type="checkbox" id="vs00" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div id="vsMasterOff" style="display:none;margin-top:6px;padding:8px 10px;background:#2a1a0a;border:1px solid #7c4a12;border-radius:3px;color:#f59e0b;font-size:12px">&#9888; Master OFF — running on the stock Keya algorithm. Everything below is inactive.</div>
+</div>
+
+<div class="card">
 <h2>Status <span style="color:#64748b;font-weight:normal;font-size:11px">— live</span></h2>
 <div id="vsLive" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 16px;padding:10px 12px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-family:monospace;font-size:13px">
 <div>WAS counts (median) <span id="vsvCnt" style="float:right;color:#e2e8f0">—</span></div>
@@ -1329,6 +1337,8 @@ function upd(d) {
     document.getElementById('kw8').value   = d.keya_was.azSpeedSlow;
     document.getElementById('kw9').value   = d.keya_was.azSpeedFast;
     // Variable Steering
+    document.getElementById('vs00').checked = !!d.vs.master;
+    document.getElementById('vsMasterOff').style.display = d.vs.master ? 'none' : '';
     document.getElementById('vs10').checked = !!d.vs.fuse;
     document.getElementById('vs11').checked = !!d.vs.median;
     document.getElementById('vs12').value   = d.vs.beta;
@@ -1452,7 +1462,8 @@ function saveKeyaGeom() {
 }
 
 function saveVs() {
-  var url = '/api/save?vsFuse='   + (document.getElementById('vs10').checked ? 1 : 0)
+  var url = '/api/save?vsMaster=' + (document.getElementById('vs00').checked ? 1 : 0)
+          + '&vsFuse='            + (document.getElementById('vs10').checked ? 1 : 0)
           + '&vsMedian='          + (document.getElementById('vs11').checked ? 1 : 0)
           + '&vsBeta='            + document.getElementById('vs12').value
           + '&vsGate='            + document.getElementById('vs13').value
@@ -2624,7 +2635,8 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"initialZeroDone\":")); client.print(keyaInitialZeroDone ? F("true") : F("false"));
 
     client.print(F("},\"vs\":{"));
-    client.print(F("\"fuse\":")); client.print(moduleConfig.vs.fuseEnable);
+    client.print(F("\"master\":")); client.print(moduleConfig.vs.masterEnable);
+    client.print(F(",\"fuse\":")); client.print(moduleConfig.vs.fuseEnable);
     client.print(F(",\"median\":")); client.print(moduleConfig.vs.medianEnable);
     client.print(F(",\"beta\":")); client.print(moduleConfig.vs.fuseBeta, 4);
     client.print(F(",\"gate\":")); client.print(moduleConfig.vs.gateDeg, 2);
@@ -3505,6 +3517,7 @@ void handleApiSave(EthernetClient& client, const char* req)
 
     // ── Variable Steering — all live, no restart ─────────────────────────────
     bool vsRatioRefused = false;
+    if ((p = strstr(req, "vsMaster="))     != NULL) moduleConfig.vs.masterEnable   = (uint8_t)atoi(p + 9);
     if ((p = strstr(req, "vsFuse="))       != NULL) moduleConfig.vs.fuseEnable     = (uint8_t)atoi(p + 7);
     if ((p = strstr(req, "vsMedian="))     != NULL) moduleConfig.vs.medianEnable   = (uint8_t)atoi(p + 9);
     if ((p = strstr(req, "vsBeta="))       != NULL) moduleConfig.vs.fuseBeta       = atof(p + 7);

@@ -130,7 +130,8 @@ void vsFuseUpdate(float predBase)
     // Master switch off (or no usable WAS) → ramp the offset back out at the same
     // rate limit, so flipping the switch returns to stock behaviour without a step
     // in the feedback signal.
-    if (!moduleConfig.vs.fuseEnable || !vsWasUsable || !keyaInitialZeroDone) {
+    if (!moduleConfig.vs.masterEnable || !moduleConfig.vs.fuseEnable
+        || !vsWasUsable || !keyaInitialZeroDone) {
         vsGateBlocked = 0;
         float maxStep = moduleConfig.vs.rateMaxDegS * (VS_FUSE_STEP_MS / 1000.0f);
         if      (vsWasOffset >  maxStep) vsWasOffset -= maxStep;
@@ -179,6 +180,7 @@ void vsFuseUpdate(float predBase)
 // agreeing windows before acting, so a single bad reading cannot flip the gain.
 void vsOrbitalDetect(float encAngleBase)
 {
+    if (!moduleConfig.vs.masterEnable)  { strncpy(vsOrbitalMsg, "master off", sizeof(vsOrbitalMsg) - 1); return; }
     if (!moduleConfig.vs.orbitalEnable) { strncpy(vsOrbitalMsg, "off", sizeof(vsOrbitalMsg) - 1); return; }
 
     static elapsedMillis step = 0;
@@ -277,7 +279,7 @@ void vsOrbitalDetect(float encAngleBase)
 // default-off switch.
 void vsZeroFromWasUpdate()
 {
-    if (!moduleConfig.vs.zeroEnable || keyaInitialZeroDone) return;
+    if (!moduleConfig.vs.masterEnable || !moduleConfig.vs.zeroEnable || keyaInitialZeroDone) return;
     if (moduleConfig.wasSource != WAS_SOURCE_KEYA) return;
     if (!keyaDetected || !keyaEncInitDone) return;
 
@@ -337,6 +339,7 @@ void vsZeroFromWasUpdate()
 // empirical number, which is why correcting a wrong guess is exact too.
 float vsRatioDiv()
 {
+    if (!moduleConfig.vs.masterEnable) return 1.0f;     // kill switch → stock scale
     if (!moduleConfig.vs.orbitalEnable || moduleConfig.vs.orbitalMode == 0) return 1.0f;
     float r = moduleConfig.vs.orbitalRatio;
     return (r > 0.1f) ? r : 1.0f;
