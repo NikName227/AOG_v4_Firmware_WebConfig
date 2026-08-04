@@ -33,12 +33,9 @@
 // the wheel.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Explicit forward declarations rather than relying on the Arduino auto-prototype
-// generator — its insertion point has already caused one build break in this sketch.
-void  vsApplyZero(int32_t encRaw, float angleDeg);
-void  vsSetOrbitalMode(uint8_t mode);
-float vsTicksPerDeg();
-float vsRatioDiv();
+// Forward declarations for these live in zConfig.h (included first, so Autosteer.ino
+// sees them too) rather than relying on the Arduino auto-prototype generator — its
+// insertion point has already caused one build break in this sketch.
 
 // ── Median-5 on the raw ADS counts ───────────────────────────────────────────
 // Impulsive noise is the wrong problem for an EMA: a single 10 deg spike through

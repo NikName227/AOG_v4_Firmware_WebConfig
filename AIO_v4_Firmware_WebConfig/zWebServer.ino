@@ -4,6 +4,11 @@
 
 #include <stdarg.h>
 
+// Used in handleWebClient() (~line 2540) before its definition below; the auto-
+// prototype generator is unreliable in this sketch, so declare it explicitly. Stays
+// local (not in zConfig.h) because it takes EthernetClient&.
+void handleSettingPage(EthernetClient& client);
+
 EthernetServer webServer(80);
 
 static bool          pendingRestart = false;

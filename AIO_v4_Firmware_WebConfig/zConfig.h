@@ -319,5 +319,14 @@ void webLogf(const char* fmt, ...);
 void gpsRawByte(uint8_t c);
 void disengageLog(const char* reason);   // log autosteer disengage source (DBG_DISENGAGE)
 
+// ── Variable Steering (defined in zVarSteer.ino) ───────────────────────────────
+// Declared in this early header so they are visible to Autosteer.ino, which the
+// tab-concatenation puts BEFORE zVarSteer.ino — a forward decl inside zVarSteer
+// would come too late. Only primitive types here, so no extra dependencies.
+void  vsApplyZero(int32_t encRaw, float angleDeg);
+void  vsSetOrbitalMode(uint8_t mode);
+float vsTicksPerDeg();
+float vsRatioDiv();
+
 // SLOG – print to USB Serial AND buffer for web display
 #define SLOG(msg)  do { Serial.println(msg); webLog(msg); } while(0)
