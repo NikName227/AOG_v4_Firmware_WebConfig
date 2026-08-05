@@ -40,6 +40,26 @@ static int32_t calRevEnc;
 static float  calCycleStartRef;
 static int8_t calDir;
 
+// ── Variable Steering: analog-WAS calibration out of Tool B ───────────────────
+// Tool B already collects three points at known angles — centre (0 by definition)
+// and one per lock, where the operator enters the measured wheel angle. That is
+// exactly what the analog WAS needs, so it gets calibrated from the same operation:
+// no reference IMU, no extra input, nothing more to do on the tractor.
+//
+// The two points are keyed by the ENCODER's sign, not by which button was pressed,
+// so a re-capture overwrites the right one and an inverted encoder cannot silently
+// flip the slope.
+//
+// Counts come from the rolling still-window MEAN in zVarSteer, never a single
+// sample: this sensor is impulsive, and one instantaneous read at a lock can sit a
+// degree off the baseline.
+#define CAL_WAS_MIN_STILL_MS  300     // below this the "mean" is one sample pretending
+static float calWasCntC, calWasCntP, calWasCntN;   // mean counts: centre / +side / −side
+static float calWasSprC, calWasSprP, calWasSprN;   // counts spread at each capture
+static float calWasAngP, calWasAngN;               // signed bike angle at each lock
+static bool  calWasHaveC, calWasHaveP, calWasHaveN;
+bool         calWasManual = false;   // non-static: the GUI must not call this a fit RMS
+
 // ── Wheel-angle → bicycle (virtual centre) angle, MAGNITUDE in degrees ─────────
 // L,T from config. inner = the measured wheel is the inner wheel for this turn.
 //   tan(δ_bike) = L/R ; inner: R = L/tan(δ_w) + T/2 ; outer: R = L/tan(δ_w) − T/2
@@ -157,6 +177,48 @@ static void calResetRange() {
     calResMaxL = calResMaxR = 0;
     calHaveRange = false;
     calManCap = 0;
+    calWasHaveC = calWasHaveP = calWasHaveN = false;
+    calWasManual = false;
+}
+
+// Grab one WAS point from the rolling still-window. Returns false when there is
+// nothing trustworthy to take — the caller carries on regardless, because the Keya
+// calibration must never be held up by the state of a second sensor.
+static bool calWasGrab(float &cnt, float &spr)
+{
+    if (!adcConnected || !moduleConfig.vs.wasPresent) return false;
+    // A window that just re-armed holds a single sample; averaging one reading and
+    // calling it a mean is how an impulse ends up baked into the calibration.
+    if (vsStillTimer < CAL_WAS_MIN_STILL_MS) return false;
+    cnt = vsStillMeanCounts;
+    spr = vsStillSpreadCounts;
+    return true;
+}
+
+// Three points, and the middle one is the one that matters: the slope comes from
+// the two locks (longest baseline available), the intercept from the centre, which
+// is precisely where the zero has to be right.
+static void calWasManResolve()
+{
+    if (!(calWasHaveC && calWasHaveP && calWasHaveN)) return;
+    float dCnt = calWasCntP - calWasCntN;
+    float dAng = calWasAngP - calWasAngN;
+    // No leverage → the division amplifies noise instead of measuring anything.
+    if (fabs(dCnt) < 20.0f || fabs(dAng) < 5.0f) return;
+
+    float a = dAng / dCnt;
+    calResWasA = a;
+    calResWasB = -a * calWasCntC;
+    calResWasN = 3;
+    // Three points fit exactly, so an RMS computed from them would be invented. The
+    // honest quality figure is how far the sensor wandered while standing perfectly
+    // still — converted to degrees with the slope just measured.
+    float worst = calWasSprC;
+    if (calWasSprP > worst) worst = calWasSprP;
+    if (calWasSprN > worst) worst = calWasSprN;
+    calResWasRms = worst * fabs(a);
+    calHaveWas   = true;
+    calWasManual = true;
 }
 
 // Public: Tool A — IMU sweep (operator turns lock-to-lock, motor OFF). Needs the
@@ -196,10 +258,15 @@ void calApply() {
         if (calResTR  > 1.0f) moduleConfig.keyaTicksRight   = calResTR;
         if (calResTL  > 1.0f) moduleConfig.keyaTicksLeft    = calResTL;
     }
-    // Variable Steering: the analog-WAS calibration measured in the same sweep.
+    // Variable Steering: the analog-WAS calibration measured in the same operation
+    // — the IMU sweep (Tool A) or the protractor captures (Tool B), whichever ran.
     if (calHaveWas) {
         moduleConfig.vs.wasDegPerCount = calResWasA;
         moduleConfig.vs.wasIntercept   = calResWasB;
+        // A fresh calibration re-defines where zero is, so it becomes the new origin
+        // for the slow trim's clamp. Leaving the old reference would count the drift
+        // that has just been calibrated away as if it were still there.
+        moduleConfig.vs.wasInterceptBase = calResWasB;
     }
     moduleConfigSave();
     calSet(CAL_IDLE, "applied & saved");
@@ -413,6 +480,9 @@ void calManSetCentre() {
     if (calState != CAL_MANUAL_RANGE) return;
     calEncCenter = keyaEncoderRaw;
     calManCap |= 0x01;
+    // Wheels straight here by definition — so this reading IS the WAS zero.
+    calWasHaveC = calWasGrab(calWasCntC, calWasSprC);
+    calWasManResolve();
     strncpy(calMsg, "centre set. Turn full RIGHT, measure inner-wheel angle, Capture right", sizeof(calMsg) - 1);
 }
 
@@ -427,6 +497,24 @@ void calManCapLock(int8_t side, float angleDeg) {
     if (side > 0) { calResWheelR = tdWheel; calResTR = tdBike; calResMaxR = angleDeg; calManCap |= 0x04; }
     else          { calResWheelL = tdWheel; calResTL = tdBike; calResMaxL = angleDeg; calManCap |= 0x02; }
     calUpdateBase();
+
+    // ── Same capture, second sensor ──────────────────────────────────────────
+    // Which side this lock is on comes from the ENCODER (same expression the sweep
+    // uses), not from the button pressed: on hardware wired the other way round the
+    // operator's "right" is the negative direction, and keying off the label would
+    // hand the WAS an inverted slope that nothing downstream could detect.
+    int32_t dtick   = keyaEncoderRaw - calEncCenter;
+    int32_t sgnTick = moduleConfig.keyaEncInvert ? dtick : -dtick;
+    float   cnt = 0, spr = 0;
+    if (calWasGrab(cnt, spr)) {
+        if (sgnTick >= 0) { calWasCntP = cnt; calWasSprP = spr; calWasAngP =  bike; calWasHaveP = true; }
+        else              { calWasCntN = cnt; calWasSprN = spr; calWasAngN = -bike; calWasHaveN = true; }
+        calWasManResolve();
+    }
+
+    // calMsg is 48 bytes and already full — the WAS numbers appear live in the VS
+    // card (deg/count, intercept, samples) as they are captured, so cramming them
+    // in here would only truncate the message the operator actually needs.
     char m[72];
     snprintf(m, sizeof(m), "%s lock: wheel %.1f t/d, bike %.1f t/d", side > 0 ? "right" : "left", tdWheel, tdBike);
     strncpy(calMsg, m, sizeof(calMsg) - 1);

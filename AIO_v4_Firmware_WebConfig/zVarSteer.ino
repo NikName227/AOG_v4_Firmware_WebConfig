@@ -83,6 +83,19 @@ bool vsWasAngle(float &angleOut)
     return true;
 }
 
+// ── Runtime state for the v2 zero work ───────────────────────────────────────
+// Deliberately declared here rather than with the other VS globals in the main
+// sketch tab: everything that touches them lives in this file and in zWebServer,
+// which the tab concatenation puts after it.
+char  vsTrimMsg[56]   = "off";   // auto-trim state, shown live in the GUI
+elapsedMillis vsStillTimer = 0;  // how long the encoder has been still
+float vsStillSpread   = 999.0f;  // WAS spread over that window (deg, needs a slope)
+// Counts-domain versions of the same window. These stay valid with NO calibration
+// at all, which is what lets the manual calibration (Tool B) use them to produce
+// the very slope the degree version depends on.
+float vsStillMeanCounts   = 0.0f;
+float vsStillSpreadCounts = 0.0f;
+
 // ── WAS angle monitor ────────────────────────────────────────────────────────
 // Runs every cycle from autosteerLoop, independent of the WAS source, of the
 // initial zero and of the fusion switch. The Keya branch breaks out early until
@@ -94,6 +107,187 @@ void vsWasMonitor()
     float a;
     vsWasUsable = vsWasAngle(a) && fabs(a) < 90.0f;
     if (vsWasUsable) vsLastWasAngle = a;
+
+    // ── Rolling "encoder still" window ───────────────────────────────────────
+    // The manual zero button has to answer instantly — a web handler cannot sit
+    // and watch the wheel for two seconds. So the window is kept running here and
+    // the button just reads the verdict. Same thresholds as the automatic zero.
+    // That one keeps its own window on purpose: it is a one-shot with different
+    // arming, and re-using this one would change behaviour already validated.
+    //
+    // Deliberately gated on adcConnected, NOT on vsWasUsable: the manual
+    // calibration reads the mean from here while the sensor is still completely
+    // uncalibrated, and vsWasUsable is false exactly then. Everything the window
+    // publishes in counts is therefore always meaningful; only the degree figure
+    // needs a slope, and callers that use it check for one first.
+    static int32_t refTicks = 0;
+    static int16_t cMin = 0, cMax = 0;
+    static double  cSum = 0;
+    static uint32_t cN = 0;
+    static bool    armed = false;
+
+    if (!adcConnected) {
+        armed = false; vsStillTimer = 0;
+        vsStillSpread = 999.0f; vsStillSpreadCounts = 0.0f; vsStillMeanCounts = 0.0f;
+    } else if (!armed || labs(keyaEncoderRaw - refTicks) > (int32_t)moduleConfig.vs.zeroStillTicks) {
+        armed    = true;
+        refTicks = keyaEncoderRaw;
+        vsStillTimer = 0;
+        cMin = cMax = adsMedCounts;
+        cSum = (double)adsMedCounts;
+        cN   = 1;
+        vsStillMeanCounts   = (float)adsMedCounts;
+        vsStillSpreadCounts = 0.0f;
+        vsStillSpread       = 0.0f;
+    } else {
+        if (adsMedCounts < cMin) cMin = adsMedCounts;
+        if (adsMedCounts > cMax) cMax = adsMedCounts;
+        cSum += (double)adsMedCounts;
+        cN++;
+        vsStillMeanCounts   = (float)(cSum / (double)cN);
+        vsStillSpreadCounts = (float)(cMax - cMin);
+        vsStillSpread       = vsStillSpreadCounts * fabs(moduleConfig.vs.wasDegPerCount);
+    }
+
+    // The slow intercept trim rides along here rather than adding a second call
+    // into autosteerLoop — it needs exactly the same "every cycle" cadence, and
+    // it self-throttles to 1 Hz internally.
+    vsTrimUpdate();
+}
+
+// ── Manual "set WAS zero now" ────────────────────────────────────────────────
+// The sweep is the only thing that has ever written the intercept, so a centring
+// error at "Start sweep" is baked in until the next sweep — which costs another
+// session with the reference IMU on the wheel. This is the one-click way out:
+// straighten the wheels by whatever you trust, press, done. Only b moves; the
+// slope a from the sweep is untouched, so the scale stays calibrated.
+//
+// Every refusal says WHICH condition failed. On a tractor "failed" is useless.
+bool vsWasZeroNow(char* out, uint16_t n)
+{
+    // Changing the zero steps the feedback signal — never under active control.
+    if (watchdogTimer < WATCHDOG_THRESHOLD) {
+        snprintf(out, n, "refused: autosteer engaged - disengage first"); return false;
+    }
+    if (!adcConnected) {
+        snprintf(out, n, "refused: no ADS1115 - nothing to read"); return false;
+    }
+    if (fabs(moduleConfig.vs.wasDegPerCount) < 1e-9f) {
+        snprintf(out, n, "refused: WAS slope not calibrated - run the sweep first"); return false;
+    }
+    if (!vsWasUsable) {
+        snprintf(out, n, "refused: no usable WAS reading"); return false;
+    }
+    if (vsStillTimer < moduleConfig.vs.zeroStillMs) {
+        snprintf(out, n, "refused: encoder moving - hold the wheel still"); return false;
+    }
+    // With the encoder still the true angle is constant, so a wide spread is noise
+    // that got through the median — zeroing on it would just bake the noise in.
+    if (vsStillSpread > moduleConfig.vs.zeroSpreadDeg) {
+        snprintf(out, n, "refused: sample spread %.2f deg over limit - WAS too noisy",
+                 vsStillSpread);
+        return false;
+    }
+
+    float old = moduleConfig.vs.wasIntercept;
+    moduleConfig.vs.wasIntercept = -moduleConfig.vs.wasDegPerCount * (float)adsMedCounts;
+    // This IS the new definition of zero, so the trim clamp has to measure from
+    // here. Leaving the old sweep value as the origin could park a fresh manual
+    // zero right on the clamp, with the trim then refusing to move at all.
+    moduleConfig.vs.wasInterceptBase = moduleConfig.vs.wasIntercept;
+    // The fusion offset was partly compensating for exactly the error just removed;
+    // keeping it would double-count. Safe to snap — autosteer is off, checked above.
+    vsWasOffset = 0.0f;
+    moduleConfigSave();
+
+    snprintf(out, n, "zeroed: intercept %+.3f -> %+.3f deg (shift %+.3f)",
+             old, moduleConfig.vs.wasIntercept, moduleConfig.vs.wasIntercept - old);
+    webLogf("VS: WAS zero set manually (%+.3f -> %+.3f deg)", old, moduleConfig.vs.wasIntercept);
+    return true;
+}
+
+// ── Slow auto-trim of the WAS intercept ──────────────────────────────────────
+// A second, INDEPENDENT loop. It never looks at the encoder: its only input is
+// "I am driving straight, therefore the true angle is 0". That is what stops it
+// circling with the fusion above — the fusion pulls the encoder towards the WAS,
+// this pulls the WAS towards the road, and the two never feed each other.
+//
+// Deliberately glacial. The fusion corrects a drifting offset in seconds; this
+// corrects a calibration constant, and a wrong constant is not an emergency. At
+// the default beta a 2° error takes something like an hour to walk out.
+//
+// Two witnesses for "straight" — the WAS angle AND the steer actual, each below
+// the same limit. One alone would let a long gentle curve poison the calibration,
+// which is precisely the failure that would be impossible to spot afterwards.
+#define VS_TRIM_STEP_MS   1000
+#define VS_TRIM_SAVE_MS   300000UL    // 5 min between EEPROM writes
+#define VS_TRIM_SAVE_MIN  0.02f       // ...and only if it actually moved this far
+
+void vsTrimUpdate()
+{
+    static elapsedMillis step      = 0;
+    static elapsedMillis straight  = 0;
+    static elapsedMillis sinceSave = 0;
+    static float lastSaved = 0.0f;
+    static bool  haveSaved = false;
+
+    if (!haveSaved) { lastSaved = moduleConfig.vs.wasIntercept; haveSaved = true; }
+
+    if (!moduleConfig.vs.masterEnable || !moduleConfig.vs.wasPresent
+        || !moduleConfig.vs.wasTrimEnable) {
+        strncpy(vsTrimMsg, "off", sizeof(vsTrimMsg) - 1);
+        straight = 0;
+        return;
+    }
+
+    // Checked every cycle, not once a second: a yaw spike between two ticks still
+    // has to break the window, otherwise "straight for 2 s" means very little.
+    const char* why = NULL;
+    if      (!vsWasUsable)                                          why = "no calibrated WAS";
+    else if (moduleConfig.wasSource == WAS_SOURCE_KEYA
+             && !keyaInitialZeroDone)                               why = "waiting: initial zero";
+    else if (gpsSpeed < moduleConfig.vs.wasTrimSpeedMin)            why = "waiting: too slow";
+    else if (fabs(headingRate) > moduleConfig.vs.wasTrimYawMax)     why = "waiting: turning";
+    else if (fabs(vsLastWasAngle) > moduleConfig.vs.wasTrimAngleMax) why = "waiting: WAS angle too large";
+    else if (fabs(steerAngleActual) > moduleConfig.vs.wasTrimAngleMax) why = "waiting: steer angle too large";
+
+    if (why) { straight = 0; strncpy(vsTrimMsg, why, sizeof(vsTrimMsg) - 1); }
+
+    if (step < VS_TRIM_STEP_MS) return;
+    step = 0;
+    if (why) return;
+    if (straight < moduleConfig.vs.wasTrimStraightMs) {
+        strncpy(vsTrimMsg, "settling...", sizeof(vsTrimMsg) - 1);
+        return;
+    }
+
+    // We know the wheels are straight, so whatever the WAS reads is its own error.
+    moduleConfig.vs.wasIntercept -= vsLastWasAngle * moduleConfig.vs.wasTrimBeta;
+
+    // Clamp against where the zero was last DEFINED, never against the previous
+    // correction — otherwise the trim could walk anywhere one small step at a time.
+    float base = moduleConfig.vs.wasInterceptBase;
+    float lim  = moduleConfig.vs.wasTrimMaxDeg;
+    bool  clamped = false;
+    if (moduleConfig.vs.wasIntercept > base + lim) { moduleConfig.vs.wasIntercept = base + lim; clamped = true; }
+    if (moduleConfig.vs.wasIntercept < base - lim) { moduleConfig.vs.wasIntercept = base - lim; clamped = true; }
+
+    float drift = moduleConfig.vs.wasIntercept - base;
+    // Hitting the clamp is not a working trim: the sweep is wrong by more than a
+    // zero error and needs redoing. Say so instead of sitting there looking settled.
+    if (clamped) snprintf(vsTrimMsg, sizeof(vsTrimMsg), "at clamp %+.2f deg - recalibrate", drift);
+    else         snprintf(vsTrimMsg, sizeof(vsTrimMsg), "trimming (drift %+.3f deg)", drift);
+
+    // EEPROM cells are finite and this value moves in thousandths — writing every
+    // second would burn the cell to record noise. Time AND movement must both pass.
+    if (sinceSave > VS_TRIM_SAVE_MS) {
+        sinceSave = 0;
+        if (fabs(moduleConfig.vs.wasIntercept - lastSaved) > VS_TRIM_SAVE_MIN) {
+            lastSaved = moduleConfig.vs.wasIntercept;
+            moduleConfigSave();
+            webLogf("VS: WAS intercept auto-trim saved %+.3f deg (drift %+.3f)", lastSaved, drift);
+        }
+    }
 }
 
 // ── WAS as a slow absolute anchor ────────────────────────────────────────────

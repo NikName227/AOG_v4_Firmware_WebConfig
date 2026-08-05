@@ -787,12 +787,57 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <div class="card">
 <h2>WAS calibration <span style="color:#64748b;font-weight:normal;font-size:11px">— from the sweep</span></h2>
-<p style="color:#94a3b8;font-size:12px;line-height:1.4">Measured by the same lock-to-lock sweep that produces ticks/deg (Keya cal panel), since the reference IMU is already on the wheel — no extra time on the tractor. Maps ADS counts to bike degrees, the same space as steer actual, so the two are directly comparable.</p>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Measured by whichever Keya calibration you run — no extra step either way. Maps ADS counts to bike degrees, the same space as steer actual, so the two are directly comparable.</p>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4"><b>Tool A (IMU sweep)</b>: hundreds of samples, so the RMS is a real measure of how linear the sensor is. <b>Tool B (protractor)</b>: the three angles you already enter — centre plus both locks — give the slope and the zero without any reference IMU, but three points fit exactly, so <b>nothing there can tell you whether the sensor is linear</b>. For an anchor that is usually enough; if the RMS from a sweep was ever poor, prefer the sweep.</p>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">After Tool B, <b>samples</b> tells you whether it took: <b>3</b> = all three points captured, <b>0</b> = they were skipped, because there is no ADS or the wheel was not held still long enough at one of the captures. Re-capture that point and it fills in.</p>
 <div class="row"><span class="lbl">deg per count</span><span class="val" id="vsCalA">-</span></div>
 <div class="row"><span class="lbl">intercept (deg)</span><span class="val" id="vsCalB">-</span></div>
 <div class="row"><span class="lbl">fit RMS (deg)</span><span class="val" id="vsCalRms">-</span></div>
 <div class="row"><span class="lbl">samples</span><span class="val" id="vsCalN">-</span></div>
 <p style="color:#94a3b8;font-size:12px;margin:4px 0 0;line-height:1.3">RMS tells you how straight the WAS actually is. Large = the sensor is non-linear or the spikes got into the fit, and the anchor will be correspondingly rough.</p>
+</div>
+
+<div class="card">
+<h2>WAS zero <span style="color:#64748b;font-weight:normal;font-size:11px">— the intercept, independent of the sweep</span></h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">The sweep fits <b>angle = a&middot;counts + b</b> and writes both at once, so whatever centring error the wheels had at <i>Start sweep</i> lands in <b>b</b> and stays there for good. These two controls move <b>b</b> alone — the scale <b>a</b> from the sweep is never touched.</p>
+
+<div class="row"><span class="lbl"><b>Set WAS zero now</b></span>
+<button class="btn" id="vsZeroNowBtn" onclick="vsWasZeroNow()" style="min-width:120px">Zero</button></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Straighten the wheels by whatever you trust — the row, the tracks, the GPS — then press. Takes the current median counts as 0&deg;. Needs a calibrated slope, the encoder still, and a clean sample spread; <b>refused while autosteer is engaged</b>.</p>
+<div id="vsZeroNowMsg" style="display:none;margin:6px 0 0;padding:8px 10px;border-radius:3px;font-size:12px"></div>
+
+<div class="row" style="margin-top:12px"><span class="lbl">zero reference &deg; <small style="color:#64748b">(sweep or manual)</small></span><span class="val" id="vsTrimBase">-</span></div>
+<div class="row"><span class="lbl">intercept now &deg;</span><span class="val" id="vsTrimNow">-</span></div>
+<div class="row"><span class="lbl">drift from reference &deg;</span><span class="val" id="vsTrimDelta">-</span></div>
+<p style="color:#94a3b8;font-size:12px;margin:4px 0 0;line-height:1.3">A new sweep and the button above both rewrite the reference, which resets the drift to zero. The clamp below is measured against it, not against the last correction, so the trim can never walk away one small step at a time.</p>
+</div>
+
+<div class="card">
+<h2>Slow WAS auto-trim <span style="color:#64748b;font-weight:normal;font-size:11px">— hours, not seconds</span></h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">A second, <b>independent</b> loop: it never looks at the encoder. Its only input is "I am driving straight, therefore the angle is 0", so it cannot circle with the fusion above. Runs at 1 Hz and only while every condition holds — a badly zeroed WAS walks into place over an hour or two instead of staying wrong forever.</p>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">This is what lets you raise the fusion beta afterwards. Without it a larger beta only drags the encoder onto the wrong zero faster.</p>
+
+<div class="row"><span class="lbl">Enable slow auto-trim</span>
+<input type="checkbox" id="vs40" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div class="row"><span class="lbl">Trim beta <small style="color:#64748b">(def 0.002 &asymp; 8 min)</small></span>
+<input type="number" id="vs41" min="0" max="0.05" step="0.0005" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Fraction of the residual removed per accepted second. Deliberately far slower than the fusion beta — this corrects a calibration constant, and nothing here is in a hurry.</p>
+
+<div class="row"><span class="lbl">Min speed km/h <small style="color:#64748b">(def 3)</small></span>
+<input type="number" id="vs42" min="0.5" max="20" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Max yaw rate &deg;/s <small style="color:#64748b">(def 0.5)</small></span>
+<input type="number" id="vs43" min="0.05" max="5" step="0.05" class="ninput"></div>
+<div class="row"><span class="lbl">Max angle &deg; <small style="color:#64748b">(def 2)</small></span>
+<input type="number" id="vs44" min="0.2" max="10" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Applies to the <b>WAS angle and the steer actual, both</b> — two witnesses that disagree mean it is not really straight. One of them alone would let a gentle curve poison the calibration.</p>
+<div class="row"><span class="lbl">Straight time ms <small style="color:#64748b">(def 2000)</small></span>
+<input type="number" id="vs45" min="500" max="30000" step="100" class="ninput"></div>
+<div class="row"><span class="lbl">Max drift from reference &deg; <small style="color:#64748b">(def 5)</small></span>
+<input type="number" id="vs46" min="0.5" max="20" step="0.5" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Hard clamp. If the trim reaches it, the sweep calibration is wrong by more than a zero error and needs redoing — the trim says so instead of quietly hiding it.</p>
+
+<div class="row" style="margin-top:10px"><span class="lbl">state</span><span class="val" id="vsTrimState">-</span></div>
+<p style="color:#94a3b8;font-size:12px;margin:4px 0 0;line-height:1.3">EEPROM is written at most every 5 minutes, and only when the intercept actually moved (&gt; 0.02&deg;) — writing an unchanged value would just burn cycles.</p>
 </div>
 
 <button class="btn green" onclick="saveVs()" style="margin-top:8px">Save Variable Steering</button>
@@ -1369,10 +1414,30 @@ function upd(d) {
     document.getElementById('vs32').value   = d.vs.zeroTicks;
     document.getElementById('vs33').value   = d.vs.zeroMax;
     document.getElementById('vs34').value   = d.vs.zeroSpread;
+    document.getElementById('vs40').checked = !!d.vs.trim;
+    document.getElementById('vs41').value   = d.vs.trimBeta;
+    document.getElementById('vs42').value   = d.vs.trimSpd;
+    document.getElementById('vs43').value   = d.vs.trimYaw;
+    document.getElementById('vs44').value   = d.vs.trimAng;
+    document.getElementById('vs45').value   = d.vs.trimStr;
+    document.getElementById('vs46').value   = d.vs.trimMax;
+    document.getElementById('vsTrimBase').textContent = d.vs.calBbase.toFixed(3);
+    document.getElementById('vsTrimNow').textContent  = d.vs.calB.toFixed(3);
+    var _vsdd = d.vs.calB - d.vs.calBbase;
+    var _vsde = document.getElementById('vsTrimDelta');
+    _vsde.textContent = (_vsdd >= 0 ? '+' : '') + _vsdd.toFixed(3);
+    // At the clamp the number simply stops moving, which on its own reads as "settled".
+    _vsde.style.color = (Math.abs(_vsdd) >= d.vs.trimMax - 0.01) ? '#f87171'
+                      : (Math.abs(_vsdd) > d.vs.trimMax * 0.5)   ? '#e2b23e' : '#e2e8f0';
     document.getElementById('vsCalA').textContent   = d.vs.calA.toFixed(6);
     document.getElementById('vsCalB').textContent   = d.vs.calB.toFixed(3);
-    document.getElementById('vsCalRms').textContent = d.vs.calRms.toFixed(3) + ' °';
-    document.getElementById('vsCalN').textContent   = d.vs.calN;
+    // Three protractor points fit exactly, so calling that number a fit RMS would
+    // be a lie: with Tool B it is the standstill noise, and it says nothing at all
+    // about whether the sensor is linear. Only the sweep knows that.
+    document.getElementById('vsCalRms').textContent = d.vs.calRms.toFixed(3) + ' °'
+      + (d.vs.calMan ? ' noise' : ' RMS');
+    document.getElementById('vsCalN').textContent   = d.vs.calN
+      + (d.vs.calMan ? ' (3-point manual — linearity unknown)' : '');
     document.getElementById('kwwb').value  = d.keya_was.wheelBase;
     document.getElementById('calWB').value = d.keya_was.wheelBase;
     document.getElementById('calT').value  = d.keya_was.trackT;
@@ -1493,12 +1558,37 @@ function saveVs() {
           + '&vsZeroStill='       + document.getElementById('vs31').value
           + '&vsZeroTicks='       + document.getElementById('vs32').value
           + '&vsZeroMax='         + document.getElementById('vs33').value
-          + '&vsZeroSpread='      + document.getElementById('vs34').value;
+          + '&vsZeroSpread='      + document.getElementById('vs34').value
+          + '&vsTrim='            + (document.getElementById('vs40').checked ? 1 : 0)
+          + '&vsTrimBeta='        + document.getElementById('vs41').value
+          + '&vsTrimSpd='         + document.getElementById('vs42').value
+          + '&vsTrimYaw='         + document.getElementById('vs43').value
+          + '&vsTrimAng='         + document.getElementById('vs44').value
+          + '&vsTrimStr='         + document.getElementById('vs45').value
+          + '&vsTrimMax='         + document.getElementById('vs46').value;
   fetch(url).then(function(r) { return r.text(); }).then(function(t) {
     // The firmware refuses a ratio change while engaged — report that, don't hide it.
     document.getElementById('vsSaveMsg').textContent = t;
     document.getElementById('vsSaveMsg').style.color = (t.indexOf('engaged') >= 0) ? '#f59e0b' : '#4ade80';
     document.getElementById('sb').textContent = r.ok ? 'Variable Steering saved.' : 'ERROR saving.';
+  });
+}
+
+function vsWasZeroNow() {
+  var b = document.getElementById('vsZeroNowBtn');
+  var m = document.getElementById('vsZeroNowMsg');
+  b.disabled = true;
+  fetch('/api/vswaszero').then(function(r) { return r.text(); }).then(function(t) {
+    b.disabled = false;
+    m.style.display = '';
+    // The firmware refuses on engaged autosteer, a moving encoder, a noisy window
+    // or an uncalibrated slope — show which, do not reduce it to "failed".
+    var ok = (t.indexOf('zeroed') >= 0);
+    m.textContent = t;
+    m.style.background = ok ? '#0a2a14' : '#2a1a0a';
+    m.style.border     = ok ? '1px solid #14532d' : '1px solid #7c4a12';
+    m.style.color      = ok ? '#4ade80' : '#f59e0b';
+    document.getElementById('sb').textContent = ok ? 'WAS zero set.' : 'WAS zero refused.';
   });
 }
 
@@ -1678,6 +1768,12 @@ function updLive(d) {
     }
   }
   // Variable Steering live status
+  var vsts = document.getElementById('vsTrimState');
+  if (vsts && d.vsTrimSt !== undefined) {
+    vsts.textContent = d.vsTrimSt;
+    vsts.style.color = (d.vsTrimSt.indexOf('trimming') >= 0) ? '#4ade80'
+                     : (d.vsTrimSt.indexOf('clamp') >= 0)    ? '#f87171' : '#94a3b8';
+  }
   var vsc = document.getElementById('vsvCnt');
   if (vsc && d.vsWas !== undefined) {
     vsc.textContent = d.vsCnt;
@@ -2460,6 +2556,13 @@ void webServerBegin()
         Ethernet.localIP()[2], Ethernet.localIP()[3]);
 }
 
+// The auto-prototype generator skipped this one — the call sits ~700 lines above
+// the definition, so it has to be declared by hand. Same class of build break as
+// the earlier one fixed in zConfig.h; it lives here rather than in that header
+// because zConfig.h only pulls in Arduino.h and EEPROM.h, and knows nothing of
+// EthernetClient.
+void handleApiVsWasZero(EthernetClient& client);
+
 void handleWebClient()
 {
     if (pendingRestart && restartDelay > 600) {
@@ -2529,6 +2632,7 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/keyaposzero") != NULL) { keyaPosRef = keyaEncoderRaw; sendHeaders(client, "text/plain"); client.print(F("OK")); }
     else if (strstr(reqLine, "/api/keyazero")    != NULL) handleApiKeyaZero(client);
     else if (strstr(reqLine, "/api/imuwaszero")  != NULL) handleApiImuWasZero(client);
+    else if (strstr(reqLine, "/api/vswaszero")   != NULL) handleApiVsWasZero(client);
     else if (strstr(reqLine, "/api/canraw")      != NULL) handleApiCanRaw(client, reqLine);
     else if (strstr(reqLine, "/api/canscan")     != NULL) handleApiCanScan(client, reqLine);
     else if (strstr(reqLine, "/api/pved")        != NULL) handleApiPved(client, reqLine);
@@ -2734,10 +2838,19 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"zeroTicks\":")); client.print(moduleConfig.vs.zeroStillTicks, 1);
     client.print(F(",\"zeroMax\":")); client.print(moduleConfig.vs.zeroMaxDeg, 1);
     client.print(F(",\"zeroSpread\":")); client.print(moduleConfig.vs.zeroSpreadDeg, 2);
+    client.print(F(",\"trim\":")); client.print(moduleConfig.vs.wasTrimEnable);
+    client.print(F(",\"trimBeta\":")); client.print(moduleConfig.vs.wasTrimBeta, 4);
+    client.print(F(",\"trimSpd\":")); client.print(moduleConfig.vs.wasTrimSpeedMin, 1);
+    client.print(F(",\"trimYaw\":")); client.print(moduleConfig.vs.wasTrimYawMax, 2);
+    client.print(F(",\"trimAng\":")); client.print(moduleConfig.vs.wasTrimAngleMax, 1);
+    client.print(F(",\"trimStr\":")); client.print(moduleConfig.vs.wasTrimStraightMs);
+    client.print(F(",\"trimMax\":")); client.print(moduleConfig.vs.wasTrimMaxDeg, 1);
     client.print(F(",\"calA\":")); client.print(moduleConfig.vs.wasDegPerCount, 6);
     client.print(F(",\"calB\":")); client.print(moduleConfig.vs.wasIntercept, 3);
+    client.print(F(",\"calBbase\":")); client.print(moduleConfig.vs.wasInterceptBase, 3);
     client.print(F(",\"calRms\":")); client.print(calResWasRms, 3);
     client.print(F(",\"calN\":")); client.print(calResWasN);
+    client.print(F(",\"calMan\":")); client.print(calWasManual ? F("true") : F("false"));
 
     client.print(F("},\"imu_was\":{"));
     client.print(F("\"invert\":")); client.print(moduleConfig.imuWasInvert);
@@ -3129,6 +3242,7 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"vsRatio\":"));  client.print(vsRatioEst, 2);
     client.print(F(",\"vsOrbMsg\":\"")); client.print(vsOrbitalMsg); client.print('"');
     client.print(F(",\"vsZeroMsg\":\"")); client.print(vsZeroMsg); client.print('"');
+    client.print(F(",\"vsTrimSt\":\"")); client.print(vsTrimMsg); client.print('"');
     client.print(F(",\"vsZeroWas\":")); client.print(vsZeroFromWas ? F("true") : F("false"));
     client.print(F(",\"calState\":")); client.print(calState);
     client.print(F(",\"calMsg\":\"")); client.print(calMsg); client.print('"');
@@ -3221,6 +3335,18 @@ void handleApiImuWasZero(EthernetClient& client)
     webLog("IMU WAS: zero request");
     sendHeaders(client, "text/plain");
     client.print(F("OK"));
+}
+
+// Variable Steering: manual "set WAS zero now". The whole answer is the text
+// vsWasZeroNow() produces — success or the specific reason it refused — because
+// on a tractor "it did not work" is not something you can act on.
+void handleApiVsWasZero(EthernetClient& client)
+{
+    char msg[96];
+    vsWasZeroNow(msg, sizeof(msg));
+    Serial.print("VS WAS zero: "); Serial.println(msg);
+    sendHeaders(client, "text/plain");
+    client.print(msg);
 }
 
 void handleApiGpsRaw(EthernetClient& client, const char* req)
@@ -3621,6 +3747,15 @@ void handleApiSave(EthernetClient& client, const char* req)
     if ((p = strstr(req, "vsZeroTicks="))  != NULL) moduleConfig.vs.zeroStillTicks = atof(p + 12);
     if ((p = strstr(req, "vsZeroMax="))    != NULL) moduleConfig.vs.zeroMaxDeg     = atof(p + 10);
     if ((p = strstr(req, "vsZeroSpread=")) != NULL) moduleConfig.vs.zeroSpreadDeg  = atof(p + 13);
+    // Note the order: "vsTrim=" is a prefix of every other trim key, so it must be
+    // matched with its '=' attached — which strstr does — and the rest are distinct.
+    if ((p = strstr(req, "vsTrim="))       != NULL) moduleConfig.vs.wasTrimEnable    = (uint8_t)atoi(p + 7);
+    if ((p = strstr(req, "vsTrimBeta="))   != NULL) moduleConfig.vs.wasTrimBeta      = atof(p + 11);
+    if ((p = strstr(req, "vsTrimSpd="))    != NULL) moduleConfig.vs.wasTrimSpeedMin  = atof(p + 10);
+    if ((p = strstr(req, "vsTrimYaw="))    != NULL) moduleConfig.vs.wasTrimYawMax    = atof(p + 10);
+    if ((p = strstr(req, "vsTrimAng="))    != NULL) moduleConfig.vs.wasTrimAngleMax  = atof(p + 10);
+    if ((p = strstr(req, "vsTrimStr="))    != NULL) moduleConfig.vs.wasTrimStraightMs= (uint16_t)atoi(p + 10);
+    if ((p = strstr(req, "vsTrimMax="))    != NULL) moduleConfig.vs.wasTrimMaxDeg    = atof(p + 10);
     // The ratio goes through vsSetOrbitalMode (recomputes the zero) and is REFUSED
     // while engaged — changing the gain under active control jerks the wheel.
     if ((p = strstr(req, "vsMode=")) != NULL) {

@@ -57,7 +57,12 @@ struct WasFit {
 //
 // Encoder stays primary and carries all the dynamics; the analog WAS is only a slow
 // absolute anchor. Everything that changes behaviour defaults OFF → stock firmware.
-#define VS_MAGIC 0x5C                   // bumped when wasPresent was added
+// The magic doubles as a version: it is the FIRST byte of the struct, so it reads
+// back correctly no matter how the tail has grown. New fields are only ever
+// APPENDED, which keeps every older image readable up to its own last field — the
+// migration below then fills in just the new tail. Never insert into the middle.
+#define VS_MAGIC_V1 0x5C                // v1: through disengageOnBad
+#define VS_MAGIC    0x5D                // v2: + WAS zero button / slow intercept trim
 struct VsConfig {
     uint8_t  magic          = VS_MAGIC; // must stay first — migration marker
     // Kill switch for everything WAS-derived: fusion, WAS zero, ratio detection.
@@ -97,6 +102,25 @@ struct VsConfig {
     float    detectMinDeg   = 8.0f;     // WAS travel needed before an estimate counts
     uint8_t  detectConfirm  = 3;        // consecutive agreeing windows before switching
     uint8_t  disengageOnBad = 1;        // wrong ratio while engaged → drop autosteer
+    // ── v2: the WAS zero itself ──────────────────────────────────────────────
+    // The sweep fits angle = a*counts + b and writes both at once, so whatever
+    // centring error the wheels had at "Start sweep" lands in b and stays there.
+    // These move b alone; the slope a from the sweep is never touched.
+    //
+    // wasInterceptBase is b as last DEFINED (by a sweep or by the manual zero) and
+    // is the reference the clamp is measured against — so a slow trim can never
+    // walk away one small step at a time, and the drift is visible as a number.
+    float    wasInterceptBase = 0.0f;
+    // Slow auto-trim: a second, INDEPENDENT loop. It never looks at the encoder;
+    // its only input is "I am driving straight, therefore the angle is 0", which is
+    // why it cannot circle with the fusion. Runs at 1 Hz, hours-long time constant.
+    uint8_t  wasTrimEnable    = 0;      // 0=off 1=on
+    float    wasTrimBeta      = 0.002f; // fraction removed per accepted second (~8 min TC)
+    float    wasTrimSpeedMin  = 3.0f;   // km/h
+    float    wasTrimYawMax    = 0.5f;   // deg/s — stricter than the GPS auto-zero
+    float    wasTrimAngleMax  = 2.0f;   // applies to |WAS| AND |steer actual|: two witnesses
+    uint16_t wasTrimStraightMs= 2000;   // conditions must hold this long before trimming
+    float    wasTrimMaxDeg    = 5.0f;   // hard clamp on the drift from wasInterceptBase
 };
 
 // ── EEPROM layout ──────────────────────────────────────────────────────────────
@@ -276,11 +300,33 @@ inline void moduleConfigLoad()
         EEPROM.get(EEP_MODULE_ADDR, moduleConfig);
         EEPROM.get(EEP_NOTE_ADDR, setupNote);
         setupNote[EEP_NOTE_MAX] = 0;        // guarantee null-terminated
-        // Variable Steering block added after this EEPROM image was written → the
-        // bytes are untouched flash (0xFF), which would read back as "everything
-        // enabled" with a NaN calibration. Reset just that block; all other saved
-        // settings survive.
-        if (moduleConfig.vs.magic != VS_MAGIC) {
+        // ── Variable Steering block migration ────────────────────────────────
+        // Two different situations, and they must not be confused:
+        //
+        //  v1 image  — the block is real and calibrated, only the newer tail is
+        //              untouched EEPROM. Wiping it would cost the WAS sweep, i.e.
+        //              another session on the tractor with the reference IMU on
+        //              the wheel. Fill in the new fields only.
+        //  no block  — bytes are untouched flash (0xFF), which would read back as
+        //              "every feature enabled" with a NaN calibration. Reset it.
+        //
+        // Either way the rest of ModuleConfig survives.
+        if (moduleConfig.vs.magic == VS_MAGIC_V1) {
+            ModuleConfig fresh;
+            moduleConfig.vs.wasTrimEnable     = fresh.vs.wasTrimEnable;
+            moduleConfig.vs.wasTrimBeta       = fresh.vs.wasTrimBeta;
+            moduleConfig.vs.wasTrimSpeedMin   = fresh.vs.wasTrimSpeedMin;
+            moduleConfig.vs.wasTrimYawMax     = fresh.vs.wasTrimYawMax;
+            moduleConfig.vs.wasTrimAngleMax   = fresh.vs.wasTrimAngleMax;
+            moduleConfig.vs.wasTrimStraightMs = fresh.vs.wasTrimStraightMs;
+            moduleConfig.vs.wasTrimMaxDeg     = fresh.vs.wasTrimMaxDeg;
+            // Nothing has ever moved the intercept in v1, so the value now stored
+            // IS the sweep value — which makes it exactly the right clamp origin.
+            moduleConfig.vs.wasInterceptBase  = moduleConfig.vs.wasIntercept;
+            moduleConfig.vs.magic             = VS_MAGIC;
+            EEPROM.put(EEP_MODULE_ADDR, moduleConfig);
+            Serial.println("ModuleConfig: Variable Steering migrated v1 -> v2 (calibration kept)");
+        } else if (moduleConfig.vs.magic != VS_MAGIC) {
             ModuleConfig fresh;
             moduleConfig.vs = fresh.vs;
             EEPROM.put(EEP_MODULE_ADDR, moduleConfig);
@@ -327,6 +373,14 @@ void  vsApplyZero(int32_t encRaw, float angleDeg);
 void  vsSetOrbitalMode(uint8_t mode);
 float vsTicksPerDeg();
 float vsRatioDiv();
+void  vsTrimUpdate();                          // slow auto-trim of the WAS intercept
+bool  vsWasZeroNow(char* out, uint16_t n);     // manual "set WAS zero now" button
+// Rolling "encoder still" window, published in COUNTS so it is usable before the
+// WAS has any calibration at all. zCalib.ino reads these (it is concatenated
+// before zVarSteer.ino, so a plain definition there would come too late).
+extern float vsStillMeanCounts;                // mean ADS counts over the still window
+extern float vsStillSpreadCounts;              // min→max spread over that window
+extern elapsedMillis vsStillTimer;             // how long the encoder has been still
 
 // SLOG – print to USB Serial AND buffer for web display
 #define SLOG(msg)  do { Serial.println(msg); webLog(msg); } while(0)
