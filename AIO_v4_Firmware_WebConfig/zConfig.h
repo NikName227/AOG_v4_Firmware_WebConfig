@@ -130,7 +130,14 @@ struct VsConfig {
 // addr 60  : networkAddress       –  3 bytes (existing)
 // addr 80  : ModuleConfig         (NEW)
 
-#define FW_VERSION "v0.9-proto"   // shown in web GUI; bump before tagging a release branch
+// Shown in the web GUI header — it is how you tell, standing at the tractor, which
+// build is actually flashed. The LAST number is bumped on every single commit, so it
+// is a commit counter, not a semantic version.
+//   standard branch : v1.0.N
+//   custom solution : v1.0.1-CS_1.N   base frozen (where it branched from),
+//                                     CS_1 = which custom solution, N = commit
+// This branch is CS_1 (variable steering) and never merges to master.
+#define FW_VERSION "v1.0.1-CS_1.1"
 
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xD1   // change to force EEPROM reset on next boot
