@@ -115,6 +115,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <button class="tab active" onclick="showTab('config',this)">Config</button>
 <button class="tab" onclick="showTab('live',this)">Live</button>
 <button class="tab" onclick="showTab('keya',this)">Keya</button>
+<button class="tab" onclick="showTab('wascal',this)">WAS cal</button>
 <button class="tab" onclick="showTab('cansteer',this)">CAN Steer</button>
 <button class="tab" onclick="showTab('debug',this)">Debug</button>
 <button class="tab" onclick="showTab('um98x',this)">UM98x Config</button>
@@ -310,34 +311,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 
 <div class="card">
-<h2>WAS — ADS1115 auto-zero</h2>
-<p style="color:#64748b;font-size:13px;margin-bottom:8px">For the analog ADS1115 WAS only. Analog is repeatable but hard to trim to exactly 0°, so this very slowly nudges the angle to 0 while driving straight. The offset sits <b>on top of</b> the AgOpenGPS WAS offset and is kept in EEPROM (saved ~every 5 min), so the next boot starts already zeroed — no need to hit 0 precisely by hand.</p>
-<div class="row"><span class="lbl">Enable <small style="color:#64748b">(def OFF)</small></span>
-<input type="checkbox" id="az0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
-<div class="row"><span class="lbl">Current auto offset</span><span class="val" id="azOff">—</span></div>
-<div class="row"><span class="lbl">Beta / step <small style="color:#64748b">(def 0.02)</small></span>
-<input type="number" id="az1" min="0.001" max="0.5" step="0.001" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How fast it walks toward 0 each cycle. Keep small (0.01–0.03) — analog needs only a gentle, slow trim.</p>
-<div class="row"><span class="lbl">Min GPS speed km/h <small style="color:#64748b">(def 3)</small></span>
-<input type="number" id="az2" min="0" max="25" step="0.5" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Auto-zero only runs above this speed. Higher = stricter (GPS heading is steadier at speed).</p>
-<div class="row"><span class="lbl">Max yaw rate °/s <small style="color:#64748b">(def 0.5)</small></span>
-<input type="number" id="az3" min="0.1" max="5" step="0.1" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Stricter "driving straight" gate than the other sources — lower = only corrects on very straight stretches.</p>
-<div class="section-row" style="gap:8px">
-<div style="flex:1"><span class="lbl">Max angle for zero ° <small style="color:#64748b">(def 10)</small></span>
-<input type="number" id="az4" min="1" max="40" step="1" class="ninput" style="width:100%"></div>
-<div style="flex:1"><span class="lbl">Straight time ms <small style="color:#64748b">(def 1000)</small></span>
-<input type="number" id="az5" min="200" max="5000" step="100" class="ninput" style="width:100%"></div>
-</div>
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-<button class="btn green" onclick="saveAdsAz()">Save ADS auto-zero</button>
-<button class="btn" onclick="resetAdsAz()">Reset offset</button>
-</div>
-<p style="color:#94a3b8;font-size:12px;margin:5px 0 0;line-height:1.3">Reset sets the auto offset back to 0 — use after changing or servicing the WAS sensor (then re-set the AgOpenGPS WAS offset and drive straight to re-converge).</p>
-</div>
-
-<div class="card">
 <h2>IMU as WAS</h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">Dual-IMU steering angle = <b>knuckle yaw − chassis yaw</b> (the chassis term cancels vehicle rotation, so the angle stays correct mid-turn). Knuckle IMU sends yaw over CAN1 (ID 0x300, 250 kbps, 50–100 Hz); chassis = the AIO's own IMU. Set WAS = IMUasWAS and CAN1 = IMUasWAS above. <b>Requires an active chassis IMU.</b></p>
 <div class="row"><span class="lbl">Invert direction <small style="color:#64748b">(def OFF)</small></span>
@@ -420,7 +393,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="lvtoggle">
 <button class="subtab on" id="lvValuesTab" onclick="lvShow('values')">Values</button>
 <button class="subtab" id="lvGraphTab" onclick="lvShow('graph')">Graph</button>
-<button class="subtab" id="lvKeyaTab" onclick="lvShow('keya')" style="display:none">Keya WAS Geometry</button>
+<button class="subtab" id="lvKeyaTab" onclick="lvShow('keya')" style="display:none">WAS Geometry</button>
 </div>
 
 <!-- VALUES sub-panel -->
@@ -469,7 +442,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <!-- KEYA WAS GEOMETRY sub-panel (Ackermann scatter, final check) -->
 <div id="lvKeya" style="display:none">
 <div class="card">
-<h2>Keya WAS Geometry — Ackermann check</h2>
+<h2>WAS Geometry — Ackermann check</h2>
 <p style="color:#94a3b8;font-size:12px;line-height:1.4">Final check after calibration + auto-zero. Reconnect the reference (wheel) IMU, press Start, then turn the steering lock-to-lock. Dots = AOG steer vs reference wheel angle; the red line is the ideal bicycle (Ackermann) curve from wheelbase &amp; track. Dots on the curve = geometry &amp; calibration good.</p>
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0">
 <button class="btn green" id="kgBtn" onclick="kgToggle()">&#9654; Start</button>
@@ -518,24 +491,45 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 </div><!-- /live -->
 
-<!-- KEYA TAB -->
-<div id="keya" class="panel">
-<div class="lvtoggle">
-<button class="subtab on" id="kyTuningTab" onclick="kyShow('tuning')">Tuning</button>
-<button class="subtab" id="kyMotorTab" onclick="kyShow('motor')">Motor Config</button>
-</div>
-
-<div id="keyaTuning">
+<!-- WAS CAL TAB (F11): calibration follows the selected WAS source -->
+<div id="wascal" class="panel">
 <div class="card">
-<h2>Keya status</h2>
-<div class="row"><span class="lbl">Detected</span><span id="k_det" class="badge fail">--</span></div>
-<div class="row"><span class="lbl">WAS initial zero</span><span id="k_zero" class="badge fail">--</span></div>
-<div class="row"><span class="lbl">Encoder (ticks)</span><span class="val" id="k_enc">-</span></div>
-<div class="row"><span class="lbl">GPS drift offset (°)</span><span class="val" id="k_off">-</span></div>
-<div class="row"><span class="lbl">Actual motor speed</span><span class="val" id="k_act">-</span></div>
-<div class="row"><span class="lbl">Set motor speed</span><span class="val" id="k_set">-</span></div>
+<h2>WAS calibration</h2>
+<div class="row"><span class="lbl">WAS source <small style="color:#64748b">(Config tab)</small></span><span class="val" id="wcSrc">—</span></div>
+<p style="color:#64748b;font-size:13px;margin-top:6px;line-height:1.4">Calibration follows the WAS source selected on the Config tab: <b>ADS1115</b> → analog sensor table (reference IMU on the wheel), <b>Keya encoder</b> → Keya calibration and its auto-zero. Other sources have no calibration here.</p>
+</div>
+<div id="wcAdsPart" style="display:none">
+<!--WCADS-->
+<div class="card">
+<h2>WAS — ADS1115 auto-zero</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">For the analog ADS1115 WAS only. Analog is repeatable but hard to trim to exactly 0°, so this very slowly nudges the angle to 0 while driving straight. The offset sits <b>on top of</b> the AgOpenGPS WAS offset and is kept in EEPROM (saved ~every 5 min), so the next boot starts already zeroed — no need to hit 0 precisely by hand.</p>
+<div class="row"><span class="lbl">Enable <small style="color:#64748b">(def OFF)</small></span>
+<input type="checkbox" id="az0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div class="row"><span class="lbl">Current auto offset</span><span class="val" id="azOff">—</span></div>
+<div class="row"><span class="lbl">Beta / step <small style="color:#64748b">(def 0.02)</small></span>
+<input type="number" id="az1" min="0.001" max="0.5" step="0.001" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How fast it walks toward 0 each cycle. Keep small (0.01–0.03) — analog needs only a gentle, slow trim.</p>
+<div class="row"><span class="lbl">Min GPS speed km/h <small style="color:#64748b">(def 3)</small></span>
+<input type="number" id="az2" min="0" max="25" step="0.5" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Auto-zero only runs above this speed. Higher = stricter (GPS heading is steadier at speed).</p>
+<div class="row"><span class="lbl">Max yaw rate °/s <small style="color:#64748b">(def 0.5)</small></span>
+<input type="number" id="az3" min="0.1" max="5" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Stricter "driving straight" gate than the other sources — lower = only corrects on very straight stretches.</p>
+<div class="section-row" style="gap:8px">
+<div style="flex:1"><span class="lbl">Max angle for zero ° <small style="color:#64748b">(def 10)</small></span>
+<input type="number" id="az4" min="1" max="40" step="1" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Straight time ms <small style="color:#64748b">(def 1000)</small></span>
+<input type="number" id="az5" min="200" max="5000" step="100" class="ninput" style="width:100%"></div>
+</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+<button class="btn green" onclick="saveAdsAz()">Save ADS auto-zero</button>
+<button class="btn" onclick="resetAdsAz()">Reset offset</button>
+</div>
+<p style="color:#94a3b8;font-size:12px;margin:5px 0 0;line-height:1.3">Reset sets the auto offset back to 0 — use after changing or servicing the WAS sensor (then re-set the AgOpenGPS WAS offset and drive straight to re-converge).</p>
 </div>
 
+</div>
+<div id="wcKeyaPart" style="display:none">
 <div class="card">
 <h2>Keya WAS — steering geometry</h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">Compensates hydraulic backlash on direction reversal and unequal left/right steering. Tune manually here, or use auto-calibration (coming next) with a wheel-mounted reference IMU.</p>
@@ -655,6 +649,27 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <input type="number" id="kw11" min="50" max="2000" step="50" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Time vehicle must drive straight above the fast threshold. At speed the tractor naturally drives straighter so shorter time is sufficient.</p>
 <button class="btn green" onclick="saveKeyaWas()" style="margin-top:8px">Save WAS params</button>
+</div>
+
+</div>
+</div><!-- /wascal -->
+
+<!-- KEYA TAB -->
+<div id="keya" class="panel">
+<div class="lvtoggle">
+<button class="subtab on" id="kyTuningTab" onclick="kyShow('tuning')">Tuning</button>
+<button class="subtab" id="kyMotorTab" onclick="kyShow('motor')">Motor Config</button>
+</div>
+
+<div id="keyaTuning">
+<div class="card">
+<h2>Keya status</h2>
+<div class="row"><span class="lbl">Detected</span><span id="k_det" class="badge fail">--</span></div>
+<div class="row"><span class="lbl">WAS initial zero</span><span id="k_zero" class="badge fail">--</span></div>
+<div class="row"><span class="lbl">Encoder (ticks)</span><span class="val" id="k_enc">-</span></div>
+<div class="row"><span class="lbl">GPS drift offset (°)</span><span class="val" id="k_off">-</span></div>
+<div class="row"><span class="lbl">Actual motor speed</span><span class="val" id="k_act">-</span></div>
+<div class="row"><span class="lbl">Set motor speed</span><span class="val" id="k_set">-</span></div>
 </div>
 
 <div class="card">
@@ -890,6 +905,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 var loaded = false;
 var configLoaded = false;
 var activeTab = 'config';
+var wcSrcCur = 0;   // WAS source from the config (F11 WAS cal tab)
 var logFetching = false;
 var tickTimer = null;
 var activeGroup = 0;       // Live tab: 0=Off, 1=GPS, 2=IMU, 3=WAS, 4=Keya, 5=Steer, 6=CAN
@@ -1278,7 +1294,7 @@ function showTab(t, el) {
 
 function restartTick() {
   if (tickTimer) clearInterval(tickTimer);
-  var rate = (activeTab === 'live') ? 500 : 2000;
+  var rate = (activeTab === 'live' || activeTab === 'wascal') ? 500 : 2000;
   tickTimer = setInterval(tick, rate);
 }
 
@@ -1398,7 +1414,13 @@ function upd(d) {
     document.getElementById('can3Baud').value = d.cfg.can3Baud || 250000;
     document.getElementById('wasSource').value     = d.cfg.wasSource     || 0;
     var _kg = document.getElementById('lvKeyaTab');
-    if (_kg) _kg.style.display = ((d.cfg.wasSource || 0) == 1) ? '' : 'none';
+    var _src = d.cfg.wasSource || 0;
+    if (_kg) _kg.style.display = (_src == 0 || _src == 1) ? '' : 'none';
+    wcSrcCur = _src;
+    var _wn = ['ADS1115 (analog)', 'Keya encoder', 'IMU via CAN', 'CAN valve'];
+    document.getElementById('wcSrc').textContent = _wn[_src] || _src;
+    document.getElementById('wcAdsPart').style.display  = (_src == 0) ? '' : 'none';
+    document.getElementById('wcKeyaPart').style.display = (_src == 1) ? '' : 'none';
     document.getElementById('rollSource').value    = d.cfg.rollSource    || 0;
     document.getElementById('headingSource').value = d.cfg.headingSource || 0;
     document.getElementById('nmeaType').value      = d.cfg.nmeaType      || 0;
