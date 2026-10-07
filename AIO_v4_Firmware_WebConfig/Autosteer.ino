@@ -779,23 +779,22 @@ void autosteerLoop()
     {
         steeringPosition = adsRawCounts;   // raw already read above (readAdsRaw)
 
-        if (steerConfig.InvertWAS)
-        {
-            steeringPosition = (steeringPosition - 6805 - steerSettings.wasOffset);
-            steerAngleActual = (float)(steeringPosition) / -steerSettings.steerSensorCounts;
+        // F11: calibrated table (raw → bicycle angle) replaces the AOG counts /
+        // Ackermann / offset / invert; switch it off on the WAS cal page to go back.
+        if (wasCalTableActive()) {
+            steerAngleActual = adsTableAngle(adsRawCounts);
         }
         else
         {
-            steeringPosition = (steeringPosition - 6805 + steerSettings.wasOffset);
-            steerAngleActual = (float)(steeringPosition) / steerSettings.steerSensorCounts;
-        }
+        steerAngleActual = adsAogAngle(adsRawCounts);   // AOG counts/offset/invert − auto offset
 
         // ── ADS1115 auto-zero (separate, persisted offset on top of AOG wasOffset) ──
         // Analog WAS is repeatable but hard to trim to exactly 0; this very slowly
         // nudges the angle to 0 while driving straight, and the offset is kept in
         // EEPROM (saved periodically) so the next boot starts already zeroed.
+        // The offset itself is always applied (adsAogAngle) — the straight-driving
+        // zero on the WAS cal page writes it too; this only keeps it trimmed.
         if (moduleConfig.adsAzEnable) {
-            steerAngleActual -= moduleConfig.adsAutoOffset;
             static uint32_t adsStable = 0;
             if (gpsSpeed > moduleConfig.adsAzSpeedMin
                 && fabs(headingRate) < moduleConfig.adsAzYawMax
@@ -815,6 +814,7 @@ void autosteerLoop()
                 }
             }
         }
+        }
 
         steerAngleSpeedActual = steerAngleSpeedActual * 0.6 + (steerAngleActual-steerAngleActual_previous)*0.4 / (steerSensorReadTime/1000);
         steerSensorReadTime = 0;
@@ -823,8 +823,12 @@ void autosteerLoop()
     }
     } // end switch wasSource
 
-    //Ackerman fix
-    if (steerAngleActual < 0) steerAngleActual = (steerAngleActual * steerSettings.AckermanFix);
+    // F11 WAS calibration: recording + straight-driving zero (angle before Ackermann)
+    if (adcConnected) wasCalLoop(steerAngleActual);
+
+    //Ackerman fix — not for the calibrated ADS table (the table already is the bike angle)
+    bool wcTable = (moduleConfig.wasSource == WAS_SOURCE_ADS1115) && wasCalTableActive();
+    if (steerAngleActual < 0 && !wcTable) steerAngleActual = (steerAngleActual * steerSettings.AckermanFix);
 
     //WAS fault or over 25km, cut steering
     if ((steerAngleActual < inputWAS[0]) || (steerAngleActual > inputWAS[20]) || gpsSpeed > 25)
@@ -840,6 +844,7 @@ void autosteerLoop()
     //Map WAS
     float mappedWAS = multiMap<float>(steerAngleActual, inputWAS, outputWAS, 21);
     steerAngleActual = mappedWAS;
+    wcAngOut = steerAngleActual;
 
     if (watchdogTimer < WATCHDOG_THRESHOLD)
     {

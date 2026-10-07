@@ -340,6 +340,7 @@ void setup()
 
     // ── Load module config from EEPROM ──────────────────────────────────────
     moduleConfigLoad();
+    wasCalLoad();                       // F11 WAS calibration table (own EEPROM block)
 
     // ── Apply configurable serial port assignment ───────────────────────────
     SerialGPS = serialByNum(moduleConfig.gpsSerial);

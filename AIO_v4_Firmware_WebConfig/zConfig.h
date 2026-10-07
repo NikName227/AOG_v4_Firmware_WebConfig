@@ -42,8 +42,9 @@ struct CalFit {
 // addr 40  : steerConfig          –  9 bytes (existing)
 // addr 60  : networkAddress       –  3 bytes (existing)
 // addr 80  : ModuleConfig         (NEW)
+// addr 2200: WasCalStore          (F11 WAS calibration, own magic, ~240 B)
 
-#define FW_VERSION "v1.0.4"   // shown in web GUI; bump before tagging a release branch
+#define FW_VERSION "v1.0.5"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xD1   // change to force EEPROM reset on next boot
@@ -52,6 +53,7 @@ struct CalFit {
 // Teensy 4.1 EEPROM is 4284 B total → 1024..2025 leaves huge margin both ways.
 #define EEP_NOTE_ADDR    1024
 #define EEP_NOTE_MAX     1000           // characters (buffer is +1 for the null)
+#define EEP_WASCAL_ADDR  2200           // F11 WAS calibration table (after the note)
 extern char setupNote[EEP_NOTE_MAX + 1];
 
 // IMU type
@@ -247,3 +249,8 @@ void disengageLog(const char* reason);   // log autosteer disengage source (DBG_
 
 // SLOG – print to USB Serial AND buffer for web display
 #define SLOG(msg)  do { Serial.println(msg); webLog(msg); } while(0)
+
+// ── F11 WAS calibration (zWasCal.h core, zWasCal.ino glue) ─────────────────────
+#include "zWasCal.h"
+extern WasCalStore wasCal;
+extern float wcAngOut;

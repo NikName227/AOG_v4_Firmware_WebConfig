@@ -503,6 +503,61 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div id="wcAdsPart" style="display:none">
 <!--WCADS-->
 <div class="card">
+<h2>WAS &mdash; live <span id="wcMode" class="badge fail" style="margin-left:auto">&mdash;</span></h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px 16px;padding:8px 10px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-size:13px">
+<div>ADS raw <span id="wcRaw" style="float:right">&mdash;</span></div>
+<div>Angle &mdash; table <span id="wcATbl" style="float:right;color:#38bdf8">&mdash;</span></div>
+<div>Angle &mdash; AOG formula <span id="wcAAog" style="float:right;color:#94a3b8">&mdash;</span></div>
+<div>Steer actual <small style="color:#64748b">(sent)</small> <span id="wcAOut" style="float:right;color:#4ade80">&mdash;</span></div>
+<div>Reference wheel <span id="wcRefW" style="float:right">&mdash;</span></div>
+<div>Reference &rarr; bike <span id="wcRefB" style="float:right">&mdash;</span></div>
+</div>
+<div style="display:flex;gap:14px;align-items:center;margin-top:8px;flex-wrap:wrap">
+<label class="chk-row"><input type="checkbox" id="wcUse" onchange="wcCmd('use=' + (this.checked ? 1 : 0))"> Use WAS table <small style="color:#64748b">(off = AOG counts / Ackermann / offset, as before)</small></label>
+<label class="chk-row">Reference IMU on <select id="wcSide" style="min-width:110px"><option value="R">right wheel</option><option value="L">left wheel</option></select></label>
+<button class="btn sm" style="margin-left:0" onclick="wcRefZero = wcLast ? wcLast.ref : 0">&#8982; Centre reference</button>
+</div>
+<canvas id="wcGeo" width="720" height="300" style="width:100%;margin-top:8px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
+<p style="color:#94a3b8;font-size:12px;margin-top:4px;line-height:1.3">Top view. The wheel with the reference IMU is drawn from the IMU (press Centre with the wheels straight), the other wheel from Ackermann (L / T), dashed = bicycle angle. Needles: table (blue), AOG formula (grey), Keya (orange), steer actual sent to AOG (green).</p>
+<div class="row"><span class="lbl">Message</span><span class="val" id="wcMsg" style="font-size:12px">&mdash;</span></div>
+</div>
+
+<div class="card">
+<h2>ADS calibration &mdash; turn by hand <span style="color:#64748b;font-weight:normal;font-size:11px">(reference IMU on the wheel)</span></h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Tractor standing, autosteer off, the steering is turned <b>by hand</b> (the motor does not move). 1) ESP reference IMU on the <b>right</b> front wheel, wheels straight, <b>Start &mdash; right wheel</b>, turn <b>RIGHT first</b>, then slowly lock to lock 2&ndash;3 times (&le; 10&deg;/s), back to straight, <b>Stop</b>. 2) Move the IMU to the <b>left</b> wheel and repeat with <b>Start &mdash; left wheel</b>. 3) <b>Compute</b>, check, <b>Apply</b>. With both wheels the bicycle angle needs no track width; with one wheel only L / T below are used. If the Keya motor is connected its encoder is recorded too (range extension).</p>
+<div class="row"><span class="lbl">Reference IMU</span><span id="wcRefBadge" class="badge fail">--</span></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button class="btn green" onclick="wcCmd('start=R')">Start &mdash; right wheel</button>
+<button class="btn green" onclick="wcCmd('start=L')">Start &mdash; left wheel</button>
+<button class="btn" onclick="wcCmd('stop=1')">Stop</button>
+<button class="btn red" onclick="if (confirm('Discard both measurements?')) wcCmd('discard=1')">Discard</button>
+</div>
+<div id="wcSes0" style="margin-top:10px;font-size:13px"></div>
+<div id="wcSes1" style="margin-top:6px;font-size:13px"></div>
+<p style="color:#64748b;font-size:11px;margin:4px 0 0">Coverage per 5&deg; (wheel angle): grey = none, yellow = one direction, green = both directions.</p>
+<div class="row" style="margin-top:8px"><span class="lbl">Wheelbase L / track T <small style="color:#64748b">(m, one wheel only)</small></span>
+<span><input type="number" id="wcL" min="0.5" max="6" step="0.01" class="ninput" style="width:70px"> <input type="number" id="wcT" min="0.5" max="4" step="0.01" class="ninput" style="width:70px"> <button class="btn sm" style="margin-left:4px" onclick="wcSaveLT()">Save</button></span></div>
+<button class="btn green" onclick="wcCmd('compute=1').then(function() { wcCurve = null; })">Compute</button>
+<div id="wcResBox" style="display:none;margin-top:10px;padding:8px;border:1px solid #334155;border-radius:6px">
+<div class="row"><span class="lbl">Result</span><span class="val" id="wcResMsg" style="font-size:12px">&mdash;</span></div>
+<div class="row"><span class="lbl">RMS | hysteresis mean / max</span><span class="val" id="wcResQ">&mdash;</span></div>
+<div class="row"><span class="lbl">Wheels | offset between measurements</span><span class="val" id="wcResW">&mdash;</span></div>
+<div class="row"><span class="lbl">Saturated bins | skipped points</span><span class="val" id="wcResS">&mdash;</span></div>
+<div class="row"><span class="lbl">Keya ticks/&deg; L | R &middot; lock L | R</span><span class="val" id="wcResK">&mdash;</span></div>
+<canvas id="wcCurveCv" width="720" height="300" style="width:100%;margin-top:8px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
+<p style="color:#94a3b8;font-size:12px;margin-top:4px">Dots = measured (raw, bicycle angle), blue = new table, grey = table in use. Hysteresis includes the reference IMU delay.</p>
+<button class="btn green" onclick="if (confirm('Apply the new table? The zero must be done again by straight driving.')) wcCmd('apply=1')">Apply &amp; save</button>
+</div>
+<div class="lbl" style="margin:12px 0 3px">Table in use</div>
+<div class="row"><span class="lbl">Points | range</span><span class="val" id="wcTInfo">&mdash;</span></div>
+<div class="row"><span class="lbl">RMS | hysteresis | wheels</span><span class="val" id="wcTQual">&mdash;</span></div>
+<button class="btn red" onclick="if (confirm('Clear the table? AOG counts / Ackermann are used again.')) wcCmd('resettable=1')">Reset table</button>
+</div>
+
+
+
+<!--/WCADS-->
+<div class="card">
 <h2>WAS — ADS1115 auto-zero</h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">For the analog ADS1115 WAS only. Analog is repeatable but hard to trim to exactly 0°, so this very slowly nudges the angle to 0 while driving straight. The offset sits <b>on top of</b> the AgOpenGPS WAS offset and is kept in EEPROM (saved ~every 5 min), so the next boot starts already zeroed — no need to hit 0 precisely by hand.</p>
 <div class="row"><span class="lbl">Enable <small style="color:#64748b">(def OFF)</small></span>
@@ -1598,6 +1653,181 @@ function pollLog() {
     .catch(function() { logFetching = false; });
 }
 
+// WCJS{
+// ── WAS cal tab, ADS part (F11) ───────────────────────────────────────────────
+var wcLast = null, wcCurve = null, wcRefZero = 0, wcParamsLoaded = false;
+function wcCmd(q) {
+  return fetch('/api/wascal?' + q, { cache: 'no-store' })
+    .then(function(r) { return r.text(); })
+    .then(function(t) { if (t.indexOf('ERR') === 0) alert(t); wcPoll(); return t; });
+}
+function wcPoll() {
+  var wantCurve = wcLast && wcLast.res && !wcCurve;
+  fetch('/api/wcstat' + (wantCurve ? '?curve=1' : ''), { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { wcUpd(d); })
+    .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
+}
+function wcSaveLT() {
+  fetch('/api/save?wheelBase=' + document.getElementById('wcL').value + '&keyaT=' + document.getElementById('wcT').value)
+    .then(function(r) { document.getElementById('sb').textContent = r.ok ? 'L/T saved.' : 'ERROR.'; configLoaded = false; });
+}
+function wcSaveParams() {
+  var q = 'params=1', v = function(id) { var e = document.getElementById(id); return e ? e.value : null; };
+  if (v('wcZYaw') !== null) q += '&zyaw=' + v('wcZYaw') + '&zspd=' + v('wcZSpd') + '&ztime=' + v('wcZTime');
+  if (v('wcBlend') !== null) q += '&blend=' + v('wcBlend');
+  wcCmd(q);
+}
+function wcTxt(id, t, col) { var e = document.getElementById(id); if (!e) return; e.textContent = t; if (col !== undefined) e.style.color = col; }
+function wcFix(v, n) { return (v === undefined || v === null) ? '—' : Number(v).toFixed(n); }
+// one wheel → bicycle angle (same formula as the firmware), w signed, side 'R'/'L'
+function wcW2B(w, side, L, T) {
+  var m = Math.abs(w), inner = (side === 'R') ? (w > 0) : (w < 0);
+  var t = Math.tan(m * Math.PI / 180), den = L + (inner ? 1 : -1) * T / 2 * t;
+  var b = (L < 0.1 || den < 0.01) ? m : Math.atan(L * t / den) * 180 / Math.PI;
+  return w < 0 ? -b : b;
+}
+// bicycle angle → (right wheel, left wheel)
+function wcB2W(b, L, T) {
+  if (Math.abs(b) < 0.01) return [b, b];
+  var R = L / Math.tan(Math.abs(b) * Math.PI / 180);
+  var inn = Math.atan(L / (R - T / 2)) * 180 / Math.PI, out = Math.atan(L / (R + T / 2)) * 180 / Math.PI;
+  return b > 0 ? [inn, out] : [-out, -inn];
+}
+function wcUpd(d) {
+  wcLast = d;
+  var tbl = d.use == 1 && d.nPts >= 2;
+  var mb = document.getElementById('wcMode');
+  mb.className = 'badge ' + (tbl ? 'ok' : 'fail'); mb.textContent = tbl ? 'WAS: TABLE' : 'WAS: AOG SETTINGS';
+  var u = document.getElementById('wcUse'); u.checked = d.use == 1; u.disabled = d.nPts < 2;
+  wcTxt('wcRaw', d.raw);
+  wcTxt('wcATbl', d.nPts >= 2 ? wcFix(d.aTbl, 2) + '°' + (d.region ? (d.region < 0 ? ' |end L' : ' |end R') : '') : 'no table');
+  wcTxt('wcAAog', wcFix(d.aAog, 2) + '°');
+  wcTxt('wcAKeya', d.kInit ? wcFix(d.aKeya, 2) + '°' : '—');
+  wcTxt('wcAOut', wcFix(d.aOut, 2) + '°');
+  var rb = document.getElementById('wcRefBadge');
+  rb.className = 'badge ' + (d.refOk ? 'ok' : 'fail'); rb.textContent = d.refOk ? 'OK' : '--';
+  var side = document.getElementById('wcSide').value, si = side === 'R' ? 0 : 1;
+  var sg = d.ses[si].sign || 1;
+  var wRef = d.ses[si].st == 1 ? d.ses[si].w : (d.ref - wcRefZero) * sg;
+  var bRef = wcW2B(wRef, side, d.L, d.T);
+  wcTxt('wcRefW', d.refOk ? wcFix(wRef, 1) + '°' : 'stale');
+  wcTxt('wcRefB', d.refOk ? wcFix(bRef, 1) + '°' : '—');
+  wcTxt('wcMsg', d.msg);
+  if (document.activeElement.id !== 'wcL' && document.activeElement.id !== 'wcT') {
+    document.getElementById('wcL').value = d.L; document.getElementById('wcT').value = d.T;
+  }
+  // measurements
+  var names = ['RIGHT wheel', 'LEFT wheel'], stn = ['—', 'RECORDING', 'done'];
+  for (var i = 0; i < 2; i++) {
+    var s = d.ses[i], h = '<b>' + names[i] + '</b>: ' + stn[s.st];
+    if (s.st) {
+      h += ' &middot; ' + s.n + ' samples';
+      if (s.st == 1) h += ' &middot; now ' + wcFix(s.w, 1) + '° &middot; <span style="color:' + (s.rate > 10 ? '#f87171' : '#4ade80') + '">' + wcFix(s.rate, 1) + ' °/s</span>';
+      if (s.st == 1 && !s.sign) h += ' &middot; <span style="color:#f59e0b">turn RIGHT first</span>';
+      if (s.fast) h += ' &middot; too fast ' + s.fast;
+      if (s.stale) h += ' &middot; no ref ' + s.stale;
+      h += ' &middot; Keya ' + (s.ticks ? 'yes' : 'no');
+      h += '<div style="display:flex;gap:2px;margin-top:3px">';
+      for (var g = 0; g < 21; g++) {
+        var c = s.cov[g], col = c == 3 ? '#16a34a' : (c ? '#ca8a04' : '#334155');
+        h += '<span title="' + ((g - 10) * 5) + '°" style="flex:1;height:12px;background:' + col + ';font-size:9px;text-align:center;color:#0f172a">' + (g % 2 ? '' : (g - 10) * 5) + '</span>';
+      }
+      h += '</div>';
+    }
+    document.getElementById('wcSes' + i).innerHTML = h;
+  }
+  // computed result
+  var box = document.getElementById('wcResBox');
+  if (d.res) {
+    box.style.display = '';
+    if (d.res.cRaw) wcCurve = { raw: d.res.cRaw, bike: d.res.cBike };
+    wcTxt('wcResMsg', d.msg);
+    wcTxt('wcResQ', wcFix(d.res.rms, 2) + '° | ' + wcFix(d.res.hyst, 2) + ' / ' + wcFix(d.res.hystMax, 2) + '°');
+    wcTxt('wcResW', (d.res.two ? 'both' : 'one (L/T used)') + ' | ' + wcFix(d.res.rel, 2) + '°');
+    wcTxt('wcResS', d.res.sat + ' | ' + d.res.inv);
+    wcTxt('wcResK', d.res.kOk ? (wcFix(d.res.kTpdL, 1) + ' | ' + wcFix(d.res.kTpdR, 1) + ' · ' + wcFix(d.res.kMaxL, 1) + ' | ' + wcFix(d.res.kMaxR, 1) + '°') : 'no Keya data');
+    wcDrawCurve(d);
+  } else { box.style.display = 'none'; wcCurve = null; }
+  wcTxt('wcTInfo', d.nPts >= 2 ? (d.nPts + ' | ' + wcFix(d.tAng[0], 1) + ' … ' + wcFix(d.tAng[d.nPts - 1], 1) + '°') : 'none');
+  wcTxt('wcTQual', d.nPts >= 2 ? (wcFix(d.rms, 2) + '° | ' + wcFix(d.hyst, 2) + '° | ' + (d.two ? 'both' : 'one')) : '—');
+  if (document.getElementById('wcZMsg')) {
+    var z = d.z;
+    wcTxt('wcZLive', wcFix(d.speed, 1) + ' km/h | ' + wcFix(d.hdgRate, 2) + ' °/s' + (d.vtg ? ' (VTG)' : ''));
+    document.getElementById('wcZBar').style.width = Math.round(z.prog * 100) + '%';
+    wcTxt('wcZMsg', (z.run ? 'running: ' : '') + z.msg);
+    var p = [];
+    for (var k = 0; k < z.n; k++) p.push(wcFix(z.ang[k], 2) + '° (' + wcFix(z.sd[k], 2) + ')');
+    wcTxt('wcZPass', z.n ? p.join(', ') + ' → mean ' + wcFix(z.mean, 2) + '° [' + (z.tbl ? 'table' : 'AOG') + ']' : '—');
+    wcTxt('wcZCur', tbl ? ('table: zero ' + wcFix(d.zShift, 1) + ' + auto ' + wcFix(d.azShift, 1) + ' counts')
+                        : ('AOG: auto offset ' + wcFix(d.adsAzOff, 3) + '°' + (d.adsAz ? '' : ' (auto-zero off)')));
+  }
+  var kx = document.getElementById('wcKx');
+  if (kx) {
+    kx.checked = d.kx == 1; kx.disabled = !(d.kTpdL && d.kTpdR);
+    wcTxt('wcKTpd', d.kTpdL ? wcFix(d.kTpdL, 2) + ' | ' + wcFix(d.kTpdR, 2) : 'no Keya data');
+    wcTxt('wcKMax', d.kTpdL ? wcFix(d.kMaxL, 1) + ' | ' + wcFix(d.kMaxR, 1) : '—');
+    wcTxt('wcKW', d.kx ? wcFix(d.wAds, 2) + (d.keya ? '' : ' (Keya not detected)') : 'off');
+  }
+  if (!wcParamsLoaded) {
+    var set = function(id, v) { var e = document.getElementById(id); if (e) e.value = v; };
+    set('wcZYaw', d.zyaw); set('wcZSpd', d.zspd); set('wcZTime', d.ztime); set('wcBlend', d.blend);
+    wcParamsLoaded = true;
+  }
+  wcDrawGeo(d, side, wRef, bRef);
+}
+function wcDrawGeo(d, side, wRef, bRef) {
+  var cv = document.getElementById('wcGeo'), x = cv.getContext('2d'), W = cv.width, H = cv.height;
+  x.clearRect(0, 0, W, H);
+  var L = d.L > 0.5 ? d.L : 3, T = d.T > 0.5 ? d.T : 1.6, fy = 150, sc = (H - fy - 45) / L;
+  var cx = W / 2, ry = fy + L * sc;
+  var ws = wcB2W(d.refOk ? bRef : 0, L, T);
+  var wr = side === 'R' ? wRef : ws[0], wl = side === 'L' ? wRef : ws[1];
+  x.strokeStyle = '#334155'; x.lineWidth = 3;
+  x.beginPath(); x.moveTo(cx - T / 2 * sc, fy); x.lineTo(cx + T / 2 * sc, fy); x.moveTo(cx, fy); x.lineTo(cx, ry);
+  x.moveTo(cx - T / 2 * sc, ry); x.lineTo(cx + T / 2 * sc, ry); x.stroke();
+  function wheel(px, py, a, col, lab) {
+    x.save(); x.translate(px, py); x.rotate(a * Math.PI / 180);
+    x.fillStyle = col; x.fillRect(-6, -18, 12, 36); x.restore();
+    x.fillStyle = '#e2e8f0'; x.font = '12px monospace'; x.textAlign = 'center'; x.fillText(lab, px + (px < cx ? -60 : 60), py + 4);
+  }
+  wheel(cx + T / 2 * sc, fy, d.refOk ? wr : 0, side === 'R' ? '#4ade80' : '#64748b', 'R ' + wcFix(wr, 1) + '°' + (side === 'R' ? ' IMU' : ''));
+  wheel(cx - T / 2 * sc, fy, d.refOk ? wl : 0, side === 'L' ? '#4ade80' : '#64748b', 'L ' + wcFix(wl, 1) + '°' + (side === 'L' ? ' IMU' : ''));
+  wheel(cx - T / 2 * sc, ry, 0, '#475569', ''); wheel(cx + T / 2 * sc, ry, 0, '#475569', '');
+  function needle(a, len, col, dash) {
+    if (a === null || a === undefined || isNaN(a)) return;
+    var r = a * Math.PI / 180;
+    x.strokeStyle = col; x.lineWidth = 2; x.setLineDash(dash ? [6, 4] : []);
+    x.beginPath(); x.moveTo(cx, fy); x.lineTo(cx + Math.sin(r) * len, fy - Math.cos(r) * len); x.stroke(); x.setLineDash([]);
+  }
+  needle(d.refOk ? bRef : null, 140, '#e2e8f0', true);   // forward from the front axle centre
+  needle(d.aAog, 128, '#94a3b8');
+  if (d.nPts >= 2) needle(d.aTbl, 122, '#38bdf8');
+  if (d.kInit) needle(d.aKeya, 116, '#f59e0b');
+  needle(d.aOut, 110, '#4ade80');
+  x.fillStyle = '#94a3b8'; x.font = '12px monospace'; x.textAlign = 'left';
+  x.fillText('bike (ref) ' + (d.refOk ? wcFix(bRef, 1) : '—') + '°   table ' + (d.nPts >= 2 ? wcFix(d.aTbl, 1) : '—') + '°   AOG ' + wcFix(d.aAog, 1) + '°   out ' + wcFix(d.aOut, 1) + '°', 10, H - 10);
+}
+function wcDrawCurve(d) {
+  var cv = document.getElementById('wcCurveCv'), x = cv.getContext('2d'), W = cv.width, H = cv.height;
+  x.clearRect(0, 0, W, H);
+  var r = d.res, xs = [].concat(r.raw), ys = [].concat(r.ang);
+  if (wcCurve) { xs = xs.concat(wcCurve.raw); ys = ys.concat(wcCurve.bike); }
+  if (d.nPts >= 2) { xs = xs.concat(d.tRaw); ys = ys.concat(d.tAng); }
+  var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+  if (x1 - x0 < 1) x1 = x0 + 1; if (y1 - y0 < 1) y1 = y0 + 1;
+  var px = function(v) { return 40 + (v - x0) / (x1 - x0) * (W - 55); }, py = function(v) { return H - 25 - (v - y0) / (y1 - y0) * (H - 40); };
+  x.strokeStyle = '#1e3a5f'; x.lineWidth = 1; x.fillStyle = '#64748b'; x.font = '11px monospace';
+  for (var a = Math.ceil(y0 / 10) * 10; a <= y1; a += 10) { x.beginPath(); x.moveTo(40, py(a)); x.lineTo(W - 10, py(a)); x.stroke(); x.fillText(a + '°', 4, py(a) + 4); }
+  x.fillText('raw ' + Math.round(x0), 40, H - 8); x.fillText(Math.round(x1), W - 50, H - 8);
+  function line(rx, ry, col) { x.strokeStyle = col; x.lineWidth = 2; x.beginPath(); for (var i = 0; i < rx.length; i++) { if (i) x.lineTo(px(rx[i]), py(ry[i])); else x.moveTo(px(rx[i]), py(ry[i])); } x.stroke(); }
+  if (d.nPts >= 2) line(d.tRaw, d.tAng, '#64748b');
+  if (wcCurve) { x.fillStyle = '#e2e8f0'; for (var i = 0; i < wcCurve.raw.length; i++) x.fillRect(px(wcCurve.raw[i]) - 1.5, py(wcCurve.bike[i]) - 1.5, 3, 3); }
+  line(r.raw, r.ang, '#38bdf8');
+  x.fillStyle = '#38bdf8'; for (var j = 0; j < r.raw.length; j++) { x.beginPath(); x.arc(px(r.raw[j]), py(r.ang[j]), 3, 0, 7); x.fill(); }
+}
+// WCJS}
+
 function clearLog() {
   fetch('/api/log?clear=1').then(function() {
     document.getElementById('log').textContent = '(cleared)';
@@ -1630,6 +1860,8 @@ function tick() {
     }
     return;
   }
+  // WAS cal tab with the ADS source: its own status (table, recording, zero)
+  if (activeTab === 'wascal' && wcSrcCur == 0) { wcPoll(); return; }
   // Other tabs: lightweight full live update
   fetch('/api/live', { cache: 'no-store' })
     .then(function(r) { return r.json(); })
@@ -2504,6 +2736,8 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/canscan")     != NULL) handleApiCanScan(client, reqLine);
     else if (strstr(reqLine, "/api/pved")        != NULL) handleApiPved(client, reqLine);
     else if (strstr(reqLine, "/api/calib")       != NULL) handleApiCalib(client, reqLine);
+    else if (strstr(reqLine, "/api/wascal")      != NULL) handleApiWasCal(client, reqLine);
+    else if (strstr(reqLine, "/api/wcstat")      != NULL) handleApiWasCalStatus(client, reqLine);
     else if (strstr(reqLine, "/api/keyacfg")     != NULL) handleApiKeyaCfg(client, reqLine);
     else if (strstr(reqLine, "/api/note")        != NULL) handleApiNote(client, reqLine, contentLen);
     else if (Autosteer_running && watchdogTimer < WATCHDOG_THRESHOLD) {
