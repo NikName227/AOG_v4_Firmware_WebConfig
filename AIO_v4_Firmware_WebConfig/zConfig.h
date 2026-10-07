@@ -43,7 +43,7 @@ struct CalFit {
 // addr 60  : networkAddress       –  3 bytes (existing)
 // addr 80  : ModuleConfig         (NEW)
 
-#define FW_VERSION "v1.0.3"   // shown in web GUI; bump before tagging a release branch
+#define FW_VERSION "v1.0.4"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xD1   // change to force EEPROM reset on next boot

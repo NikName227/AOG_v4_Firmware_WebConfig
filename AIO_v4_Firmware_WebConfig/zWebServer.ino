@@ -69,7 +69,9 @@ void disengageLog(const char* reason)
 }
 
 // ── HTML page stored in flash ──────────────────────────────────────────────────
-static const char HTML_PAGE[] = R"AIOHTML(<!DOCTYPE html>
+// The page lives in flash (PROGMEM): ~160 KB that would otherwise sit in RAM1 (DTCM)
+// next to the stack. Teensy 4 flash is memory-mapped, so strlen/client.write read it directly.
+static const char HTML_PAGE[] PROGMEM = R"AIOHTML(<!DOCTYPE html>
 <html lang="hr">
 <head>
 <meta charset="UTF-8">
