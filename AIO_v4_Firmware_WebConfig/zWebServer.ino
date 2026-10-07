@@ -445,6 +445,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div id="lvGraph" style="display:none">
 <div class="card">
 <h2>Online Graph</h2>
+<div style="margin:0 0 6px"><button class="btn sm" onclick="gPresetKeya1()">keya_1</button><span style="color:#64748b;font-size:11px;margin-left:8px">Keya auto-zero: offset &plusmn;10 &middot; yawRate &plusmn;1 &middot; steer &plusmn;40 &middot; roll &plusmn;2</span></div>
 <div id="gRows" style="font-size:13px"></div>
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #334155">
 <span class="lbl">Time</span><input type="number" id="gTime" value="30" min="5" max="300" step="5" class="ninput" style="width:60px"> s
@@ -490,6 +491,29 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div>Input <span id="kgvGate" style="float:right;color:#94a3b8">idle</span></div>
 </div>
 <canvas id="kgcanvas" width="720" height="430" style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
+
+<h2 style="margin-top:18px">Geometry view &mdash; live</h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Top view drawn from the Keya encoder. Press Centre with the wheels straight, then turn. Three angles are shown side by side: the pure geometry from ticks, what the steer chain reports, and the reference IMU converted to the bicycle angle. Where they disagree tells you which step is wrong &mdash; geometry, zero, or the Ackerman/map stage.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0">
+<button class="btn" onclick="fetch('/api/keyaposzero')">&#8982; Centre</button>
+<label class="chk-row" style="padding:0">Reference IMU on
+<select id="gvSide" onchange="gvDraw()" style="margin-left:6px"><option value="R">right wheel</option><option value="L">left wheel</option></select></label>
+</div>
+<div id="gvLive" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:6px 16px;margin:8px 0;padding:10px 12px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-family:monospace;font-size:13px">
+<div>Ticks <small style="color:#64748b">rel</small> <span id="gvTick" style="float:right;color:#e2e8f0">&mdash;</span></div>
+<div>Bike from ticks <span id="gvBike" style="float:right;color:#facc15">&mdash;</span></div>
+<div>Steer actual <small style="color:#64748b">chain</small> <span id="gvSteer" style="float:right;color:#e2e8f0">&mdash;</span></div>
+<div>Ref IMU &rarr; bike <span id="gvRefBike" style="float:right;color:#4ade80">&mdash;</span></div>
+<div>&Delta; geometry <small style="color:#64748b">ticks-ref</small> <span id="gvD1" style="float:right;color:#e2e8f0">&mdash;</span></div>
+<div>&Delta; chain <small style="color:#64748b">ticks-steer</small> <span id="gvD2" style="float:right;color:#e2e8f0">&mdash;</span></div>
+<div>Inner wheel <span id="gvIn" style="float:right;color:#38bdf8">&mdash;</span></div>
+<div>Outer wheel <span id="gvOut" style="float:right;color:#f0776a">&mdash;</span></div>
+<div>Turn radius <span id="gvR" style="float:right;color:#e2e8f0">&mdash;</span></div>
+<div>T back-solved <small style="color:#64748b">both sides</small> <span id="gvTb" style="float:right;color:#e2e8f0">&mdash;</span></div>
+<div>tick/deg L &middot; R <span id="gvTpd" style="float:right;color:#94a3b8">&mdash;</span></div>
+<div>AckermanFix <span id="gvAck" style="float:right;color:#94a3b8">&mdash;</span></div>
+</div>
+<canvas id="gvcanvas" width="720" height="440" style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
 </div>
 </div>
 </div><!-- /live -->
@@ -980,6 +1004,129 @@ function kgExportCsv() {
   var blob = new Blob([rows], { type: 'text/csv' });
   var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = 'keya_geometry_' + Date.now() + '.csv'; a.click();
+}
+
+// ── Geometry view: live top-down from the Keya encoder ───────────────────────
+// Three angles are computed from the SAME steering position so they can be told
+// apart: pure geometry (ticks/tpd), the steer chain (steerAngleActual, which has
+// the zero trims, AckermanFix and the map baked in) and the reference IMU wheel
+// angle converted to the bike angle. Their differences localise the fault.
+var gvS = {tick:0, ref:0, fresh:false, steer:0, L:0, T:0, tpdL:24, tpdR:24, ack:1};
+var gvTb = {inn:null, out:null};      // one inner + one outer reading of the SAME wheel -> T
+
+function gvBikeFromTicks(tick, L, T, tpdL, tpdR) {
+  var tpd = (tick >= 0) ? tpdR : tpdL;
+  if (tpd < 1) tpd = 24;
+  return tick / tpd;                                   // signed bike angle, deg
+}
+// bike angle -> the two wheel angles (magnitudes)
+function gvWheels(bike, L, T) {
+  var a = Math.abs(bike);
+  if (a < 1e-4 || L < 0.1) return {inner:0, outer:0, R:Infinity};
+  var R = L / Math.tan(a * Math.PI / 180);
+  var inner = Math.atan(L / Math.max(R - T / 2, 1e-6)) * 180 / Math.PI;
+  var outer = Math.atan(L / (R + T / 2)) * 180 / Math.PI;
+  return {inner:inner, outer:outer, R:R};
+}
+function gvDraw() {
+  var c = document.getElementById('gvcanvas'); if (!c) return;
+  var g = c.getContext('2d'), W = c.width, H = c.height;
+  g.fillStyle = '#050d1a'; g.fillRect(0, 0, W, H);
+  var L = gvS.L, T = gvS.T;
+  if (L < 0.1) { g.fillStyle = '#64748b'; g.font = '13px monospace';
+                 g.fillText('wheelbase not set', 20, 28); return; }
+
+  var bike = gvBikeFromTicks(gvS.tick, L, T, gvS.tpdL, gvS.tpdR);
+  var w = gvWheels(bike, L, T), right = bike >= 0, ab = Math.abs(bike);
+
+  // reference IMU: the selected wheel is inner when turning toward its own side
+  var side = document.getElementById('gvSide').value;
+  var refInner = (side === 'R') ? right : !right;
+  var refBike  = 0;
+  if (gvS.fresh && Math.abs(gvS.ref) > 0.01) {
+    var t = Math.tan(Math.abs(gvS.ref) * Math.PI / 180);
+    var den = L + (refInner ? 1 : -1) * (T / 2) * t;
+    if (den > 0.01) refBike = Math.atan(L * t / den) * 180 / Math.PI * (gvS.ref >= 0 ? 1 : -1);
+  }
+  // T back-solve: needs an inner and an outer reading of the SAME wheel, one per side
+  if (gvS.fresh && Math.abs(gvS.ref) > 8) gvTb[refInner ? 'inn' : 'out'] = Math.abs(gvS.ref);
+  var Tback = null;
+  if (gvTb.inn && gvTb.out) {
+    Tback = L * (1 / Math.tan(gvTb.out * Math.PI / 180) - 1 / Math.tan(gvTb.inn * Math.PI / 180));
+  }
+
+  var S = 78, cx = W / 2, yR = H - 92, yF = yR - L * S, ht = T / 2 * S;
+  function wheel(x, y, deg, col, ww, hh) {
+    g.save(); g.translate(x, y); g.rotate(deg * Math.PI / 180);
+    g.fillStyle = col + '38'; g.strokeStyle = col; g.lineWidth = 2.2;
+    g.beginPath(); g.rect(-ww / 2, -hh / 2, ww, hh); g.fill(); g.stroke(); g.restore();
+  }
+  g.strokeStyle = '#1e3a5f'; g.lineWidth = 1;
+  g.setLineDash([5, 5]); g.beginPath(); g.moveTo(cx, yF - 54); g.lineTo(cx, yR + 52); g.stroke();
+  g.setLineDash([]);
+  g.fillStyle = '#0d1b2e'; g.strokeStyle = '#1e3a5f';
+  g.beginPath(); g.rect(cx - 44, yF - 6, 88, yR - yF + 12); g.fill(); g.stroke();
+  [yR, yF].forEach(function (y) { g.beginPath(); g.moveTo(cx - ht - 26, y); g.lineTo(cx + ht + 26, y); g.stroke(); });
+
+  // rays to the turn centre, when it fits
+  if (isFinite(w.R) && w.R < 26) {
+    var xc = cx + (right ? 1 : -1) * w.R * S;
+    g.strokeStyle = '#334155'; g.setLineDash([3, 4]);
+    [[cx - ht, yF], [cx + ht, yF], [cx, yF], [cx - ht, yR], [cx + ht, yR]].forEach(function (pt) {
+      g.beginPath(); g.moveTo(pt[0], pt[1]); g.lineTo(xc, yR); g.stroke(); });
+    g.setLineDash([]);
+    if (Math.abs(xc - cx) < W / 2 - 14) {
+      g.fillStyle = '#334155'; g.beginPath(); g.arc(xc, yR, 5, 0, 7); g.fill();
+      g.fillStyle = '#64748b'; g.font = '11px monospace'; g.textAlign = 'center';
+      g.fillText('centre', xc, yR + 19);
+    }
+  }
+  wheel(cx - ht, yR, 0, '#475569', 15, 40);
+  wheel(cx + ht, yR, 0, '#475569', 15, 40);
+  var rIn = right, aR = (rIn ? w.inner : w.outer) * (right ? 1 : -1),
+                   aL = (rIn ? w.outer : w.inner) * (right ? 1 : -1);
+  if (ab < 1e-4) { aR = 0; aL = 0; }
+  wheel(cx + ht, yF, aR, rIn ? '#38bdf8' : '#f0776a', 15, 40);
+  wheel(cx - ht, yF, aL, rIn ? '#f0776a' : '#38bdf8', 15, 40);
+  wheel(cx, yF, ab < 1e-4 ? 0 : bike, '#facc15', 11, 44);
+
+  g.font = '12px monospace'; g.textAlign = 'left';
+  g.fillStyle = rIn ? '#38bdf8' : '#f0776a'; g.fillText('R ' + Math.abs(aR).toFixed(1) + '°', cx + ht + 18, yF - 12);
+  g.textAlign = 'right';
+  g.fillStyle = rIn ? '#f0776a' : '#38bdf8'; g.fillText('L ' + Math.abs(aL).toFixed(1) + '°', cx - ht - 18, yF - 12);
+  g.textAlign = 'center'; g.fillStyle = '#facc15';
+  g.fillText('bike ' + bike.toFixed(1) + '°', cx, yF - 30);
+  g.fillStyle = '#64748b';
+  g.fillText('T = ' + T.toFixed(2) + ' m', cx, yR + 40);
+  g.textAlign = 'left'; g.fillText('L = ' + L.toFixed(2) + ' m', cx + ht + 18, (yF + yR) / 2);
+
+  function put(id, v) { var e = document.getElementById(id); if (e) e.textContent = v; }
+  var dash = '—';
+  put('gvTick', gvS.tick);
+  put('gvBike', bike.toFixed(2) + ' °');
+  put('gvSteer', gvS.steer.toFixed(2) + ' °');
+  put('gvRefBike', gvS.fresh ? refBike.toFixed(2) + ' °' : dash);
+  put('gvD1', gvS.fresh ? (bike - refBike).toFixed(2) + ' °' : dash);
+  put('gvD2', (bike - gvS.steer).toFixed(2) + ' °');
+  put('gvIn', ab < 1e-4 ? '0.0 °' : w.inner.toFixed(1) + ' °');
+  put('gvOut', ab < 1e-4 ? '0.0 °' : w.outer.toFixed(1) + ' °');
+  put('gvR', isFinite(w.R) ? w.R.toFixed(1) + ' m' : '∞');
+  put('gvTb', Tback === null ? 'turn both ways' : Tback.toFixed(2) + ' m');
+  put('gvTpd', gvS.tpdL.toFixed(1) + ' · ' + gvS.tpdR.toFixed(1));
+  put('gvAck', (gvS.ack * 100).toFixed(0) + ' %' + (Math.abs(gvS.ack - 1) > 0.005 ? '  (one side scaled)' : ''));
+}
+
+// ── Graph preset: Keya auto-zero ─────────────────────────────────────────────
+// 24 gpsOffset, 20 chassis yawRate, 27 steer actual, 11 roll. Deliberately no
+// signal 44/45, so gSet() does not re-zero the encoder while watching the zero.
+function gPresetKeya1() {
+  var sig = [24, 20, 27, 11], mn = [-10, -1, -40, -2], mx = [10, 1, 40, 2];
+  for (var c = 0; c < 4; c++) {
+    var e = document.getElementById('gsig' + c); if (e) e.value = sig[c];
+    var a = document.getElementById('gmin' + c); if (a) a.value = mn[c];
+    var b = document.getElementById('gmax' + c); if (b) b.value = mx[c];
+  }
+  gSet();
 }
 
 function setGroup(n, btn) {
@@ -1484,6 +1631,13 @@ function updLive(d) {
   // Keya WAS Geometry scatter: keep geometry fresh, capture (ref, steer) points while running
   if (d.wheelBase !== undefined) { kgWB = d.wheelBase; kgT = d.trackT; }
   if (kgCapture && d.refFresh && d.steerAngle !== undefined) kgPush(d.refAngle, d.steerAngle);
+  // Geometry view below the scatter: same payload, drawn live from the encoder
+  if (d.relTicks !== undefined) {
+    gvS.tick = d.relTicks; gvS.ref = d.refAngle; gvS.fresh = !!d.refFresh;
+    gvS.steer = d.steerAngle; gvS.L = d.wheelBase; gvS.T = d.trackT;
+    if (d.tpdL !== undefined) { gvS.tpdL = d.tpdL; gvS.tpdR = d.tpdR; gvS.ack = d.ackFix; }
+    gvDraw();
+  }
   // Live input readout above the scatter — shows every value feeding the Ackermann calc
   var kgf = document.getElementById('kgvFresh');
   if (kgf) {
@@ -2812,6 +2966,12 @@ void handleApiLive(EthernetClient& client)
     client.print(F(",\"steerAngle\":")); client.print(steerAngleActual, 2);
     client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
     client.print(F(",\"trackT\":")); client.print(moduleConfig.keyaTrackT, 2);
+    // Geometry view: encoder ticks from the centre press, plus the two knobs that bend the
+    // tick->angle chain after the pure geometry (so the three angles can be told apart).
+    client.print(F(",\"relTicks\":")); client.print(keyaEncoderRaw - keyaPosRef);
+    client.print(F(",\"tpdL\":")); client.print(moduleConfig.keyaTicksLeft, 1);
+    client.print(F(",\"tpdR\":")); client.print(moduleConfig.keyaTicksRight, 1);
+    client.print(F(",\"ackFix\":")); client.print(steerSettings.AckermanFix, 3);  // fraction, 1.0 = 100 %
     client.print(F(",\"calState\":")); client.print(calState);
     client.print(F(",\"calMsg\":\"")); client.print(calMsg); client.print('"');
     client.print(F(",\"calSpeed\":")); client.print(calSpeed);
