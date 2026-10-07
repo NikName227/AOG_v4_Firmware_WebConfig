@@ -122,7 +122,19 @@ void wasCalLoop(float angPreAck)
 }
 
 // ── Commands: /api/wascal?... ────────────────────────────────────────────────
-static const char *wcArg(const char *req, const char *key) { const char *p = strstr(req, key); return p ? p + strlen(key) : NULL; }
+// Query parameter value: the key must follow '?' or '&' exactly ("stop=" must not
+// match "zstop=", "apply=" not "zapply=").
+static const char *wcArg(const char *req, const char *key)
+{
+    size_t n = strlen(key);
+    for (const char *p = strstr(req, key); p; p = strstr(p + 1, key))
+        if (p > req && (p[-1] == '?' || p[-1] == '&')) return p + n;
+    return NULL;
+}
+static bool wcHas(const char *req, const char *kv) { const char *eq = strchr(kv, '='); char key[16];
+    size_t n = eq ? (size_t)(eq - kv + 1) : strlen(kv); if (n >= sizeof key) return false;
+    memcpy(key, kv, n); key[n] = 0; const char *v = wcArg(req, key);
+    return v && strncmp(v, kv + n, strlen(kv + n)) == 0; }
 
 void handleApiWasCal(EthernetClient& client, const char* req)
 {
@@ -142,14 +154,14 @@ void handleApiWasCal(EthernetClient& client, const char* req)
             wcSetMsg(wheel ? "WAS cal: LEFT wheel - turn RIGHT first, then lock to lock" : "WAS cal: RIGHT wheel - turn RIGHT first, then lock to lock");
         }
     }
-    else if (strstr(req, "stop=1"))  { wcCal.stop(); wcSetMsg("WAS cal: measurement stopped"); }
-    else if (strstr(req, "discard=1")) { wcCal.reset(); wcResValid = false; wcSetMsg("WAS cal: measurements discarded"); }
-    else if (strstr(req, "compute=1")) {
+    else if (wcHas(req, "stop=1"))  { wcCal.stop(); wcSetMsg("WAS cal: measurement stopped"); }
+    else if (wcHas(req, "discard=1")) { wcCal.reset(); wcResValid = false; wcSetMsg("WAS cal: measurements discarded"); }
+    else if (wcHas(req, "compute=1")) {
         wcCal.stop();
         wcResValid = wcCal.compute(wcRes, moduleConfig.wheelBase, moduleConfig.keyaTrackT);
         wcSetMsg(wcRes.msg);
     }
-    else if (strstr(req, "apply=1")) {
+    else if (wcHas(req, "apply=1")) {
         if (!wcResValid)          err = "nothing to apply";
         else if (wcAutosteerOn()) err = "autosteer engaged";
         else {
@@ -168,7 +180,7 @@ void handleApiWasCal(EthernetClient& client, const char* req)
             wcSetMsg("WAS cal: table applied & saved - now do the straight-driving zero");
         }
     }
-    else if (strstr(req, "resettable=1")) {
+    else if (wcHas(req, "resettable=1")) {
         if (wcAutosteerOn()) err = "autosteer engaged";
         else {
             WasCalStore keep = wasCal;
@@ -190,20 +202,20 @@ void handleApiWasCal(EthernetClient& client, const char* req)
         else if (*p == '1' && (wasCal.keyaTpdL == 0 || wasCal.keyaTpdR == 0)) err = "no Keya data in the table";
         else { wasCal.keyaExtend = (*p == '1'); memset(&wcKeyaExt, 0, sizeof(wcKeyaExt)); wasCalSave(); }
     }
-    else if (strstr(req, "params=1")) {
+    else if (wcHas(req, "params=1")) {
         if ((p = wcArg(req, "blend=")) != NULL) { float v = atof(p); if (v >= 1 && v <= 15) wasCal.blendDeg = v; }
         if ((p = wcArg(req, "zyaw="))  != NULL) { float v = atof(p); if (v >= 0.02f && v <= 2) wasCal.zYawMax = v; }
         if ((p = wcArg(req, "zspd="))  != NULL) { float v = atof(p); if (v >= 1 && v <= 25) wasCal.zSpeedMin = v; }
         if ((p = wcArg(req, "ztime=")) != NULL) { float v = atof(p); if (v >= 2 && v <= 60) wasCal.zTimeMs = (uint16_t)(v * 1000); }
         wasCalSave();
     }
-    else if (strstr(req, "zstart=1")) {
+    else if (wcHas(req, "zstart=1")) {
         if (!adcConnected || moduleConfig.wasSource != WAS_SOURCE_ADS1115) err = "WAS source is not ADS1115";
         else wcZeroStart(wcZero, wasCalTableActive());
     }
-    else if (strstr(req, "zstop=1"))  { wcZero.running = 0; strcpy(wcZero.msg, "stopped"); }
-    else if (strstr(req, "zclear=1")) { wcZeroClear(wcZero); }
-    else if (strstr(req, "zapply=1")) {
+    else if (wcHas(req, "zstop=1"))  { wcZero.running = 0; strcpy(wcZero.msg, "stopped"); }
+    else if (wcHas(req, "zclear=1")) { wcZeroClear(wcZero); }
+    else if (wcHas(req, "zapply=1")) {
         if (!wcZero.nPass)        err = "no straight pass yet";
         else if (wcAutosteerOn()) err = "autosteer engaged";
         else if (wcZero.tableMode) {
@@ -318,7 +330,7 @@ void handleApiWasCalStatus(EthernetClient& client, const char* req)
         client.print(F(",\"kTpdR\":")); client.print(wcRes.keyaTpdR, 2);
         client.print(F(",\"kMaxL\":")); client.print(wcRes.keyaMaxL, 1);
         client.print(F(",\"kMaxR\":")); client.print(wcRes.keyaMaxR, 1);
-        if (strstr(req, "curve=1")) {
+        if (wcHas(req, "curve=1")) {
             client.print(F(",\"cRaw\":")); wcPrintArr(client, wcRes.curveRaw, wcRes.nCurve, 0);
             client.print(F(",\"cBike\":")); wcPrintArr(client, wcRes.curveBike, wcRes.nCurve, 2);
         }
