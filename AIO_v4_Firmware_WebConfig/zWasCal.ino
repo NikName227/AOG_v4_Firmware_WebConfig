@@ -89,6 +89,7 @@ float adsTableAngle(int16_t raw)
             }
         }
     }
+    a = wcKeyaBlend(wasCal, wcKeyaExt, a, keyaDetected, keyaEncoderRaw);
     return a;
 }
 
@@ -184,7 +185,13 @@ void handleApiWasCal(EthernetClient& client, const char* req)
         else { wasCal.useTable = (*p == '1'); memset(&wcKeyaExt, 0, sizeof(wcKeyaExt)); wasCalSave();
                wcSetMsg(wasCal.useTable ? "WAS: table in use" : "WAS: AOG settings in use"); }
     }
+    else if ((p = wcArg(req, "kx=")) != NULL) {
+        if (wcAutosteerOn())                                         err = "autosteer engaged";
+        else if (*p == '1' && (wasCal.keyaTpdL == 0 || wasCal.keyaTpdR == 0)) err = "no Keya data in the table";
+        else { wasCal.keyaExtend = (*p == '1'); memset(&wcKeyaExt, 0, sizeof(wcKeyaExt)); wasCalSave(); }
+    }
     else if (strstr(req, "params=1")) {
+        if ((p = wcArg(req, "blend=")) != NULL) { float v = atof(p); if (v >= 1 && v <= 15) wasCal.blendDeg = v; }
         if ((p = wcArg(req, "zyaw="))  != NULL) { float v = atof(p); if (v >= 0.02f && v <= 2) wasCal.zYawMax = v; }
         if ((p = wcArg(req, "zspd="))  != NULL) { float v = atof(p); if (v >= 1 && v <= 25) wasCal.zSpeedMin = v; }
         if ((p = wcArg(req, "ztime=")) != NULL) { float v = atof(p); if (v >= 2 && v <= 60) wasCal.zTimeMs = (uint16_t)(v * 1000); }

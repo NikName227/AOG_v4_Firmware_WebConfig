@@ -508,6 +508,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div>ADS raw <span id="wcRaw" style="float:right">&mdash;</span></div>
 <div>Angle &mdash; table <span id="wcATbl" style="float:right;color:#38bdf8">&mdash;</span></div>
 <div>Angle &mdash; AOG formula <span id="wcAAog" style="float:right;color:#94a3b8">&mdash;</span></div>
+<div>Angle &mdash; Keya <span id="wcAKeya" style="float:right;color:#f59e0b">&mdash;</span></div>
 <div>Steer actual <small style="color:#64748b">(sent)</small> <span id="wcAOut" style="float:right;color:#4ade80">&mdash;</span></div>
 <div>Reference wheel <span id="wcRefW" style="float:right">&mdash;</span></div>
 <div>Reference &rarr; bike <span id="wcRefB" style="float:right">&mdash;</span></div>
@@ -577,11 +578,21 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <button class="btn green" onclick="wcSaveParams()">Save zero settings</button>
 </div>
 
+<div class="card">
+<h2>Keya extends the range</h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Past the end of the table (sensor end / saturation) the Keya encoder takes over. In the middle the Keya angle is anchored to the ADS angle all the time; in the blend zone before a table end the angle crossfades to the Keya; past the end it is Keya + last anchor, limited to the lock reached in the calibration. Keya lost &rarr; ADS, held at the table end. Needs a calibration recorded with the Keya connected.</p>
+<label class="chk-row"><input type="checkbox" id="wcKx" onchange="wcCmd('kx=' + (this.checked ? 1 : 0))"> Enable</label>
+<div class="row"><span class="lbl">Keya ticks/&deg; L | R</span><span class="val" id="wcKTpd">&mdash;</span></div>
+<div class="row"><span class="lbl">Lock L | R (bike &deg;)</span><span class="val" id="wcKMax">&mdash;</span></div>
+<div class="row"><span class="lbl">ADS weight now</span><span class="val" id="wcKW">&mdash;</span></div>
+<div class="row"><span class="lbl">Blend zone &deg; <small style="color:#64748b">(def 5)</small></span><input type="number" id="wcBlend" min="1" max="15" step="0.5" class="ninput"></div>
+<button class="btn green" onclick="wcSaveParams()">Save</button>
+</div>
 
 <!--/WCADS-->
 <div class="card">
 <h2>WAS — ADS1115 auto-zero</h2>
-<p style="color:#64748b;font-size:13px;margin-bottom:8px">For the analog ADS1115 WAS only. Analog is repeatable but hard to trim to exactly 0°, so this very slowly nudges the angle to 0 while driving straight. The offset sits <b>on top of</b> the AgOpenGPS WAS offset and is kept in EEPROM (saved ~every 5 min), so the next boot starts already zeroed — no need to hit 0 precisely by hand.</p>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">For the analog ADS1115 WAS only. Analog is repeatable but hard to trim to exactly 0°, so this very slowly nudges the angle to 0 while driving straight. The offset sits <b>on top of</b> the AgOpenGPS WAS offset and is kept in EEPROM (saved ~every 5 min), so the next boot starts already zeroed — no need to hit 0 precisely by hand. <b>With the WAS table on</b>, the same settings move the table&#39;s raw zero instead (shown in the zero card above); each mode keeps its own zero, so switching the table off and on loses nothing.</p>
 <div class="row"><span class="lbl">Enable <small style="color:#64748b">(def OFF)</small></span>
 <input type="checkbox" id="az0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
 <div class="row"><span class="lbl">Current auto offset</span><span class="val" id="azOff">—</span></div>
