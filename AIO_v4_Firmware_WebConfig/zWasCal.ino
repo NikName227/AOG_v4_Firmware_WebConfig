@@ -111,6 +111,13 @@ void wasCalLoop(float angPreAck)
         else wcCal.ses[wcCal.active].nStale++;
     }
 
+    if (wcZero.running) {
+        bool tbl = wasCalTableActive();
+        float yawMax = wasCal.zYawMax * (gpsMotionVtg ? 3.0f : 1.0f);
+        wcZeroStep(wcZero, millis(), (float)adsRawCounts, angPreAck, gpsMotionHdg,
+                   gpsSpeed, steerAngleSpeedActual, yawMax, wasCal.zSpeedMin, wasCal.zTimeMs);
+        if (tbl != (wcZero.tableMode != 0)) { wcZero.running = 0; strcpy(wcZero.msg, "mode changed - start again"); }
+    }
 }
 
 // ── Commands: /api/wascal?... ────────────────────────────────────────────────
@@ -177,6 +184,34 @@ void handleApiWasCal(EthernetClient& client, const char* req)
         else { wasCal.useTable = (*p == '1'); memset(&wcKeyaExt, 0, sizeof(wcKeyaExt)); wasCalSave();
                wcSetMsg(wasCal.useTable ? "WAS: table in use" : "WAS: AOG settings in use"); }
     }
+    else if (strstr(req, "params=1")) {
+        if ((p = wcArg(req, "zyaw="))  != NULL) { float v = atof(p); if (v >= 0.02f && v <= 2) wasCal.zYawMax = v; }
+        if ((p = wcArg(req, "zspd="))  != NULL) { float v = atof(p); if (v >= 1 && v <= 25) wasCal.zSpeedMin = v; }
+        if ((p = wcArg(req, "ztime=")) != NULL) { float v = atof(p); if (v >= 2 && v <= 60) wasCal.zTimeMs = (uint16_t)(v * 1000); }
+        wasCalSave();
+    }
+    else if (strstr(req, "zstart=1")) {
+        if (!adcConnected || moduleConfig.wasSource != WAS_SOURCE_ADS1115) err = "WAS source is not ADS1115";
+        else wcZeroStart(wcZero, wasCalTableActive());
+    }
+    else if (strstr(req, "zstop=1"))  { wcZero.running = 0; strcpy(wcZero.msg, "stopped"); }
+    else if (strstr(req, "zclear=1")) { wcZeroClear(wcZero); }
+    else if (strstr(req, "zapply=1")) {
+        if (!wcZero.nPass)        err = "no straight pass yet";
+        else if (wcAutosteerOn()) err = "autosteer engaged";
+        else if (wcZero.tableMode) {
+            if (!wasCalTableActive() || !wcZeroApplyTable(wasCal, wcZero)) err = "table not active";
+            else { wasCalSave(); wcSetMsg("WAS cal: straight zero applied (table)"); wcZeroClear(wcZero); }
+        } else {
+            if (wasCalTableActive()) err = "mode changed - measure again";
+            else {
+                moduleConfig.adsAutoOffset += wcZeroMeanAng(wcZero);
+                moduleConfigSave();
+                wcSetMsg("WAS cal: straight zero applied (AOG mode offset)");
+                wcZeroClear(wcZero);
+            }
+        }
+    }
 
     sendHeaders(client, "text/plain");
     if (err) { client.print(F("ERR ")); client.print(err); }
@@ -209,6 +244,8 @@ void handleApiWasCalStatus(EthernetClient& client, const char* req)
     client.print(F(",\"region\":")); client.print(wcRegion);
     client.print(F(",\"steerOn\":")); client.print(wcAutosteerOn() ? 1 : 0);
     client.print(F(",\"speed\":")); client.print(gpsSpeed, 1);
+    client.print(F(",\"hdgRate\":")); client.print(headingRate, 2);
+    client.print(F(",\"vtg\":")); client.print(gpsMotionVtg ? 1 : 0);
     client.print(F(",\"L\":")); client.print(moduleConfig.wheelBase, 2);
     client.print(F(",\"T\":")); client.print(moduleConfig.keyaTrackT, 2);
     client.print(F(",\"msg\":\"")); client.print(wcMsg); client.print('"');
@@ -281,5 +318,14 @@ void handleApiWasCalStatus(EthernetClient& client, const char* req)
         client.print('}');
     }
 
+    // straight zero
+    client.print(F(",\"z\":{\"run\":")); client.print(wcZero.running);
+    client.print(F(",\"prog\":")); client.print(wcZero.progress, 2);
+    client.print(F(",\"n\":")); client.print(wcZero.nPass);
+    client.print(F(",\"tbl\":")); client.print(wcZero.tableMode);
+    client.print(F(",\"ang\":")); wcPrintArr(client, wcZero.passAng, wcZero.nPass, 2);
+    client.print(F(",\"sd\":")); wcPrintArr(client, wcZero.passStd, wcZero.nPass, 2);
+    client.print(F(",\"mean\":")); client.print(wcZeroMeanAng(wcZero), 2);
+    client.print(F(",\"msg\":\"")); client.print(wcZero.msg); client.print(F("\"}"));
     client.print('}');
 }

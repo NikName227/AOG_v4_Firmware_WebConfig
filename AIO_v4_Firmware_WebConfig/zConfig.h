@@ -44,7 +44,7 @@ struct CalFit {
 // addr 80  : ModuleConfig         (NEW)
 // addr 2200: WasCalStore          (F11 WAS calibration, own magic, ~240 B)
 
-#define FW_VERSION "v1.0.5"   // shown in web GUI; bump before tagging a release branch
+#define FW_VERSION "v1.0.6"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xD1   // change to force EEPROM reset on next boot
@@ -254,3 +254,5 @@ void disengageLog(const char* reason);   // log autosteer disengage source (DBG_
 #include "zWasCal.h"
 extern WasCalStore wasCal;
 extern float wcAngOut;
+extern float gpsMotionHdg;   // filtered heading of the selected source (updateGpsMotion)
+extern bool  gpsMotionVtg;   // that heading is the VTG fallback

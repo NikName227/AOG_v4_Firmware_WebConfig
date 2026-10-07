@@ -174,6 +174,9 @@ void VTG_Handler()
 // Compute vehicle yaw rate and GPS-derived wheel angle from VTG course over ground.
 // Works in every heading mode (IMU / HPR / RELPOS) since VTG is always present.
 // Used by Keya & IMU-WAS auto-zero and shown in Live tab Gr3 WAS.
+float gpsMotionHdg = 0;    // F11: filtered heading of the selected source (straight-driving zero)
+bool  gpsMotionVtg = false;
+
 void updateGpsMotion()
 {
     static float         emaHdg = 0;   // EMA-filtered heading (deg)
@@ -212,6 +215,7 @@ void updateGpsMotion()
     else                      { step = dRaw;     emaHdg  = hdg; }   // filter off = raw
     if (emaHdg < 0.0f)    emaHdg += 360.0f;
     if (emaHdg >= 360.0f) emaHdg -= 360.0f;
+    gpsMotionHdg = emaHdg; gpsMotionVtg = usingVtg;
 
     // VTG fallback needs movement; a real heading source is valid at any speed.
     if (!usingVtg || gpsSpeed > 1.0f) {

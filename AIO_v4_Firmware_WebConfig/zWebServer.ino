@@ -554,6 +554,28 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <button class="btn red" onclick="if (confirm('Clear the table? AOG counts / Ackermann are used again.')) wcCmd('resettable=1')">Reset table</button>
 </div>
 
+<div class="card">
+<h2>Zero &mdash; straight driving</h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Drive straight (by hand or on autosteer) above the minimum speed. A pass counts while the heading of the selected heading source moves on average less than the limit over the whole window; if it moves more, the window starts again. Drive the line <b>both ways</b> (one pass each) and Apply the mean. Table mode: shifts the raw zero of the table (its auto-zero shift is reset). AOG mode: writes the ADS auto offset (always applied). The slow auto-zero below keeps trimming afterwards.</p>
+<div class="row"><span class="lbl">Speed | heading rate</span><span class="val" id="wcZLive">&mdash;</span></div>
+<div style="height:10px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;margin:6px 0"><div id="wcZBar" style="height:100%;width:0;background:#38bdf8"></div></div>
+<div class="row"><span class="lbl">State</span><span class="val" id="wcZMsg">&mdash;</span></div>
+<div class="row"><span class="lbl">Passes (angle, sd)</span><span class="val" id="wcZPass">&mdash;</span></div>
+<div class="row"><span class="lbl">Zero in use</span><span class="val" id="wcZCur">&mdash;</span></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button class="btn green" onclick="wcCmd('zstart=1')">Start pass</button>
+<button class="btn" onclick="wcCmd('zstop=1')">Stop</button>
+<button class="btn green" onclick="wcCmd('zapply=1')">Apply mean</button>
+<button class="btn" onclick="wcCmd('zclear=1')">Clear</button>
+</div>
+<div class="section-row" style="gap:8px;margin-top:8px">
+<div style="flex:1"><span class="lbl">Heading limit &deg;/s <small style="color:#64748b">(def 0.1)</small></span><input type="number" id="wcZYaw" min="0.02" max="2" step="0.01" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Min speed km/h <small style="color:#64748b">(def 3)</small></span><input type="number" id="wcZSpd" min="1" max="25" step="0.5" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Window s <small style="color:#64748b">(def 8)</small></span><input type="number" id="wcZTime" min="2" max="60" step="1" class="ninput" style="width:100%"></div>
+</div>
+<p style="color:#94a3b8;font-size:12px;margin:4px 0 0;line-height:1.3">Limit = mean heading change over the window. With a VTG (course over ground) heading the limit is tripled automatically.</p>
+<button class="btn green" onclick="wcSaveParams()">Save zero settings</button>
+</div>
 
 
 <!--/WCADS-->
