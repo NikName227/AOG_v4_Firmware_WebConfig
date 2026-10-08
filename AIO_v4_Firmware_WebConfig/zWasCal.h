@@ -18,7 +18,8 @@
 // the page shows the calibrated wheels; the bicycle angle is what goes to AOG).
 // If the Keya encoder is present, the same turning also gives ticks per bike
 // degree per side and the reachable maximum, used to extend the range past the
-// end of the analog sensor (blend near the ends, clamp at the measured lock).
+// end of the analog sensor (blend near the ends, or from a set handover angle,
+// clamp at the measured lock).
 // ─────────────────────────────────────────────────────────────────────────────
 #pragma once
 #include <stdint.h>
@@ -57,7 +58,7 @@ struct WasCalStore {
     float    zYawMax;           // straight zero: mean heading change limit (deg/s)
     float    zSpeedMin;         // km/h
     uint16_t zTimeMs;           // window length
-    uint16_t pad2;
+    uint16_t handX10;           // v1.0.12: Keya handover angle ×10 (0 = at the table ends; was pad, 0 in older blocks)
     float    rms, hyst;         // quality of the applied calibration (deg)
     // v1.0.10 — appended so an older block still loads (wheelMask was pad = 0)
     float    wR[WC_NPTS], wL[WC_NPTS];   // right / left wheel angle at raw[i] (display only)
@@ -584,14 +585,20 @@ inline float wcKeyaBlend(const WasCalStore &s, WcKeyaExt &e, float adsAng, bool 
     float endL = s.ang[0], endR = s.ang[s.nPts - 1], b = s.blendDeg > 0.5f ? s.blendDeg : 0.5f;
     float lo = s.keyaMaxL < endL ? s.keyaMaxL : endL;
     float hi = s.keyaMaxR > endR ? s.keyaMaxR : endR;
-    if (adsAng > endL + b && adsAng < endR - b) { e.keyaAng = adsAng; return adsAng; }   // middle: anchor
+    // ramp start: blend before the table end, or the handover angle when it is set
+    // (never later than that, the ADS is clamped at the end)
+    float stR = endR - b, stL = endL + b, h = s.handX10 / 10.0f;
+    if (h > 0) { if (h < stR) stR = h; if (-h > stL) stL = -h; }
+    if (stR < 0) stR = 0;
+    if (stL > 0) stL = 0;
+    if (adsAng > stL && adsAng < stR) { e.keyaAng = adsAng; return adsAng; }   // middle: anchor
 
-    float w = (adsAng >= 0) ? (endR - adsAng) / b : (adsAng - endL) / b;
+    float w = (adsAng >= 0) ? (stR + b - adsAng) / b : (adsAng - (stL - b)) / b;
     if (w < 0) w = 0;
     if (w > 1) w = 1;
     // Keya cannot be on the other side of the ADS's own zone (encoder ran away) → fall back
-    if (adsAng >= 0 && e.keyaAng < endR - b - 2.0f) e.keyaAng = adsAng;
-    if (adsAng <  0 && e.keyaAng > endL + b + 2.0f) e.keyaAng = adsAng;
+    if (adsAng >= 0 && e.keyaAng < stR - 2.0f) e.keyaAng = adsAng;
+    if (adsAng <  0 && e.keyaAng > stL + 2.0f) e.keyaAng = adsAng;
     if (e.keyaAng > hi) e.keyaAng = hi;
     if (e.keyaAng < lo) e.keyaAng = lo;
     e.wAds = w;

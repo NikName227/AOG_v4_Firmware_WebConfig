@@ -40,6 +40,7 @@ void wasCalLoad()
             if (isnan(wasCal.wR[i]) || isnan(wasCal.wL[i])) wbad = true;
         if (wbad) wasCal.wheelMask = 0;
     }
+    if (!bad && wasCal.handX10 > 600) wasCal.handX10 = 0;     // v1.0.12 field, was pad
     if (bad) {
         wcStoreDefaults(wasCal);
         EEPROM.put(EEP_WASCAL_ADDR, wasCal);
@@ -197,6 +198,7 @@ void handleApiWasCal(EthernetClient& client, const char* req)
             wcStoreDefaults(wasCal);
             wasCal.blendDeg = keep.blendDeg; wasCal.zYawMax = keep.zYawMax;
             wasCal.zSpeedMin = keep.zSpeedMin; wasCal.zTimeMs = keep.zTimeMs;
+            wasCal.handX10 = keep.handX10;
             wasCalSave();
             wcSetMsg("WAS cal: table cleared - AOG settings in use");
         }
@@ -214,6 +216,13 @@ void handleApiWasCal(EthernetClient& client, const char* req)
     }
     else if (wcHas(req, "params=1")) {
         if ((p = wcArg(req, "blend=")) != NULL) { float v = atof(p); if (v >= 1 && v <= 15) wasCal.blendDeg = v; }
+        if ((p = wcArg(req, "hand="))  != NULL) { float v = atof(p); if (v >= 0 && v <= 60) wasCal.handX10 = (uint16_t)(v * 10 + 0.5f);
+                                                  memset(&wcKeyaExt, 0, sizeof(wcKeyaExt)); }
+        // steering limits live in ModuleConfig (same fields as before, now for every WAS source)
+        bool lim = false;
+        if ((p = wcArg(req, "maxl="))  != NULL) { float v = atof(p); if (v >= 0 && v <= 80) { moduleConfig.keyaMaxAngleLeft  = v; lim = true; } }
+        if ((p = wcArg(req, "maxr="))  != NULL) { float v = atof(p); if (v >= 0 && v <= 80) { moduleConfig.keyaMaxAngleRight = v; lim = true; } }
+        if (lim) moduleConfigSave();
         if ((p = wcArg(req, "zyaw="))  != NULL) { float v = atof(p); if (v >= 0.02f && v <= 2) wasCal.zYawMax = v; }
         if ((p = wcArg(req, "zspd="))  != NULL) { float v = atof(p); if (v >= 1 && v <= 25) wasCal.zSpeedMin = v; }
         if ((p = wcArg(req, "ztime=")) != NULL) { float v = atof(p); if (v >= 2 && v <= 60) wasCal.zTimeMs = (uint16_t)(v * 1000); }
@@ -316,6 +325,9 @@ void handleApiWasCalStatus(EthernetClient& client, const char* req)
     client.print(F(",\"kMaxL\":")); client.print(wasCal.keyaMaxL, 1);
     client.print(F(",\"kMaxR\":")); client.print(wasCal.keyaMaxR, 1);
     client.print(F(",\"blend\":")); client.print(wasCal.blendDeg, 1);
+    client.print(F(",\"hand\":")); client.print(wasCal.handX10 / 10.0f, 1);
+    client.print(F(",\"maxL\":")); client.print(moduleConfig.keyaMaxAngleLeft, 1);
+    client.print(F(",\"maxR\":")); client.print(moduleConfig.keyaMaxAngleRight, 1);
     client.print(F(",\"rms\":")); client.print(wasCal.rms, 2);
     client.print(F(",\"hyst\":")); client.print(wasCal.hyst, 2);
     client.print(F(",\"zyaw\":")); client.print(wasCal.zYawMax, 2);

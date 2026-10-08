@@ -502,6 +502,16 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">WAS source <small style="color:#64748b">(Config tab)</small></span><span class="val" id="wcSrc">—</span></div>
 <p style="color:#64748b;font-size:13px;margin-top:6px;line-height:1.4">Calibration follows the WAS source selected on the Config tab: <b>ADS1115</b> → analog sensor table (reference IMU on the wheel), <b>Keya encoder</b> → Keya calibration and its auto-zero. Other sources have no calibration here.</p>
 </div>
+<div class="card">
+<h2>Steering limits</h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Working steering limit per side &mdash; the angle AOG asks for is clamped to this, so the steering never drives into the mechanical stop (U / K turns). Every WAS source. Set 2&ndash;3&deg; below the physical max; 0 = no limit.</p>
+<div class="row"><span class="lbl">Max angle left <small style="color:#64748b">(&deg;, def 0 = no limit)</small></span>
+<input type="number" id="ksgMaxL" min="0" max="80" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Max angle right <small style="color:#64748b">(&deg;, def 0 = no limit)</small></span>
+<input type="number" id="ksgMaxR" min="0" max="80" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Measured lock L | R <small style="color:#64748b">(calibration)</small></span><span class="val" id="wcLimLock">&mdash;</span></div>
+<button class="btn green" onclick="wcSaveLimits()">Save limits</button>
+</div>
 <div id="wcAdsPart" style="display:none">
 <!--WCADS-->
 <div class="card">
@@ -578,6 +588,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Keya ticks/&deg; L | R</span><span class="val" id="wcKTpd">&mdash;</span></div>
 <div class="row"><span class="lbl">Lock L | R (bike &deg;)</span><span class="val" id="wcKMax">&mdash;</span></div>
 <div class="row"><span class="lbl">ADS weight now</span><span class="val" id="wcKW">&mdash;</span></div>
+<div class="row"><span class="lbl">Handover angle &deg; <small style="color:#64748b">(def 0 = at the table ends)</small></span><input type="number" id="wcHand" min="0" max="60" step="0.5" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Set e.g. 15: up to &plusmn;15&deg; pure ADS, then the blend zone, then pure Keya ticks (U / K turns). Never later than the table end.</p>
 <div class="row"><span class="lbl">Blend zone &deg; <small style="color:#64748b">(def 5)</small></span><input type="number" id="wcBlend" min="1" max="15" step="0.5" class="ninput"></div>
 <button class="btn green" onclick="wcSaveParams()">Save</button>
 </div>
@@ -625,11 +637,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Ticks/deg right <small style="color:#64748b">(0 = same as base)</small></span>
 <input type="number" id="ksgR" min="0" max="500" step="0.1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Encoder ticks per degree when steering right. Leave 0 to use the base value.</p>
-<div class="row" style="margin-top:6px"><span class="lbl">Max angle left <small style="color:#64748b">(°, 0 = no limit)</small></span>
-<input type="number" id="ksgMaxL" min="0" max="80" step="0.1" class="ninput"></div>
-<div class="row"><span class="lbl">Max angle right <small style="color:#64748b">(°, 0 = no limit)</small></span>
-<input type="number" id="ksgMaxR" min="0" max="80" step="0.1" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Working steering limit per side — the commanded angle is clamped to this so the motor never drives into the mechanical stop (handy for U-turns). Set 2–3° below the physical max. Range calibration suggests the measured maximum; 0 = no limit.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Max angle left / right moved to <b>Steering limits</b> at the top of this tab (now for every WAS source).</p>
 <button class="btn green" onclick="saveKeyaGeom()" style="margin-top:8px">Save geometry</button>
 </div>
 
@@ -1506,6 +1514,7 @@ function upd(d) {
     document.getElementById('wcSrc').textContent = _wn[_src] || _src;
     document.getElementById('wcAdsPart').style.display  = (_src == 0) ? '' : 'none';
     document.getElementById('wcKeyaPart').style.display = (_src == 1) ? '' : 'none';
+    if (_src != 0) document.getElementById('wcLimLock').textContent = (_src == 1) ? 'see Keya auto-calibration result' : '—';
     document.getElementById('rollSource').value    = d.cfg.rollSource    || 0;
     document.getElementById('headingSource').value = d.cfg.headingSource || 0;
     document.getElementById('nmeaType').value      = d.cfg.nmeaType      || 0;
@@ -1578,9 +1587,7 @@ function saveMotor() {
 function saveKeyaGeom() {
   var url = '/api/save?keyaDeadZone=' + document.getElementById('ksgDz').value
           + '&keyaTicksLeft='  + document.getElementById('ksgL').value
-          + '&keyaTicksRight=' + document.getElementById('ksgR').value
-          + '&keyaMaxL=' + document.getElementById('ksgMaxL').value
-          + '&keyaMaxR=' + document.getElementById('ksgMaxR').value;
+          + '&keyaTicksRight=' + document.getElementById('ksgR').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'Steering geometry saved.' : 'ERROR saving.';
   });
@@ -1704,8 +1711,15 @@ function wcSaveLT() {
 function wcSaveParams() {
   var q = 'params=1', v = function(id) { var e = document.getElementById(id); return e ? e.value : null; };
   if (v('wcZYaw') !== null) q += '&zyaw=' + v('wcZYaw') + '&zspd=' + v('wcZSpd') + '&ztime=' + v('wcZTime');
-  if (v('wcBlend') !== null) q += '&blend=' + v('wcBlend');
+  if (v('wcBlend') !== null) q += '&blend=' + v('wcBlend') + '&hand=' + v('wcHand');
   wcCmd(q);
+}
+function wcSaveLimits() {
+  fetch('/api/wascal?params=1&maxl=' + document.getElementById('ksgMaxL').value
+        + '&maxr=' + document.getElementById('ksgMaxR').value, { cache: 'no-store' })
+    .then(function(r) { return r.text(); })
+    .then(function(t) { document.getElementById('sb').textContent = t.indexOf('OK') === 0 ? 'Steering limits saved.' : t; configLoaded = false; })
+    .catch(function() { document.getElementById('sb').textContent = 'ERROR saving.'; });
 }
 function wcTxt(id, t, col) { var e = document.getElementById(id); if (!e) return; e.textContent = t; if (col !== undefined) e.style.color = col; }
 function wcFix(v, n) { return (v === undefined || v === null) ? '—' : Number(v).toFixed(n); }
@@ -1791,9 +1805,12 @@ function wcUpd(d) {
     wcTxt('wcKMax', d.kTpdL ? wcFix(d.kMaxL, 1) + ' | ' + wcFix(d.kMaxR, 1) : '—');
     wcTxt('wcKW', d.kx ? wcFix(d.wAds, 2) + (d.keya ? '' : ' (Keya not detected)') : 'off');
   }
+  // measured lock for the steering limits: Keya lock from the table, else the table ends
+  wcTxt('wcLimLock', d.kTpdL && d.kTpdR ? wcFix(-d.kMaxL, 1) + ' | ' + wcFix(d.kMaxR, 1) + '° (Keya)'
+                   : d.nPts >= 2 ? wcFix(-d.tAng[0], 1) + ' | ' + wcFix(d.tAng[d.nPts - 1], 1) + '° (table ends)' : '—');
   if (!wcParamsLoaded) {
     var set = function(id, v) { var e = document.getElementById(id); if (e) e.value = v; };
-    set('wcZYaw', d.zyaw); set('wcZSpd', d.zspd); set('wcZTime', d.ztime); set('wcBlend', d.blend);
+    set('wcZYaw', d.zyaw); set('wcZSpd', d.zspd); set('wcZTime', d.ztime); set('wcBlend', d.blend); set('wcHand', d.hand);
     wcParamsLoaded = true;
   }
   wcDrawGeo(d, side, wRef, bRef);
