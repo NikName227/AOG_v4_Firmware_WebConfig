@@ -33,6 +33,13 @@ void wasCalLoad()
             || isnan(wasCal.zeroShift) || isnan(wasCal.azShift) || isnan(wasCal.blendDeg);
     for (uint8_t i = 0; !bad && i < wasCal.nPts; i++)
         if (isnan(wasCal.ang[i]) || isnan(wasCal.raw[i])) bad = true;
+    // wheel tables were appended in v1.0.10 — an older block has wheelMask 0
+    if (!bad && wasCal.wheelMask) {
+        bool wbad = wasCal.wheelMask > 3;
+        for (uint8_t i = 0; !wbad && i < wasCal.nPts; i++)
+            if (isnan(wasCal.wR[i]) || isnan(wasCal.wL[i])) wbad = true;
+        if (wbad) wasCal.wheelMask = 0;
+    }
     if (bad) {
         wcStoreDefaults(wasCal);
         EEPROM.put(EEP_WASCAL_ADDR, wasCal);
@@ -168,6 +175,9 @@ void handleApiWasCal(EthernetClient& client, const char* req)
             wasCal.nPts = wcRes.nPts; wasCal.twoWheel = wcRes.twoWheel;
             memcpy(wasCal.ang, wcRes.ang, sizeof(wasCal.ang));
             memcpy(wasCal.raw, wcRes.raw, sizeof(wasCal.raw));
+            memcpy(wasCal.wR, wcRes.wR, sizeof(wasCal.wR));
+            memcpy(wasCal.wL, wcRes.wL, sizeof(wasCal.wL));
+            wasCal.wheelMask = wcRes.wheelMask;
             wasCal.keyaTpdL = wcRes.keyaTpdL; wasCal.keyaTpdR = wcRes.keyaTpdR;
             wasCal.keyaMaxL = wcRes.keyaMaxL; wasCal.keyaMaxR = wcRes.keyaMaxR;
             if (!wcRes.keyaOk) wasCal.keyaExtend = 0;
@@ -237,6 +247,22 @@ void handleApiWasCal(EthernetClient& client, const char* req)
     else client.print(F("OK"));
 }
 
+// Right / left wheel angle for the page. From the calibrated wheel tables while the
+// table drives the angle inside its range (no Keya blend); otherwise from the
+// angle sent to AOG with ideal Ackermann (L, T). Returns the calibrated-wheel mask.
+static uint8_t wcWheelsNow(float &wr, float &wl)
+{
+    if (moduleConfig.wasSource == WAS_SOURCE_ADS1115 && wasCalTableActive() && wasCal.wheelMask
+        && wcRegion == 0 && wcKeyaExt.wAds >= 0.999f) {
+        float x = (float)adsRawCounts - wasCal.zeroShift - wasCal.azShift;
+        wr = wcLookup(wasCal.wR, wasCal.raw, wasCal.nPts, x, 0);
+        wl = wcLookup(wasCal.wL, wasCal.raw, wasCal.nPts, x, 0);
+        return wasCal.wheelMask;
+    }
+    wcBikeToWheels(wcAngOut, moduleConfig.wheelBase, moduleConfig.keyaTrackT, wr, wl);
+    return 0;
+}
+
 // ── Status: /api/wcstat[?curve=1] ────────────────────────────────────────────
 static void wcPrintArr(EthernetClient& c, const float *v, int n, int dec)
 {
@@ -260,6 +286,10 @@ void handleApiWasCalStatus(EthernetClient& client, const char* req)
     client.print(F(",\"aKeya\":")); client.print(wcKeyaExt.init ? wcKeyaExt.keyaAng : 0.0f, 2);
     client.print(F(",\"kInit\":")); client.print(wcKeyaExt.init ? 1 : 0);
     client.print(F(",\"wAds\":")); client.print(wcKeyaExt.wAds, 2);
+    { float wr, wl; uint8_t wm = wcWheelsNow(wr, wl);
+      client.print(F(",\"wR\":")); client.print(wr, 2);
+      client.print(F(",\"wL\":")); client.print(wl, 2);
+      client.print(F(",\"wCal\":")); client.print(wm); }
     client.print(F(",\"region\":")); client.print(wcRegion);
     client.print(F(",\"steerOn\":")); client.print(wcAutosteerOn() ? 1 : 0);
     client.print(F(",\"speed\":")); client.print(gpsSpeed, 1);
@@ -274,6 +304,7 @@ void handleApiWasCalStatus(EthernetClient& client, const char* req)
     client.print(F(",\"kx\":")); client.print(wasCal.keyaExtend);
     client.print(F(",\"nPts\":")); client.print(wasCal.nPts);
     client.print(F(",\"two\":")); client.print(wasCal.twoWheel);
+    client.print(F(",\"wMask\":")); client.print(wasCal.wheelMask);
     client.print(F(",\"tAng\":")); wcPrintArr(client, wasCal.ang, wasCal.nPts, 2);
     client.print(F(",\"tRaw\":")); wcPrintArr(client, wasCal.raw, wasCal.nPts, 1);
     client.print(F(",\"zShift\":")); client.print(wasCal.zeroShift, 1);

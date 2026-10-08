@@ -504,22 +504,13 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <!--WCADS-->
 <div class="card">
 <h2>WAS &mdash; live <span id="wcMode" class="badge fail" style="margin-left:auto">&mdash;</span></h2>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px 16px;padding:8px 10px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-size:13px">
-<div>ADS raw <span id="wcRaw" style="float:right">&mdash;</span></div>
-<div>Angle &mdash; table <span id="wcATbl" style="float:right;color:#38bdf8">&mdash;</span></div>
-<div>Angle &mdash; AOG formula <span id="wcAAog" style="float:right;color:#94a3b8">&mdash;</span></div>
-<div>Angle &mdash; Keya <span id="wcAKeya" style="float:right;color:#f59e0b">&mdash;</span></div>
-<div>Steer actual <small style="color:#64748b">(sent)</small> <span id="wcAOut" style="float:right;color:#4ade80">&mdash;</span></div>
-<div>Reference wheel <span id="wcRefW" style="float:right">&mdash;</span></div>
-<div>Reference &rarr; bike <span id="wcRefB" style="float:right">&mdash;</span></div>
-</div>
 <div style="display:flex;gap:14px;align-items:center;margin-top:8px;flex-wrap:wrap">
 <label class="chk-row"><input type="checkbox" id="wcUse" onchange="wcCmd('use=' + (this.checked ? 1 : 0))"> Use WAS table <small style="color:#64748b">(off = AOG counts / Ackermann / offset, as before)</small></label>
 <label class="chk-row">Reference IMU on <select id="wcSide" style="min-width:110px"><option value="R">right wheel</option><option value="L">left wheel</option></select></label>
 <button class="btn sm" style="margin-left:0" onclick="wcRefZero = wcLast ? wcLast.ref : 0">&#8982; Centre reference</button>
 </div>
-<canvas id="wcGeo" width="720" height="300" style="width:100%;margin-top:8px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
-<p style="color:#94a3b8;font-size:12px;margin-top:4px;line-height:1.3">Top view. The wheel with the reference IMU is drawn from the IMU (press Centre with the wheels straight), the other wheel from Ackermann (L / T), dashed = bicycle angle. Needles: table (blue), AOG formula (grey), Keya (orange), steer actual sent to AOG (green).</p>
+<canvas id="wcGeo" width="960" height="640" style="width:100%;margin-top:8px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
+<p style="color:#94a3b8;font-size:12px;margin-top:4px;line-height:1.3">Top view, front up. <b style="color:#4ade80">Green</b> = this module: the middle box is the bicycle angle sent to AOG; the wheels come from the calibrated wheel tables (<i>calibrated</i>) or from that angle with Ackermann L / T (<i>Ackermann</i>). <b>Dashed white</b> = reference ESP32 IMU on the wheel (press Centre with the wheels straight) and the bicycle angle calculated from it.</p>
 <div class="row"><span class="lbl">Message</span><span class="val" id="wcMsg" style="font-size:12px">&mdash;</span></div>
 </div>
 
@@ -1733,19 +1724,12 @@ function wcUpd(d) {
   var mb = document.getElementById('wcMode');
   mb.className = 'badge ' + (tbl ? 'ok' : 'fail'); mb.textContent = tbl ? 'WAS: TABLE' : 'WAS: AOG SETTINGS';
   var u = document.getElementById('wcUse'); u.checked = d.use == 1; u.disabled = d.nPts < 2;
-  wcTxt('wcRaw', d.raw);
-  wcTxt('wcATbl', d.nPts >= 2 ? wcFix(d.aTbl, 2) + '°' + (d.region ? (d.region < 0 ? ' |end L' : ' |end R') : '') : 'no table');
-  wcTxt('wcAAog', wcFix(d.aAog, 2) + '°');
-  wcTxt('wcAKeya', d.kInit ? wcFix(d.aKeya, 2) + '°' : '—');
-  wcTxt('wcAOut', wcFix(d.aOut, 2) + '°');
   var rb = document.getElementById('wcRefBadge');
   rb.className = 'badge ' + (d.refOk ? 'ok' : 'fail'); rb.textContent = d.refOk ? 'OK' : '--';
   var side = document.getElementById('wcSide').value, si = side === 'R' ? 0 : 1;
   var sg = d.ses[si].sign || 1;
   var wRef = d.ses[si].st == 1 ? d.ses[si].w : (d.ref - wcRefZero) * sg;
   var bRef = wcW2B(wRef, side, d.L, d.T);
-  wcTxt('wcRefW', d.refOk ? wcFix(wRef, 1) + '°' : 'stale');
-  wcTxt('wcRefB', d.refOk ? wcFix(bRef, 1) + '°' : '—');
   wcTxt('wcMsg', d.msg);
   if (document.activeElement.id !== 'wcL' && document.activeElement.id !== 'wcT') {
     document.getElementById('wcL').value = d.L; document.getElementById('wcT').value = d.T;
@@ -1809,37 +1793,83 @@ function wcUpd(d) {
   }
   wcDrawGeo(d, side, wRef, bRef);
 }
+// Top view, every number on the sketch: reference IMU row (dashed white), this
+// module's WAS row (green: left wheel / bicycle → AOG / right wheel), differences,
+// and the tractor with the two front wheels plus the virtual bicycle wheel.
 function wcDrawGeo(d, side, wRef, bRef) {
   var cv = document.getElementById('wcGeo'), x = cv.getContext('2d'), W = cv.width, H = cv.height;
   x.clearRect(0, 0, W, H);
-  var L = d.L > 0.5 ? d.L : 3, T = d.T > 0.5 ? d.T : 1.6, fy = 150, sc = (H - fy - 45) / L;
-  var cx = W / 2, ry = fy + L * sc;
-  var ws = wcB2W(d.refOk ? bRef : 0, L, T);
-  var wr = side === 'R' ? wRef : ws[0], wl = side === 'L' ? wRef : ws[1];
-  x.strokeStyle = '#334155'; x.lineWidth = 3;
-  x.beginPath(); x.moveTo(cx - T / 2 * sc, fy); x.lineTo(cx + T / 2 * sc, fy); x.moveTo(cx, fy); x.lineTo(cx, ry);
-  x.moveTo(cx - T / 2 * sc, ry); x.lineTo(cx + T / 2 * sc, ry); x.stroke();
-  function wheel(px, py, a, col, lab) {
-    x.save(); x.translate(px, py); x.rotate(a * Math.PI / 180);
-    x.fillStyle = col; x.fillRect(-6, -18, 12, 36); x.restore();
-    x.fillStyle = '#e2e8f0'; x.font = '12px monospace'; x.textAlign = 'center'; x.fillText(lab, px + (px < cx ? -60 : 60), py + 4);
+  var xL = 255, xC = W / 2 + 15, xR = W - 195, fy = 400, ry = 590, rad = Math.PI / 180;
+  var ref = d.refOk ? 1 : 0, refX = side === 'R' ? xR : xL, wAt = side === 'R' ? d.wR : d.wL;
+  var tbl = d.use == 1 && d.nPts >= 2;
+  function sg(v) { return (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '°'; }
+  function dcol(v) { v = Math.abs(v); return v < 0.5 ? '#4ade80' : (v < 1.5 ? '#e2b23e' : '#f87171'); }
+  // row labels
+  x.textAlign = 'left';
+  x.font = 'bold 12px monospace'; x.fillStyle = '#e2e8f0'; x.fillText('REFERENCE', 12, 62);
+  x.font = '11px monospace'; x.fillStyle = '#94a3b8'; x.fillText('ESP32 IMU', 12, 78);
+  x.font = 'bold 12px monospace'; x.fillStyle = '#4ade80'; x.fillText('WAS', 12, 172);
+  x.font = '11px monospace'; x.fillStyle = '#94a3b8'; x.fillText('this module', 12, 188);
+  x.fillText('difference', 12, 268);
+  function box(cx, y, w, h, stroke, dash, title, val, valCol, big, sub) {
+    x.fillStyle = '#081120'; x.strokeStyle = stroke; x.lineWidth = big ? 3 : 1.5; x.setLineDash(dash ? [6, 4] : []);
+    x.beginPath(); x.rect(cx - w / 2, y, w, h); x.fill(); x.stroke(); x.setLineDash([]);
+    x.textAlign = 'center'; x.fillStyle = '#94a3b8'; x.font = '11px monospace'; x.fillText(title, cx, y + 16);
+    x.fillStyle = valCol; x.font = 'bold ' + (big ? 30 : 24) + 'px monospace'; x.fillText(val, cx, y + (big ? 52 : 48));
+    if (sub) { x.fillStyle = '#94a3b8'; x.font = '12px monospace'; x.fillText(sub, cx, y + h - 10); }
   }
-  wheel(cx + T / 2 * sc, fy, d.refOk ? wr : 0, side === 'R' ? '#4ade80' : '#64748b', 'R ' + wcFix(wr, 1) + '°' + (side === 'R' ? ' IMU' : ''));
-  wheel(cx - T / 2 * sc, fy, d.refOk ? wl : 0, side === 'L' ? '#4ade80' : '#64748b', 'L ' + wcFix(wl, 1) + '°' + (side === 'L' ? ' IMU' : ''));
-  wheel(cx - T / 2 * sc, ry, 0, '#475569', ''); wheel(cx + T / 2 * sc, ry, 0, '#475569', '');
-  function needle(a, len, col, dash) {
-    if (a === null || a === undefined || isNaN(a)) return;
-    var r = a * Math.PI / 180;
-    x.strokeStyle = col; x.lineWidth = 2; x.setLineDash(dash ? [6, 4] : []);
-    x.beginPath(); x.moveTo(cx, fy); x.lineTo(cx + Math.sin(r) * len, fy - Math.cos(r) * len); x.stroke(); x.setLineDash([]);
+  function empty(cx, y, w, h, t) {
+    x.strokeStyle = '#1e293b'; x.lineWidth = 1; x.setLineDash([3, 4]); x.strokeRect(cx - w / 2, y, w, h); x.setLineDash([]);
+    x.textAlign = 'center'; x.fillStyle = '#334155'; x.font = '11px monospace'; x.fillText(t, cx, y + h / 2 + 4);
   }
-  needle(d.refOk ? bRef : null, 140, '#e2e8f0', true);   // forward from the front axle centre
-  needle(d.aAog, 128, '#94a3b8');
-  if (d.nPts >= 2) needle(d.aTbl, 122, '#38bdf8');
-  if (d.kInit) needle(d.aKeya, 116, '#f59e0b');
-  needle(d.aOut, 110, '#4ade80');
-  x.fillStyle = '#94a3b8'; x.font = '12px monospace'; x.textAlign = 'left';
-  x.fillText('bike (ref) ' + (d.refOk ? wcFix(bRef, 1) : '—') + '°   table ' + (d.nPts >= 2 ? wcFix(d.aTbl, 1) : '—') + '°   AOG ' + wcFix(d.aAog, 1) + '°   out ' + wcFix(d.aOut, 1) + '°', 10, H - 10);
+  // reference row
+  var refCol = ref ? '#e2e8f0' : '#475569';
+  box(refX, 40, 200, 64, refCol, true, (side === 'R' ? 'RIGHT' : 'LEFT') + ' wheel - IMU measured', ref ? sg(wRef) : 'no signal', refCol, false);
+  empty(side === 'R' ? xL : xR, 40, 200, 64, 'no IMU on this wheel');
+  box(xC, 40, 260, 64, refCol, true, 'IMU → bicycle (calculated)', ref ? sg(bRef) : '—', refCol, false);
+  // WAS row
+  var mode = d.src != 0 ? 'Keya / other' : (tbl ? 'table' : 'AOG formula');
+  var sub = 'raw ' + d.raw + ' · ' + mode;
+  if (tbl && d.region) sub += d.region < 0 ? ' · end L' : ' · end R';
+  if (d.kx == 1 && d.wAds < 0.999) sub += ' · Keya ' + Math.round((1 - d.wAds) * 100) + '%';
+  box(xL, 140, 200, 64, '#4ade80', false, 'LEFT wheel (' + (d.wCal & 2 ? 'calibrated' : 'Ackermann') + ')', sg(d.wL), '#4ade80', false);
+  box(xR, 140, 200, 64, '#4ade80', false, 'RIGHT wheel (' + (d.wCal & 1 ? 'calibrated' : 'Ackermann') + ')', sg(d.wR), '#4ade80', false);
+  box(xC, 128, 260, 100, '#4ade80', false, 'WAS sensor → bicycle (to AOG)', sg(d.aOut), '#4ade80', true, sub);
+  // differences (only with a fresh reference)
+  x.font = 'bold 15px monospace'; x.textAlign = 'center';
+  if (ref) {
+    var dW = wAt - wRef, dB = d.aOut - bRef;
+    x.fillStyle = dcol(dW); x.fillText('WAS − IMU ' + sg(dW), refX, 268);
+    x.fillStyle = dcol(dB); x.fillText('WAS − ref ' + sg(dB), xC, 268);
+  } else { x.fillStyle = '#475569'; x.font = '12px monospace'; x.fillText('no reference IMU signal', xC, 268); }
+  // tractor: chassis, rear axle, front wheels from WAS, virtual bicycle wheel, reference outlines
+  x.strokeStyle = '#334155'; x.lineWidth = 4; x.beginPath();
+  x.moveTo(xL, fy); x.lineTo(xR, fy); x.moveTo(xC, fy); x.lineTo(xC, ry); x.moveTo(xL + 60, ry); x.lineTo(xR - 60, ry); x.stroke();
+  x.fillStyle = '#475569'; x.fillRect(xL + 49, ry - 30, 22, 60); x.fillRect(xR - 71, ry - 30, 22, 60);
+  function wheel(px, a, st) {
+    x.save(); x.translate(px, fy); x.rotate(a * rad);
+    if (st === 'was') { x.fillStyle = '#4ade80'; x.fillRect(-11, -36, 22, 72); }
+    else if (st === 'bike') { x.fillStyle = '#16a34a'; x.fillRect(-8, -30, 16, 60); x.strokeStyle = '#4ade80'; x.lineWidth = 2; x.strokeRect(-8, -30, 16, 60); }
+    else { x.strokeStyle = '#e2e8f0'; x.setLineDash([5, 3]); x.lineWidth = 2; x.strokeRect(-14, -40, 28, 80); x.setLineDash([]); }
+    x.restore();
+  }
+  wheel(xL, d.wL, 'was'); wheel(xR, d.wR, 'was'); wheel(xC, d.aOut, 'bike');
+  if (ref) { wheel(refX, wRef, 'ref'); wheel(xC, bRef, 'ref'); }
+  x.strokeStyle = '#1e3a5f'; x.lineWidth = 1; x.setLineDash([2, 4]);
+  [xL, xC, xR].forEach(function(px) { x.beginPath(); x.moveTo(px, 290); x.lineTo(px, fy - 50); x.stroke(); });
+  x.setLineDash([]);
+  x.fillStyle = '#64748b'; x.font = '11px monospace'; x.textAlign = 'center'; x.fillText('virtual bicycle wheel', xC, fy + 58);
+  // sources (bottom left)
+  var rows = [['source', d.src != 0 ? 'not ADS' : ('ADS1115 · ' + (tbl ? 'TABLE' : 'AOG FORMULA')), '#e2e8f0']];
+  if (d.nPts >= 2) rows.push(['table', sg(d.aTbl), '#38bdf8']);
+  rows.push(['AOG formula', sg(d.aAog), '#94a3b8']);
+  if (d.kInit) rows.push(['Keya', sg(d.aKeya), '#f59e0b']);
+  x.textAlign = 'left'; x.font = '12px monospace';
+  rows.forEach(function(r, i) { x.fillStyle = '#64748b'; x.fillText(r[0], 12, 470 + i * 18); x.fillStyle = r[2]; x.fillText(r[1], 110, 470 + i * 18); });
+  // legend (bottom right)
+  x.textAlign = 'right';
+  x.fillStyle = '#4ade80'; x.fillText('solid green = WAS (this module)', W - 12, H - 30);
+  x.fillStyle = '#e2e8f0'; x.fillText('dashed white = reference IMU', W - 12, H - 12);
 }
 function wcDrawCurve(d) {
   var cv = document.getElementById('wcCurveCv'), x = cv.getContext('2d'), W = cv.width, H = cv.height;

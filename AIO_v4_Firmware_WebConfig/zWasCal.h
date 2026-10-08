@@ -14,6 +14,8 @@
 // With one wheel only, wheelToBike(L, T) is used instead.
 // Result: up to 23 points (end, 21 × 5° grid, end) raw ↔ bike angle, stored in
 // its own EEPROM block. Outside the measured range the angle is clamped.
+// The right / left wheel angles at the same points are stored too (display only:
+// the page shows the calibrated wheels; the bicycle angle is what goes to AOG).
 // If the Keya encoder is present, the same turning also gives ticks per bike
 // degree per side and the reachable maximum, used to extend the range past the
 // end of the analog sensor (blend near the ends, clamp at the measured lock).
@@ -43,7 +45,8 @@ struct WasCalStore {
     uint8_t  keyaExtend;        // 1 = Keya encoder takes over past the table ends
     uint8_t  nPts;              // valid points in ang/raw (0 = no calibration)
     uint8_t  twoWheel;          // calibration used both wheels
-    uint8_t  pad[2];
+    uint8_t  wheelMask;         // wR/wL measured: bit0 right, bit1 left (0 = none, older block)
+    uint8_t  pad;
     float    ang[WC_NPTS];      // bike angle, ascending (right = +)
     float    raw[WC_NPTS];      // ADS raw at that angle (monotonic)
     float    zeroShift;         // raw counts, from the straight-driving zero
@@ -56,6 +59,8 @@ struct WasCalStore {
     uint16_t zTimeMs;           // window length
     uint16_t pad2;
     float    rms, hyst;         // quality of the applied calibration (deg)
+    // v1.0.10 — appended so an older block still loads (wheelMask was pad = 0)
+    float    wR[WC_NPTS], wL[WC_NPTS];   // right / left wheel angle at raw[i] (display only)
 };
 
 inline void wcStoreDefaults(WasCalStore &s) {
@@ -124,6 +129,15 @@ inline float wcWheelToBike(float wMagDeg, bool inner, float L, float T) {
     return atanf(L * t / denom) * 57.2957795f;
 }
 
+// Bicycle angle (signed) → right and left wheel (ideal Ackermann, L, T).
+inline void wcBikeToWheels(float bDeg, float L, float T, float &wr, float &wl) {
+    if (fabsf(bDeg) < 0.01f || L < 0.1f) { wr = wl = bDeg; return; }
+    float R = L / tanf(fabsf(bDeg) * 0.01745329252f);
+    float in = atanf(L / (R - T * 0.5f)) * 57.2957795f, out = atanf(L / (R + T * 0.5f)) * 57.2957795f;
+    if (R - T * 0.5f <= 0.01f) in = 89.0f;
+    if (bDeg > 0) { wr = in; wl = out; } else { wr = -out; wl = -in; }
+}
+
 // Both wheels (signed, same steering state) → bicycle angle, no track needed.
 inline float wcCombineWheels(float aDeg, float bDeg) {
     if (aDeg * bDeg <= 0.0f || (fabsf(aDeg) < 0.5f && fabsf(bDeg) < 0.5f))
@@ -161,8 +175,9 @@ struct WcSession {
 struct WcResult {
     bool     ok;
     char     msg[96];
-    uint8_t  nPts, twoWheel;
+    uint8_t  nPts, twoWheel, wheelMask;
     float    ang[WC_NPTS], raw[WC_NPTS];
+    float    wR[WC_NPTS], wL[WC_NPTS];   // wheel angles at the table points
     float    rms, hystMean, hystMax, relOffset;
     int      inversions, nBins, nSat;
     bool     keyaOk;
@@ -177,7 +192,7 @@ struct WcCal {
     int8_t    active;                  // session being recorded, −1 none
     // scratch for compute()
     float     w[2][WC_NBINS], r[2][WC_NBINS], t[2][WC_NBINS], h[2][WC_NBINS];
-    float     bike[WC_NBINS], braw[WC_NBINS];
+    float     bike[WC_NBINS], braw[WC_NBINS], bwr[WC_NBINS], bwl[WC_NBINS];
 
     void reset() {
         memset(bins, 0, sizeof(bins));
@@ -333,12 +348,16 @@ struct WcCal {
         }
 
         // Bicycle angle per bin
+        // Wheel angles too (display): both measured with two wheels, otherwise the
+        // measured one plus the other from Ackermann (L, T).
+        R.wheelMask = R.twoWheel ? 3 : (use[0] ? 1 : 2);
         int nb = 0; double hs = 0; int hn = 0;
         for (int b = 0; b < WC_NBINS; b++) {
-            float bk = NAN, rw = NAN;
+            float bk = NAN, rw = NAN, wrv = NAN, wlv = NAN;
             if (R.twoWheel) {
                 if (isnan(w[0][b]) || isnan(w[1][b])) continue;
-                bk = wcCombineWheels(w[0][b] - 0.5f * d, w[1][b] + 0.5f * d);
+                wrv = w[0][b] - 0.5f * d; wlv = w[1][b] + 0.5f * d;
+                bk = wcCombineWheels(wrv, wlv);
                 rw = 0.5f * (r[0][b] + r[1][b]);
             } else {
                 int si = use[0] ? 0 : 1;
@@ -348,7 +367,10 @@ struct WcCal {
                 float bm = wcWheelToBike(fabsf(wv), inner, L, T);
                 bk = (wv < 0) ? -bm : bm;
                 rw = r[si][b];
+                wcBikeToWheels(bk, L, T, wrv, wlv);
+                if (si == 0) wrv = wv; else wlv = wv;
             }
+            bwr[nb] = wrv; bwl[nb] = wlv;
             for (int i = 0; i < 2; i++) if (use[i] && !isnan(h[i][b])) {
                 hs += h[i][b]; hn++;
                 if (h[i][b] > R.hystMax) R.hystMax = h[i][b];
@@ -363,7 +385,7 @@ struct WcCal {
         float sgn = (bike[nb - 1] > bike[0]) ? 1.0f : -1.0f;
         int m = 0;
         for (int i = 0; i < nb; i++) {
-            if (m == 0 || (bike[i] - bike[m - 1]) * sgn > 0.05f) { bike[m] = bike[i]; braw[m] = braw[i]; m++; }
+            if (m == 0 || (bike[i] - bike[m - 1]) * sgn > 0.05f) { bike[m] = bike[i]; braw[m] = braw[i]; bwr[m] = bwr[i]; bwl[m] = bwl[i]; m++; }
             else R.inversions++;
         }
         if (m < 5 || R.inversions > nb / 5) { strcpy(R.msg, "angle not monotonic in raw - check sensor / reference mount"); return false; }
@@ -371,25 +393,29 @@ struct WcCal {
         for (int i = 0; i < m; i++) { R.curveRaw[i] = braw[i]; R.curveBike[i] = bike[i]; }
 
         // Ascending in angle
-        float A[WC_NBINS], Rw[WC_NBINS];
+        float A[WC_NBINS], Rw[WC_NBINS], WR[WC_NBINS], WL[WC_NBINS];
         for (int i = 0; i < m; i++) {
             int j = (sgn > 0) ? i : (m - 1 - i);
-            A[i] = bike[j]; Rw[i] = braw[j];
+            A[i] = bike[j]; Rw[i] = braw[j]; WR[i] = bwr[j]; WL[i] = bwl[j];
         }
         if (A[m - 1] - A[0] < 10.0f) { strcpy(R.msg, "range too small - turn further to both locks"); return false; }
 
         uint8_t n = 0;
-        R.ang[n] = A[0]; R.raw[n] = Rw[0]; n++;
+        R.ang[n] = A[0]; R.raw[n] = Rw[0]; R.wR[n] = WR[0]; R.wL[n] = WL[0]; n++;
         int k = 0;
         for (int g = 0; g < WC_NGRID; g++) {
             float a = (g - WC_NGRID / 2) * WC_GRID_STEP;
             if (a <= A[0] + 0.5f || a >= A[m - 1] - 0.5f) continue;
             while (k + 1 < m && A[k + 1] < a) k++;
             float da = A[k + 1] - A[k];
-            float rv = (da > 1e-6f) ? Rw[k] + (a - A[k]) * (Rw[k + 1] - Rw[k]) / da : Rw[k];
-            R.ang[n] = a; R.raw[n] = rv; n++;
+            float f = (da > 1e-6f) ? (a - A[k]) / da : 0.0f;
+            R.ang[n] = a;
+            R.raw[n] = Rw[k] + f * (Rw[k + 1] - Rw[k]);
+            R.wR[n]  = WR[k] + f * (WR[k + 1] - WR[k]);
+            R.wL[n]  = WL[k] + f * (WL[k + 1] - WL[k]);
+            n++;
         }
-        R.ang[n] = A[m - 1]; R.raw[n] = Rw[m - 1]; n++;
+        R.ang[n] = A[m - 1]; R.raw[n] = Rw[m - 1]; R.wR[n] = WR[m - 1]; R.wL[n] = WL[m - 1]; n++;
         R.nPts = n;
 
         double se = 0;
