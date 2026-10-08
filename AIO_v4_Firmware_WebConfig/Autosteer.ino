@@ -512,7 +512,7 @@ void autosteerLoop()
 
             // NV speed-direction disengage (configurable via web)
             if (moduleConfig.motorDisEnable
-                && abs(steerAngleError) > moduleConfig.motorAngleErrorMin
+                && fabsf(steerAngleError) > moduleConfig.motorAngleErrorMin
                 && steerSwitch == 0)
             {
                 if ((steerAngleSpeedActual * steerAngleError) < 0) {
@@ -541,7 +541,7 @@ void autosteerLoop()
             }
         
             sensorSample = (float)analogRead(CURRENT_SENSOR_PIN);
-            sensorSample = (abs(775 - sensorSample)) * 0.5;
+            sensorSample = (fabsf(775 - sensorSample)) * 0.5;
             sensorReading = sensorReading * 0.7 + sensorSample * 0.3;
             sensorReading = min(sensorReading, 255);
 
@@ -567,7 +567,7 @@ void autosteerLoop()
         && moduleConfig.keyaAzEnable && gpsSpeed >= moduleConfig.keyaAzSpeedMin)
     {
         static elapsedMillis keyaInitTimer = 0;
-        if ((float)abs(headingRate) <= moduleConfig.keyaAzYawMaxInit) {
+        if ((float)fabs(headingRate) <= moduleConfig.keyaAzYawMaxInit) {
             if (keyaInitTimer > (float)moduleConfig.keyaAzTimeSlowMs) {
                 // Fast direct offset to GPS wheel angle (Flodu model)
                 moduleConfig.keyaZeroTicks = keyaEncoderRaw - (int32_t)(wheelAngleGPS * moduleConfig.keyaTicksPerDeg);
