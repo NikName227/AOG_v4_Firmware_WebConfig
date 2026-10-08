@@ -628,3 +628,57 @@ void CalculateChecksum(void)
     010.2,K      Ground speed, Kilometers per hour
      48          Checksum
 */
+
+// ── IMU freeze watchdog ───────────────────────────────────────────────────────
+// Driving >2 km/h (speed from AOG) with roll AND heading unchanged in the IMU's own
+// units (BNO085 0.1 deg, TM171 0.01 deg) for 3 s → IMU frozen → PGN 221 message to
+// AOG: 10 s display, repeated every 8 s so the bar stays up. Standing: no counting,
+// state kept. TM171 port set but not found at boot → same repeat with its own text.
+uint8_t imuWatchState() { return tm171Missing ? 2 : (imuFrozen ? 1 : 0); }  // 0 OK, 1 frozen, 2 TM171 missing
+
+void imuFreezeCheck()
+{
+    static elapsedMillis sampleT = 0, sameT = 0, msgT = 8000;
+    static int32_t lastR = 0, lastH = 0;
+    static bool    init = false;
+    if (sampleT < 100) return;
+    sampleT = 0;
+    bool moving = gpsSpeed > 2.0f;
+
+    if (tm171Missing) {
+        if (moving && msgT >= 8000) {
+            char m[64];
+            snprintf(m, sizeof(m), "IMU TM171 not found on Serial%u - check wiring/baud", moduleConfig.tm171Serial);
+            sendDisplayMessage(m, 10, 0);
+            msgT = 0;
+        }
+        return;
+    }
+    if (!(useBNO08xI2C || useBNO08xRVC || useTMxx_IMU)) { init = false; return; }
+
+    int32_t r, h;
+    if (useTMxx_IMU) { r = TM171_IMU.getRoll(); h = TM171_IMU.getYaw(); }   // deg x100
+    else             { r = (int32_t)roll;       h = (int32_t)yaw; }          // deg x10
+    bool changed = !init || r != lastR || h != lastH;
+    lastR = r; lastH = h; init = true;
+
+    if (changed) {
+        sameT = 0;
+        if (imuFrozen) {
+            imuFrozen = false;
+            sendDisplayMessage("IMU OK again", 5, 1);
+        }
+        return;
+    }
+    if (!moving) { sameT = 0; return; }
+
+    if (!imuFrozen && sameT >= 3000) {
+        imuFrozen = true;
+        msgT = 8000;                                     // send right away
+        webLogf("IMU frozen: roll/heading unchanged 3 s at %.1f km/h", gpsSpeed);
+    }
+    if (imuFrozen && msgT >= 8000) {
+        sendDisplayMessage("IMU is not working, try restart GPS system", 10, 0);
+        msgT = 0;
+    }
+}

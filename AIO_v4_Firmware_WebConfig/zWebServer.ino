@@ -195,7 +195,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <h2>Serial port assignment <span style="color:#64748b;font-weight:normal;font-size:11px">— restart required on change</span></h2>
 <div class="lbl" style="margin:8px 0 3px">GPS receiver</div>
 <div style="display:flex;gap:8px;margin-bottom:6px">
-<select id="gpsSerial" style="min-width:0;width:38%">
+<select id="gpsSerial" style="min-width:0;width:38%" onchange="tmWarnUpd()">
 <option value="1">Serial1</option><option value="2">Serial2</option><option value="3">Serial3</option>
 <option value="4">Serial4</option><option value="5">Serial5</option><option value="6">Serial6</option>
 <option value="7">Serial7</option><option value="8">Serial8</option>
@@ -207,8 +207,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </select></div>
 <div class="lbl" style="margin:8px 0 3px">TM171 IMU</div>
 <div style="display:flex;gap:8px;margin-bottom:6px">
-<select id="tm171Serial" style="min-width:0;width:38%">
-<option value="1">Serial1</option><option value="2">Serial2</option><option value="3">Serial3</option>
+<select id="tm171Serial" style="min-width:0;width:38%" onchange="tmWarnUpd()">
+<option value="0">Off</option><option value="1">Serial1</option><option value="2">Serial2</option><option value="3">Serial3</option>
 <option value="4">Serial4</option><option value="5">Serial5</option><option value="6">Serial6</option>
 <option value="7">Serial7</option><option value="8">Serial8</option>
 </select>
@@ -217,6 +217,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <option value="57600">57600</option><option value="115200">115200</option><option value="230400">230400</option>
 <option value="460800">460800</option><option value="921600">921600</option>
 </select></div>
+<p style="color:#64748b;font-size:12px;margin:2px 0 0;line-height:1.4">TM171 set → TM171 is used, BNO085 is ignored. Off → BNO085.</p>
+<p id="tmWarn" style="color:#f87171;font-size:12px;margin:4px 0 0;display:none"></p>
 <button class="btn green" onclick="saveSerial()" style="margin-top:8px">Save Serial assignment (restart)</button>
 </div>
 
@@ -1277,6 +1279,8 @@ function renderGroup(d) {
   }
   else if (activeGroup === 2) {
     hdr = 'Group 2 — IMU';
+    var imuSt = {0:'OK',1:'FROZEN — message sent to AOG',2:'TM171 not found (BNO085 not used)'};
+    h += lvRow('IMU status', imuSt[d.imuSt] || '--');
     h += lvSub('BNO085');
     if (d.bno) {
       h += lvRow('Heading', d.bnoHdg.toFixed(1) + ' °');
@@ -1509,8 +1513,9 @@ function upd(d) {
     document.getElementById('adsEmaFilter').value  = (d.cfg.adsEmaAlpha   != null) ? d.cfg.adsEmaAlpha   : 0;
     document.getElementById('gpsSerial').value     = d.cfg.gpsSerial     || 7;
     document.getElementById('gpsBaud2').value      = d.cfg.gpsBaud       || 115200;
-    document.getElementById('tm171Serial').value   = d.cfg.tm171Serial   || 2;
+    document.getElementById('tm171Serial').value   = (d.cfg.tm171Serial != null) ? d.cfg.tm171Serial : 2;
     document.getElementById('tm171Baud').value     = d.cfg.tm171Baud     || 115200;
+    tmWarnUpd();
     if (document.getElementById('csBrand')) document.getElementById('csBrand').value = d.cfg.steerBrand || 0;
     if (d.custEng) {
       document.getElementById('ceEnable').checked = !!d.custEng.enable;
@@ -2132,6 +2137,12 @@ function applyAdsEma() {
   fetch('/api/save?adsEmaFilter=' + document.getElementById('adsEmaFilter').value).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'ADS1115 WAS filter applied (live).' : 'Error.';
   });
+}
+
+function tmWarnUpd() {
+  var t = document.getElementById('tm171Serial').value, g = document.getElementById('gpsSerial').value, w = document.getElementById('tmWarn');
+  var m = (t != '0' && t == g) ? 'TM171 and GPS are on the same port (Serial' + t + ')!' : '';
+  w.textContent = m; w.style.display = m ? 'block' : 'none';
 }
 
 function saveSerial() {
@@ -3159,6 +3170,7 @@ void handleApiGrp(EthernetClient& client, const char* req)
     case 2: { // IMU
         client.print(F("{\"bno\":"));  client.print((useBNO08xI2C || useBNO08xRVC) ? F("true") : F("false"));
         client.print(F(",\"tm\":"));   client.print(useTMxx_IMU ? F("true") : F("false"));
+        client.print(F(",\"imuSt\":")); client.print(imuWatchState());
         client.print(F(",\"bnoHdg\":"));   client.print(yaw / 10.0, 1);
         client.print(F(",\"bnoRoll\":"));  client.print(roll / 10.0, 1);
         client.print(F(",\"bnoPitch\":")); client.print(pitch / 10.0, 1);

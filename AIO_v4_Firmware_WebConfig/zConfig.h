@@ -44,7 +44,7 @@ struct CalFit {
 // addr 80  : ModuleConfig         (NEW)
 // addr 2200: WasCalStore          (F11 WAS calibration, own magic, 424 B incl. wheel tables)
 
-#define FW_VERSION "v1.0.10"   // shown in web GUI; bump before tagging a release branch
+#define FW_VERSION "v1.0.11"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xD1   // change to force EEPROM reset on next boot
@@ -116,7 +116,7 @@ struct ModuleConfig {
     float    yawRateFilter  = 0.2f;               // EMA on auto-zero yaw rate (0=off, lower=smoother)
     float    adsEmaAlpha    = 0.0f;               // EMA on ADS1115 WAS raw counts (0=off, lower=smoother)
     uint8_t  gpsSerial      = 7;                  // GPS receiver hardware serial (Serial1-8)
-    uint8_t  tm171Serial    = 2;                  // TM171 IMU hardware serial (Serial1-8)
+    uint8_t  tm171Serial    = 2;                  // TM171 IMU serial (1-8; 0 = Off → BNO085). Set = TM171 has priority
     uint32_t tm171Baud      = 115200;             // TM171 baud rate
     uint8_t steerBrand      = 1;              // steer-ready brand: 0=Claas 1=Valtra 2=CaseIH
                                               //   3=Fendt 4=JCB 5=FendtOne 6=Lindner 7=AgOpenGPS
