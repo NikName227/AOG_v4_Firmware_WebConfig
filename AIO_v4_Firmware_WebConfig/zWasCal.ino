@@ -23,6 +23,16 @@ char      wcMsg[96]   = "idle";
 // Live values for the page (refreshed every loop while an ADS is present)
 float  wcAngTable = 0, wcAngAog = 0, wcAngOut = 0;
 int8_t wcRegion   = 0;
+float  wcRawAvg   = 0;           // ADS raw smoothed (~0.25 s) for Set centre / manual captures
+bool   wcRawInit  = false;
+
+// Manual calibration captures (RAM until Build): 0 left lock, 1 centre, 2 right lock
+struct WcManCap {
+    uint8_t have;                // bit per capture
+    uint8_t tkOk;                // bit per capture: Keya ticks valid
+    float   raw[3], ang[3];      // ang: wheel angle typed at the lock (magnitude)
+    int32_t tk[3];
+} wcMan;
 
 static void wcSetMsg(const char *m) { strncpy(wcMsg, m, sizeof(wcMsg) - 1); wcMsg[sizeof(wcMsg) - 1] = 0; webLog(m); }
 
@@ -53,6 +63,7 @@ void wasCalLoad()
     memset(&wcRes, 0, sizeof(wcRes));
     wcZeroClear(wcZero);
     memset(&wcKeyaExt, 0, sizeof(wcKeyaExt));
+    memset(&wcMan, 0, sizeof(wcMan));
 }
 
 void wasCalSave() { EEPROM.put(EEP_WASCAL_ADDR, wasCal); }
@@ -109,6 +120,9 @@ void wasCalLoop(float angPreAck)
     float dt = dtT / 1000.0f;
     dtT = 0;
 
+    if (!wcRawInit) { wcRawAvg = adsRawCounts; wcRawInit = true; }
+    wcRawAvg += 0.15f * ((float)adsRawCounts - wcRawAvg);       // ~0.25 s at 40 Hz
+
     wcAngAog   = adsAogAngle(adsRawCounts);
     wcAngTable = (wasCal.nPts >= 2) ? wcAdsAngle(wasCal, (float)adsRawCounts, 0) : 0;
 
@@ -144,6 +158,32 @@ static bool wcHas(const char *req, const char *kv) { const char *eq = strchr(kv,
     memcpy(key, kv, n); key[n] = 0; const char *v = wcArg(req, key);
     return v && strncmp(v, kv + n, strlen(kv + n)) == 0; }
 
+// Store a built table (IMU, manual or counts) and start its zero again.
+// keepKeya: counts table — the Keya ticks per bike degree stay valid (physical).
+static void wcApplyResult(const WcResult &r, uint8_t kind, bool keepKeya)
+{
+    wasCal.nPts = r.nPts; wasCal.twoWheel = r.twoWheel;
+    memcpy(wasCal.ang, r.ang, sizeof(wasCal.ang));
+    memcpy(wasCal.raw, r.raw, sizeof(wasCal.raw));
+    memcpy(wasCal.wR, r.wR, sizeof(wasCal.wR));
+    memcpy(wasCal.wL, r.wL, sizeof(wasCal.wL));
+    wasCal.wheelMask = r.wheelMask;
+    if (!keepKeya) {
+        wasCal.keyaTpdL = r.keyaTpdL; wasCal.keyaTpdR = r.keyaTpdR;
+        wasCal.keyaMaxL = r.keyaMaxL; wasCal.keyaMaxR = r.keyaMaxR;
+        if (!r.keyaOk) wasCal.keyaExtend = 0;
+    }
+    wasCal.rms = r.rms; wasCal.hyst = r.hystMean;
+    wasCal.flags = (wasCal.flags & ~WC_F_KIND) | (kind & WC_F_KIND);
+    wasCal.zeroShift = 0; wasCal.azShift = 0;
+    wcZeroClear(wcZero);
+    memset(&wcKeyaExt, 0, sizeof(wcKeyaExt));
+    wasCalSave();
+}
+
+// Raw that reads 0° now (table + both zero shifts)
+static float wcRawZeroNow() { return wcAngleToRaw(wasCal.ang, wasCal.raw, wasCal.nPts, 0.0f) + wasCal.zeroShift + wasCal.azShift; }
+
 void handleApiWasCal(EthernetClient& client, const char* req)
 {
     const char *p;
@@ -173,22 +213,9 @@ void handleApiWasCal(EthernetClient& client, const char* req)
         if (!wcResValid)          err = "nothing to apply";
         else if (wcAutosteerOn()) err = "autosteer engaged";
         else {
-            wasCal.nPts = wcRes.nPts; wasCal.twoWheel = wcRes.twoWheel;
-            memcpy(wasCal.ang, wcRes.ang, sizeof(wasCal.ang));
-            memcpy(wasCal.raw, wcRes.raw, sizeof(wasCal.raw));
-            memcpy(wasCal.wR, wcRes.wR, sizeof(wasCal.wR));
-            memcpy(wasCal.wL, wcRes.wL, sizeof(wasCal.wL));
-            wasCal.wheelMask = wcRes.wheelMask;
-            wasCal.keyaTpdL = wcRes.keyaTpdL; wasCal.keyaTpdR = wcRes.keyaTpdR;
-            wasCal.keyaMaxL = wcRes.keyaMaxL; wasCal.keyaMaxR = wcRes.keyaMaxR;
-            if (!wcRes.keyaOk) wasCal.keyaExtend = 0;
-            wasCal.rms = wcRes.rms; wasCal.hyst = wcRes.hystMean;
-            wasCal.zeroShift = 0; wasCal.azShift = 0;      // new table → zero again (straight driving)
-            wcZeroClear(wcZero);
-            memset(&wcKeyaExt, 0, sizeof(wcKeyaExt));
-            wasCalSave();
+            wcApplyResult(wcRes, WC_KIND_IMU, false);      // new table → zero again
             wcResValid = false;
-            wcSetMsg("WAS cal: table applied & saved - now do the straight-driving zero");
+            wcSetMsg("WAS cal: table applied & saved - now set the zero");
         }
     }
     else if (wcHas(req, "resettable=1")) {
@@ -199,6 +226,7 @@ void handleApiWasCal(EthernetClient& client, const char* req)
             wasCal.blendDeg = keep.blendDeg; wasCal.zYawMax = keep.zYawMax;
             wasCal.zSpeedMin = keep.zSpeedMin; wasCal.zTimeMs = keep.zTimeMs;
             wasCal.handX10 = keep.handX10;
+            wasCal.flags = keep.flags & (WC_F_REAR | WC_F_SENS_LEFT);   // display / manual side stay
             wasCalSave();
             wcSetMsg("WAS cal: table cleared - AOG settings in use");
         }
@@ -227,6 +255,117 @@ void handleApiWasCal(EthernetClient& client, const char* req)
         if ((p = wcArg(req, "zspd="))  != NULL) { float v = atof(p); if (v >= 1 && v <= 25) wasCal.zSpeedMin = v; }
         if ((p = wcArg(req, "ztime=")) != NULL) { float v = atof(p); if (v >= 2 && v <= 60) wasCal.zTimeMs = (uint16_t)(v * 1000); }
         wasCalSave();
+    }
+    else if (wcHas(req, "flip=1")) {
+        if (wcAutosteerOn())                                         err = "autosteer engaged";
+        else if (!wcFlipStore(wasCal, moduleConfig.wheelBase, moduleConfig.keyaTrackT)) err = "no table yet";
+        else { memset(&wcKeyaExt, 0, sizeof(wcKeyaExt)); wcZeroClear(wcZero); wasCalSave();
+               wcSetMsg("WAS cal: table flipped (left <-> right) & saved"); }
+    }
+    else if (wcHas(req, "centre=1")) {
+        // Set centre now: the wheels are straight, this reads 0° from now on
+        if (wcAutosteerOn()) err = "autosteer engaged";
+        else if (moduleConfig.wasSource == WAS_SOURCE_ADS1115) {
+            if (!adcConnected || !wcRawInit) err = "no ADS1115";
+            else if (wasCalTableActive()) {
+                wasCal.zeroShift = wcRawAvg - wcAngleToRaw(wasCal.ang, wasCal.raw, wasCal.nPts, 0.0f);
+                wasCal.azShift = 0;
+                wasCalSave();
+                wcSetMsg("WAS cal: centre set (table zero)");
+            } else {
+                moduleConfig.adsAutoOffset += adsAogAngle((int16_t)lroundf(wcRawAvg));
+                moduleConfigSave();
+                wcSetMsg("WAS cal: centre set (AOG mode offset)");
+            }
+            if (!err) { wcZeroClear(wcZero); memset(&wcKeyaExt, 0, sizeof(wcKeyaExt)); }
+        }
+        else if (moduleConfig.wasSource == WAS_SOURCE_KEYA) {
+            if (!keyaDetected) err = "Keya not detected";
+            else {
+                moduleConfig.keyaZeroTicks = keyaEncoderRaw;
+                keyaGpsOffset = 0;
+                keyaInitialZeroDone = true;                  // a set centre unlocks autosteer like the initial zero
+                moduleConfigSave();
+                wcSetMsg("WAS cal: Keya centre set");
+            }
+        }
+        else err = "no centre for this WAS source";
+    }
+    else if ((p = wcArg(req, "axle=")) != NULL) {
+        if (*p == 'R') wasCal.flags |= WC_F_REAR; else wasCal.flags &= ~WC_F_REAR;
+        wasCalSave();
+    }
+    else if ((p = wcArg(req, "mside=")) != NULL) {
+        if (*p == 'L') wasCal.flags |= WC_F_SENS_LEFT; else wasCal.flags &= ~WC_F_SENS_LEFT;
+        wasCalSave();
+    }
+    else if ((p = wcArg(req, "mcap=")) != NULL) {
+        int i = (*p == 'L') ? 0 : (*p == 'C') ? 1 : (*p == 'R') ? 2 : -1;
+        const char *a = wcArg(req, "ang=");
+        float v = a ? atof(a) : 0;
+        if (i < 0)                             err = "bad capture";
+        else if (!adcConnected || !wcRawInit)  err = "no ADS1115";
+        else if (wcAutosteerOn())              err = "autosteer engaged";
+        else if (i != 1 && !(v >= 3 && v <= 70)) err = "type the wheel angle first (3..70 deg)";
+        else {
+            wcMan.raw[i] = wcRawAvg; wcMan.ang[i] = (i == 1) ? 0 : v;
+            wcMan.tk[i] = keyaEncoderRaw;
+            wcMan.have |= (1 << i);
+            if (keyaDetected) wcMan.tkOk |= (1 << i); else wcMan.tkOk &= ~(1 << i);
+            char m[64];
+            snprintf(m, sizeof m, "WAS cal: manual %s captured, raw %.0f", i == 0 ? "left lock" : i == 1 ? "centre" : "right lock", wcRawAvg);
+            wcSetMsg(m);
+        }
+    }
+    else if (wcHas(req, "mclear=1")) { memset(&wcMan, 0, sizeof(wcMan)); wcSetMsg("WAS cal: manual captures cleared"); }
+    else if (wcHas(req, "mbuild=1")) {
+        if (wcAutosteerOn())          err = "autosteer engaged";
+        else if (wcMan.have != 7)     err = "capture left lock, centre and right lock first";
+        else {
+            WcResult *r = &wcRes;                         // scratch (a pending IMU result is dropped)
+            bool tk = wcMan.tkOk == 7;
+            if (!wcBuildManual(*r, (wasCal.flags & WC_F_SENS_LEFT) != 0, wcMan.ang[0], wcMan.raw[0], wcMan.raw[1],
+                               wcMan.ang[2], wcMan.raw[2], moduleConfig.wheelBase, moduleConfig.keyaTrackT,
+                               tk, wcMan.tk[0], wcMan.tk[1], wcMan.tk[2])) { wcResValid = false; wcSetMsg(r->msg); err = r->msg; }
+            else {
+                wcApplyResult(*r, WC_KIND_MANUAL, false);
+                wasCal.useTable = 1; wasCalSave();
+                wcResValid = false;
+                wcSetMsg(r->msg);
+            }
+        }
+    }
+    else if (wcHas(req, "slope=1")) {
+        const char *a = wcArg(req, "cl="), *b = wcArg(req, "cr="), *c = wcArg(req, "c=");
+        if (wcAutosteerOn())      err = "autosteer engaged";
+        else if (!a || !b || !c)  err = "cl, cr and c needed";
+        else {
+            // raw direction: as the table in use, else the AOG Invert WAS
+            int8_t dir = (wasCal.nPts >= 2) ? ((wasCal.raw[wasCal.nPts - 1] > wasCal.raw[0]) ? 1 : -1)
+                                            : (steerConfig.InvertWAS ? -1 : 1);
+            WcResult *r = &wcRes;
+            if (!wcBuildSlope(*r, atof(c), atof(a), atof(b), dir, moduleConfig.wheelBase, moduleConfig.keyaTrackT)) {
+                wcResValid = false; wcSetMsg(r->msg); err = r->msg;
+            } else {
+                wcApplyResult(*r, WC_KIND_SLOPE, true);
+                wasCal.useTable = 1; wasCalSave();
+                wcResValid = false;
+                wcSetMsg(r->msg);
+            }
+        }
+    }
+    else if ((p = wcArg(req, "zraw=")) != NULL) {
+        float v = atof(p);
+        if (wcAutosteerOn())              err = "autosteer engaged";
+        else if (wasCal.nPts < 2)         err = "no table yet";
+        else if (!(v >= 100 && v <= 16300)) err = "centre raw must be 100..16300";
+        else {
+            wasCal.zeroShift = v - wcAngleToRaw(wasCal.ang, wasCal.raw, wasCal.nPts, 0.0f);
+            wasCal.azShift = 0;
+            wcZeroClear(wcZero); memset(&wcKeyaExt, 0, sizeof(wcKeyaExt));
+            wasCalSave();
+            wcSetMsg("WAS cal: centre raw set");
+        }
     }
     else if (wcHas(req, "zstart=1")) {
         if (!adcConnected || moduleConfig.wasSource != WAS_SOURCE_ADS1115) err = "WAS source is not ADS1115";
@@ -307,6 +446,18 @@ void handleApiWasCalStatus(EthernetClient& client, const char* req)
     client.print(F(",\"L\":")); client.print(moduleConfig.wheelBase, 2);
     client.print(F(",\"T\":")); client.print(moduleConfig.keyaTrackT, 2);
     client.print(F(",\"msg\":\"")); client.print(wcMsg); client.print('"');
+    client.print(F(",\"rawAvg\":")); client.print(wcRawAvg, 1);
+    client.print(F(",\"sp\":")); client.print(steerAngleSetPoint, 2);
+    client.print(F(",\"aogInv\":")); client.print(steerConfig.InvertWAS ? 1 : 0);
+    // Keya encoder as WAS (live graph): ticks, zero, ticks/deg base | left | right, invert, drift offset
+    client.print(F(",\"kEnc\":")); client.print((long)keyaEncoderRaw);
+    client.print(F(",\"kZero\":")); client.print((long)moduleConfig.keyaZeroTicks);
+    client.print(F(",\"kTB\":")); client.print(moduleConfig.keyaTicksPerDeg, 2);
+    client.print(F(",\"kTL\":")); client.print(moduleConfig.keyaTicksLeft, 2);
+    client.print(F(",\"kTR\":")); client.print(moduleConfig.keyaTicksRight, 2);
+    client.print(F(",\"kInv\":")); client.print(moduleConfig.keyaEncInvert ? 1 : 0);
+    client.print(F(",\"kOff\":")); client.print(keyaGpsOffset, 2);
+    client.print(F(",\"kZd\":")); client.print(keyaInitialZeroDone ? 1 : 0);
 
     // stored calibration
     client.print(F(",\"use\":")); client.print(wasCal.useTable);
@@ -314,6 +465,12 @@ void handleApiWasCalStatus(EthernetClient& client, const char* req)
     client.print(F(",\"nPts\":")); client.print(wasCal.nPts);
     client.print(F(",\"two\":")); client.print(wasCal.twoWheel);
     client.print(F(",\"wMask\":")); client.print(wasCal.wheelMask);
+    client.print(F(",\"kind\":")); client.print(wasCal.flags & WC_F_KIND);
+    client.print(F(",\"rear\":")); client.print((wasCal.flags & WC_F_REAR) ? 1 : 0);
+    client.print(F(",\"sensL\":")); client.print((wasCal.flags & WC_F_SENS_LEFT) ? 1 : 0);
+    client.print(F(",\"tWR\":")); wcPrintArr(client, wasCal.wR, wasCal.wheelMask ? wasCal.nPts : 0, 2);
+    client.print(F(",\"tWL\":")); wcPrintArr(client, wasCal.wL, wasCal.wheelMask ? wasCal.nPts : 0, 2);
+    client.print(F(",\"raw0\":")); client.print(wasCal.nPts >= 2 ? wcRawZeroNow() : 0.0f, 1);
     client.print(F(",\"tAng\":")); wcPrintArr(client, wasCal.ang, wasCal.nPts, 2);
     client.print(F(",\"tRaw\":")); wcPrintArr(client, wasCal.raw, wasCal.nPts, 1);
     client.print(F(",\"zShift\":")); client.print(wasCal.zeroShift, 1);
@@ -379,6 +536,13 @@ void handleApiWasCalStatus(EthernetClient& client, const char* req)
         }
         client.print('}');
     }
+
+    // manual captures
+    client.print(F(",\"man\":{\"have\":")); client.print(wcMan.have);
+    client.print(F(",\"tk\":")); client.print(wcMan.tkOk);
+    client.print(F(",\"raw\":")); wcPrintArr(client, wcMan.raw, 3, 0);
+    client.print(F(",\"ang\":")); wcPrintArr(client, wcMan.ang, 3, 1);
+    client.print('}');
 
     // straight zero
     client.print(F(",\"z\":{\"run\":")); client.print(wcZero.running);

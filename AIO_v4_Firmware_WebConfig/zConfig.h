@@ -44,7 +44,7 @@ struct CalFit {
 // addr 80  : ModuleConfig         (NEW)
 // addr 2200: WasCalStore          (F11 WAS calibration, own magic, 424 B incl. wheel tables)
 
-#define FW_VERSION "v1.0.12"   // shown in web GUI; bump before tagging a release branch
+#define FW_VERSION "v1.0.13"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xD1   // change to force EEPROM reset on next boot

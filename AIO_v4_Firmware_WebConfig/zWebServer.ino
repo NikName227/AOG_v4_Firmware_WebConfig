@@ -108,6 +108,9 @@ input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:#38bdf8}
 textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334155;color:#7dd3fc;font-family:monospace;font-size:14px;padding:6px;border-radius:3px;resize:vertical}
 .btn.red{background:#7f1d1d}.btn.red:hover{background:#991b1b}
 .ninput{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:4px 6px;border-radius:3px;font-family:monospace;font-size:14px;width:80px;text-align:right}
+.wcv{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.wcv div{flex:1;min-width:118px;background:#0f172a;border:1px solid #334155;border-radius:4px;padding:5px 8px}.wcv small{display:block;color:#94a3b8;font-size:12px}.wcv b{font-size:19px;color:#e2e8f0}
+.wz h3{font-size:21px;color:#e2e8f0;margin:2px 0 6px}.wz .ins{font-size:17px;line-height:1.4;margin:4px 0 10px;color:#e2e8f0}.wz .big{font-size:44px;font-weight:bold;text-align:center;color:#4ade80;margin:4px 0}.wz .ctr{text-align:center;font-size:15px;margin:2px 0 6px}.wz .grade{font-size:40px;font-weight:bold;text-align:center}.wz .bb{font-size:17px;padding:11px 22px}.wz .lbl{font-size:16px}.wz .wzin{width:100%;font-size:22px;padding:8px}
+.stp{display:flex;gap:4px;margin:2px 0 12px}.stp span{flex:1;height:8px;border-radius:3px;background:#334155}.stp .d{background:#16a34a}.stp .c{background:#38bdf8}.cov{display:flex;gap:2px;margin-top:8px}.cov i{flex:1;height:22px;border-radius:2px;background:#334155}.cov i.h{background:#ca8a04}.cov i.f{background:#16a34a}.covl{display:flex;justify-content:space-between;color:#94a3b8;font-size:12px;margin:2px 0 6px}.wznav{display:flex;gap:8px;margin-top:12px}.wznav .btn{flex:1;font-size:16px;padding:11px}.btn:disabled{opacity:.4;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -498,100 +501,81 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <!-- WAS CAL TAB (F11): calibration follows the selected WAS source -->
 <div id="wascal" class="panel">
 <div class="card">
-<h2>WAS calibration</h2>
-<div class="row"><span class="lbl">WAS source <small style="color:#64748b">(Config tab)</small></span><span class="val" id="wcSrc">—</span></div>
-<p style="color:#64748b;font-size:13px;margin-top:6px;line-height:1.4">Calibration follows the WAS source selected on the Config tab: <b>ADS1115</b> → analog sensor table (reference IMU on the wheel), <b>Keya encoder</b> → Keya calibration and its auto-zero. Other sources have no calibration here.</p>
+<h2>WAS &mdash; live <span id="wcSrc" class="badge ok" style="margin-left:auto">&mdash;</span></h2>
+<svg id="wcSk" viewBox="0 0 320 180" style="width:100%;max-width:560px;display:block;margin:0 auto;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></svg>
+<svg id="wcGr" viewBox="0 0 320 160" style="width:100%;max-width:560px;display:block;margin:8px auto 0;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></svg>
+<div id="wcVals" class="wcv"></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+<button class="btn green" onclick="wcCentre()">&#8982; Set centre now</button>
+<span class="lbl" style="margin:10px 0 0 10px">Steering axle</span>
+<button class="btn" id="wcAxF" onclick="wcCmd('axle=F')">Front</button>
+<button class="btn" id="wcAxR" onclick="wcCmd('axle=R')">Rear</button>
 </div>
-<div class="card">
+<div class="row" style="margin-top:6px"><span class="lbl">Message</span><span class="val" id="wcMsg" style="font-size:12px">&mdash;</span></div>
+</div>
+<div class="card" id="wcLimCard">
 <h2>Steering limits</h2>
-<p style="color:#94a3b8;font-size:12px;line-height:1.4">Working steering limit per side &mdash; the angle AOG asks for is clamped to this, so the steering never drives into the mechanical stop (U / K turns). Every WAS source. Set 2&ndash;3&deg; below the physical max; 0 = no limit.</p>
-<div class="row"><span class="lbl">Max angle left <small style="color:#64748b">(&deg;, def 0 = no limit)</small></span>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">The angle AOG asks for is clamped to this, so the steering never drives into the mechanical stop (U / K turns). Every WAS source. Set 2&ndash;3&deg; below the lock; 0 = no limit.</p>
+<div class="row"><span class="lbl">Max angle left <small style="color:#64748b">(&deg;, 0 = no limit)</small></span>
 <input type="number" id="ksgMaxL" min="0" max="80" step="0.1" class="ninput"></div>
-<div class="row"><span class="lbl">Max angle right <small style="color:#64748b">(&deg;, def 0 = no limit)</small></span>
+<div class="row"><span class="lbl">Max angle right <small style="color:#64748b">(&deg;, 0 = no limit)</small></span>
 <input type="number" id="ksgMaxR" min="0" max="80" step="0.1" class="ninput"></div>
-<div class="row"><span class="lbl">Measured lock L | R <small style="color:#64748b">(calibration)</small></span><span class="val" id="wcLimLock">&mdash;</span></div>
+<div class="row"><span class="lbl">Measured lock L | R</span><span class="val" id="wcLimLock">&mdash;</span></div>
 <button class="btn green" onclick="wcSaveLimits()">Save limits</button>
 </div>
 <div id="wcAdsPart" style="display:none">
 <!--WCADS-->
-<div class="card">
-<h2>WAS &mdash; live <span id="wcMode" class="badge fail" style="margin-left:auto">&mdash;</span></h2>
-<div style="display:flex;gap:14px;align-items:center;margin-top:8px;flex-wrap:wrap">
-<label class="chk-row"><input type="checkbox" id="wcUse" onchange="wcCmd('use=' + (this.checked ? 1 : 0))"> Use WAS table <small style="color:#64748b">(off = AOG counts / Ackermann / offset, as before)</small></label>
-<label class="chk-row">Reference IMU on <select id="wcSide" style="min-width:110px"><option value="R">right wheel</option><option value="L">left wheel</option></select></label>
-<button class="btn sm" style="margin-left:0" onclick="wcRefZero = wcLast ? wcLast.ref : 0">&#8982; Centre reference</button>
-</div>
-<canvas id="wcGeo" width="960" height="640" style="width:100%;margin-top:8px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
-<p style="color:#94a3b8;font-size:12px;margin-top:4px;line-height:1.3">Top view, front up. <b style="color:#4ade80">Green</b> = this module: the middle box is the bicycle angle sent to AOG; the wheels come from the calibrated wheel tables (<i>calibrated</i>) or from that angle with Ackermann L / T (<i>Ackermann</i>). <b>Dashed white</b> = reference ESP32 IMU on the wheel (press Centre with the wheels straight) and the bicycle angle calculated from it.</p>
-<div class="row"><span class="lbl">Message</span><span class="val" id="wcMsg" style="font-size:12px">&mdash;</span></div>
+<div class="card wz">
+<h2>Calibration wizard <span id="wzNo" style="margin-left:auto;color:#94a3b8;font-weight:normal;font-size:12px"></span></h2>
+<div class="stp" id="wzBar"></div>
+<div id="wzView"></div>
 </div>
 
 <div class="card">
-<h2>ADS calibration &mdash; turn by hand <span style="color:#64748b;font-weight:normal;font-size:11px">(reference IMU on the wheel)</span></h2>
-<p style="color:#94a3b8;font-size:12px;line-height:1.4">Tractor standing, autosteer off, the steering is turned <b>by hand</b> (the motor does not move). 1) ESP reference IMU on the <b>right</b> front wheel, wheels straight, <b>Start &mdash; right wheel</b>, turn <b>RIGHT first</b>, then slowly lock to lock 2&ndash;3 times (&le; 10&deg;/s), back to straight, <b>Stop</b>. 2) Move the IMU to the <b>left</b> wheel and repeat with <b>Start &mdash; left wheel</b>. 3) <b>Compute</b>, check, <b>Apply</b>. With both wheels the bicycle angle needs no track width; with one wheel only L / T below are used. If the Keya motor is connected its encoder is recorded too (range extension).</p>
-<div class="row"><span class="lbl">Reference IMU</span><span id="wcRefBadge" class="badge fail">--</span></div>
+<h2>Parameters <span id="wcMode" class="badge fail" style="margin-left:auto">&mdash;</span></h2>
+<label class="chk-row"><input type="checkbox" id="wcUse" onchange="wcCmd('use=' + (this.checked ? 1 : 0))"> Use WAS table <small style="color:#64748b">(off = AOG counts / offset / Ackermann)</small></label>
+<div class="row"><span class="lbl">Table</span><span class="val" id="wcTInfo">&mdash;</span></div>
+<div class="row"><span class="lbl">Max angle left | right <small style="color:#64748b">(&deg;, 0 = no limit)</small></span>
+<span><input type="number" id="pMaxL" min="0" max="80" step="0.1" class="ninput" style="width:70px"> <input type="number" id="pMaxR" min="0" max="80" step="0.1" class="ninput" style="width:70px"></span></div>
+<div class="row"><span class="lbl">Measured lock L | R</span><span class="val" id="pLock">&mdash;</span></div>
+<div class="row"><span class="lbl">Centre raw <small style="color:#64748b">(raw at 0&deg;)</small></span>
+<span><input type="number" id="pCen" min="100" max="16300" step="1" class="ninput" style="width:90px"> <button class="btn sm" style="margin-left:4px" onclick="wcSetCenRaw()">Set</button></span></div>
+<div class="row"><span class="lbl">Counts per &deg; left | right <small style="color:#64748b">(bicycle &deg;)</small></span>
+<span><input type="number" id="pCL" min="5" max="2000" step="0.1" class="ninput" style="width:70px"> <input type="number" id="pCR" min="5" max="2000" step="0.1" class="ninput" style="width:70px"> <button class="btn sm" style="margin-left:4px" onclick="wcBuildSlope()">Build</button></span></div>
+<div class="row"><span class="lbl">Direction</span><span class="val" id="pDir" style="font-size:13px">&mdash;</span></div>
+<div class="row"><span class="lbl">Wheelbase L | track T <small style="color:#64748b">(m)</small></span>
+<span><input type="number" id="wcL" min="0.5" max="6" step="0.01" class="ninput" style="width:70px"> <input type="number" id="wcT" min="0.5" max="4" step="0.01" class="ninput" style="width:70px"></span></div>
+<label class="chk-row"><input type="checkbox" id="wcKx" onchange="wcCmd('kx=' + (this.checked ? 1 : 0))"> Keya extends the range <small id="wcKTpd" style="color:#64748b"></small></label>
+<div class="row"><span class="lbl">Handover angle &deg; <small style="color:#64748b">(0 = at the table ends)</small></span><input type="number" id="wcHand" min="0" max="60" step="0.5" class="ninput"></div>
+<div class="row"><span class="lbl">Blend zone &deg; <small style="color:#64748b">(def 5)</small></span><input type="number" id="wcBlend" min="1" max="15" step="0.5" class="ninput"></div>
+<div class="row"><span class="lbl">Keya now</span><span class="val" id="wcKW">&mdash;</span></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap">
-<button class="btn green" onclick="wcCmd('start=R')">Start &mdash; right wheel</button>
-<button class="btn green" onclick="wcCmd('start=L')">Start &mdash; left wheel</button>
-<button class="btn" onclick="wcCmd('stop=1')">Stop</button>
-<button class="btn red" onclick="if (confirm('Discard both measurements?')) wcCmd('discard=1')">Discard</button>
-</div>
-<div id="wcSes0" style="margin-top:10px;font-size:13px"></div>
-<div id="wcSes1" style="margin-top:6px;font-size:13px"></div>
-<p style="color:#64748b;font-size:11px;margin:4px 0 0">Coverage per 5&deg; (wheel angle): grey = none, yellow = one direction, green = both directions.</p>
-<div class="row" style="margin-top:8px"><span class="lbl">Wheelbase L / track T <small style="color:#64748b">(m, one wheel only)</small></span>
-<span><input type="number" id="wcL" min="0.5" max="6" step="0.01" class="ninput" style="width:70px"> <input type="number" id="wcT" min="0.5" max="4" step="0.01" class="ninput" style="width:70px"> <button class="btn sm" style="margin-left:4px" onclick="wcSaveLT()">Save</button></span></div>
-<button class="btn green" onclick="wcCmd('compute=1').then(function() { wcCurve = null; })">Compute</button>
-<div id="wcResBox" style="display:none;margin-top:10px;padding:8px;border:1px solid #334155;border-radius:6px">
-<div class="row"><span class="lbl">Result</span><span class="val" id="wcResMsg" style="font-size:12px">&mdash;</span></div>
-<div class="row"><span class="lbl">RMS | hysteresis mean / max</span><span class="val" id="wcResQ">&mdash;</span></div>
-<div class="row"><span class="lbl">Wheels | offset between measurements</span><span class="val" id="wcResW">&mdash;</span></div>
-<div class="row"><span class="lbl">Saturated bins | skipped points</span><span class="val" id="wcResS">&mdash;</span></div>
-<div class="row"><span class="lbl">Keya ticks/&deg; L | R &middot; lock L | R</span><span class="val" id="wcResK">&mdash;</span></div>
-<canvas id="wcCurveCv" width="720" height="300" style="width:100%;margin-top:8px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
-<p style="color:#94a3b8;font-size:12px;margin-top:4px">Dots = measured (raw, bicycle angle), blue = new table, grey = table in use. Hysteresis includes the reference IMU delay.</p>
-<button class="btn green" onclick="if (confirm('Apply the new table? The zero must be done again by straight driving.')) wcCmd('apply=1')">Apply &amp; save</button>
-</div>
-<div class="lbl" style="margin:12px 0 3px">Table in use</div>
-<div class="row"><span class="lbl">Points | range</span><span class="val" id="wcTInfo">&mdash;</span></div>
-<div class="row"><span class="lbl">RMS | hysteresis | wheels</span><span class="val" id="wcTQual">&mdash;</span></div>
+<button class="btn green" onclick="wcSavePar()">Save parameters</button>
+<button class="btn" onclick="if (confirm('Flip the table left / right?')) wcCmd('flip=1')">Flip table</button>
 <button class="btn red" onclick="if (confirm('Clear the table? AOG counts / Ackermann are used again.')) wcCmd('resettable=1')">Reset table</button>
 </div>
+<details style="margin-top:10px"><summary style="cursor:pointer;color:#94a3b8">Table points (raw &rarr; angle)</summary>
+<div id="wcPts" style="max-height:240px;overflow-y:auto;margin-top:4px"></div></details>
+</div>
 
 <div class="card">
-<h2>Zero &mdash; straight driving</h2>
-<p style="color:#94a3b8;font-size:12px;line-height:1.4">Drive straight (by hand or on autosteer) above the minimum speed. A pass counts while the heading of the selected heading source moves on average less than the limit over the whole window; if it moves more, the window starts again. Drive the line <b>both ways</b> (one pass each) and Apply the mean. Table mode: shifts the raw zero of the table (its auto-zero shift is reset). AOG mode: writes the ADS auto offset (always applied). The slow auto-zero below keeps trimming afterwards.</p>
-<div class="row"><span class="lbl">Speed | heading rate</span><span class="val" id="wcZLive">&mdash;</span></div>
-<div style="height:10px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;margin:6px 0"><div id="wcZBar" style="height:100%;width:0;background:#38bdf8"></div></div>
-<div class="row"><span class="lbl">State</span><span class="val" id="wcZMsg">&mdash;</span></div>
-<div class="row"><span class="lbl">Passes (angle, sd)</span><span class="val" id="wcZPass">&mdash;</span></div>
-<div class="row"><span class="lbl">Zero in use</span><span class="val" id="wcZCur">&mdash;</span></div>
+<h2>Manual calibration <span style="color:#64748b;font-weight:normal;font-size:11px">&mdash; no IMU</span></h2>
+<p style="color:#94a3b8;font-size:13px;line-height:1.4">Measure only the wheel with the sensor. Standing, autosteer off. Turn to the lock, type that wheel's angle, Capture. The Teensy makes the bicycle angle for AOG from L and T.</p>
+<div class="row"><span class="lbl">Sensor is on the</span><span><button class="btn sm" id="mSR" style="margin-left:0" onclick="wcCmd('mside=R')">Right wheel</button> <button class="btn sm" id="mSL" onclick="wcCmd('mside=L')">Left wheel</button></span></div>
+<div class="row"><span class="lbl">Wheelbase L | track T <small style="color:#64748b">(m)</small></span>
+<span><input type="number" id="mL" min="0.5" max="6" step="0.01" class="ninput" style="width:70px"> <input type="number" id="mT" min="0.5" max="4" step="0.01" class="ninput" style="width:70px"> <button class="btn sm" style="margin-left:4px" onclick="wcSaveLT('mL', 'mT')">Save</button></span></div>
+<div class="row"><span class="lbl">1. Fully LEFT &mdash; wheel &deg; <small id="mHL" style="color:#64748b"></small></span>
+<span><input type="number" id="mAL" min="3" max="70" step="0.1" class="ninput" style="width:70px"> <button class="btn sm" style="margin-left:4px" onclick="wcCap('L')">Capture</button></span></div>
+<div id="mBL" style="text-align:right;color:#4ade80;font-size:13px"></div>
+<div class="row"><span class="lbl">2. Wheels straight <small id="mHC" style="color:#64748b"></small></span>
+<button class="btn sm" onclick="wcCap('C')">Capture</button></div>
+<div class="row"><span class="lbl">3. Fully RIGHT &mdash; wheel &deg; <small id="mHR" style="color:#64748b"></small></span>
+<span><input type="number" id="mAR" min="3" max="70" step="0.1" class="ninput" style="width:70px"> <button class="btn sm" style="margin-left:4px" onclick="wcCap('R')">Capture</button></span></div>
+<div id="mBR" style="text-align:right;color:#4ade80;font-size:13px"></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap">
-<button class="btn green" onclick="wcCmd('zstart=1')">Start pass</button>
-<button class="btn" onclick="wcCmd('zstop=1')">Stop</button>
-<button class="btn green" onclick="wcCmd('zapply=1')">Apply mean</button>
-<button class="btn" onclick="wcCmd('zclear=1')">Clear</button>
+<button class="btn green" onclick="if (confirm('Build the table from the captures and use it?')) wcCmd('mbuild=1')">Build curve &amp; apply</button>
+<button class="btn" onclick="wcCmd('mclear=1')">Clear captures</button>
 </div>
-<div class="section-row" style="gap:8px;margin-top:8px">
-<div style="flex:1"><span class="lbl">Heading limit &deg;/s <small style="color:#64748b">(def 0.1)</small></span><input type="number" id="wcZYaw" min="0.02" max="2" step="0.01" class="ninput" style="width:100%"></div>
-<div style="flex:1"><span class="lbl">Min speed km/h <small style="color:#64748b">(def 3)</small></span><input type="number" id="wcZSpd" min="1" max="25" step="0.5" class="ninput" style="width:100%"></div>
-<div style="flex:1"><span class="lbl">Window s <small style="color:#64748b">(def 8)</small></span><input type="number" id="wcZTime" min="2" max="60" step="1" class="ninput" style="width:100%"></div>
-</div>
-<p style="color:#94a3b8;font-size:12px;margin:4px 0 0;line-height:1.3">Limit = mean heading change over the window. With a VTG (course over ground) heading the limit is tripled automatically.</p>
-<button class="btn green" onclick="wcSaveParams()">Save zero settings</button>
-</div>
-
-<div class="card">
-<h2>Keya extends the range</h2>
-<p style="color:#94a3b8;font-size:12px;line-height:1.4">Past the end of the table (sensor end / saturation) the Keya encoder takes over. In the middle the Keya angle is anchored to the ADS angle all the time; in the blend zone before a table end the angle crossfades to the Keya; past the end it is Keya + last anchor, limited to the lock reached in the calibration. Keya lost &rarr; ADS, held at the table end. Needs a calibration recorded with the Keya connected.</p>
-<label class="chk-row"><input type="checkbox" id="wcKx" onchange="wcCmd('kx=' + (this.checked ? 1 : 0))"> Enable</label>
-<div class="row"><span class="lbl">Keya ticks/&deg; L | R</span><span class="val" id="wcKTpd">&mdash;</span></div>
-<div class="row"><span class="lbl">Lock L | R (bike &deg;)</span><span class="val" id="wcKMax">&mdash;</span></div>
-<div class="row"><span class="lbl">ADS weight now</span><span class="val" id="wcKW">&mdash;</span></div>
-<div class="row"><span class="lbl">Handover angle &deg; <small style="color:#64748b">(def 0 = at the table ends)</small></span><input type="number" id="wcHand" min="0" max="60" step="0.5" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Set e.g. 15: up to &plusmn;15&deg; pure ADS, then the blend zone, then pure Keya ticks (U / K turns). Never later than the table end.</p>
-<div class="row"><span class="lbl">Blend zone &deg; <small style="color:#64748b">(def 5)</small></span><input type="number" id="wcBlend" min="1" max="15" step="0.5" class="ninput"></div>
-<button class="btn green" onclick="wcSaveParams()">Save</button>
 </div>
 
 <!--/WCADS-->
@@ -1514,7 +1498,7 @@ function upd(d) {
     document.getElementById('wcSrc').textContent = _wn[_src] || _src;
     document.getElementById('wcAdsPart').style.display  = (_src == 0) ? '' : 'none';
     document.getElementById('wcKeyaPart').style.display = (_src == 1) ? '' : 'none';
-    if (_src != 0) document.getElementById('wcLimLock').textContent = (_src == 1) ? 'see Keya auto-calibration result' : '—';
+    document.getElementById('wcLimCard').style.display  = (_src == 0) ? 'none' : '';
     document.getElementById('rollSource').value    = d.cfg.rollSource    || 0;
     document.getElementById('headingSource').value = d.cfg.headingSource || 0;
     document.getElementById('nmeaType').value      = d.cfg.nmeaType      || 0;
@@ -1690,8 +1674,9 @@ function pollLog() {
 }
 
 // WCJS{
-// ── WAS cal tab, ADS part (F11) ───────────────────────────────────────────────
-var wcLast = null, wcCurve = null, wcRefZero = 0, wcParamsLoaded = false;
+// ── WAS cal tab (F11): live sketch + graph for every source, wizard, parameters,
+// manual calibration (v1.0.13) ──────────────────────────────────────────────────
+var wcLast = null, wcCurve = null, wcPtsKey = '';
 function wcCmd(q) {
   return fetch('/api/wascal?' + q, { cache: 'no-store' })
     .then(function(r) { return r.text(); })
@@ -1704,25 +1689,54 @@ function wcPoll() {
     .then(function(d) { wcUpd(d); })
     .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
 }
-function wcSaveLT() {
-  fetch('/api/save?wheelBase=' + document.getElementById('wcL').value + '&keyaT=' + document.getElementById('wcT').value)
-    .then(function(r) { document.getElementById('sb').textContent = r.ok ? 'L/T saved.' : 'ERROR.'; configLoaded = false; });
+function wcEl(id) { return document.getElementById(id); }
+function wcVal(id) { var e = wcEl(id); return e ? e.value : ''; }
+// typed fields are not overwritten by the poll until saved (data-ed set on input)
+document.addEventListener('input', function(e) { if (e.target.closest && e.target.closest('#wascal')) e.target.dataset.ed = 1; });
+function wcSetIn(id, v) { var e = wcEl(id); if (!e || e === document.activeElement || e.dataset.ed) return; e.value = v; }
+function wcClrEd(ids) { ids.forEach(function(id) { var e = wcEl(id); if (e) delete e.dataset.ed; }); }
+// '&key=value' for each field that is not empty (an empty field would read as 0 on the Teensy)
+function wcQ(pairs) { var q = ''; for (var k in pairs) { var v = wcVal(pairs[k]); if (v !== '') q += '&' + k + '=' + v; } return q; }
+function wcSaveLT(idL, idT) {
+  idL = idL || 'wcL'; idT = idT || 'wcT';
+  return fetch('/api/save?wheelBase=' + wcVal(idL) + '&keyaT=' + wcVal(idT))
+    .then(function(r) { document.getElementById('sb').textContent = r.ok ? 'L/T saved.' : 'ERROR.'; configLoaded = false; wcClrEd([idL, idT]); });
 }
 function wcSaveParams() {
-  var q = 'params=1', v = function(id) { var e = document.getElementById(id); return e ? e.value : null; };
-  if (v('wcZYaw') !== null) q += '&zyaw=' + v('wcZYaw') + '&zspd=' + v('wcZSpd') + '&ztime=' + v('wcZTime');
-  if (v('wcBlend') !== null) q += '&blend=' + v('wcBlend') + '&hand=' + v('wcHand');
-  wcCmd(q);
+  var q = 'params=1', v = function(id) { var e = wcEl(id); return e ? e.value : null; };
+  if (v('wcZYaw') !== null) q += wcQ({ zyaw: 'wcZYaw', zspd: 'wcZSpd', ztime: 'wcZTime' });
+  if (v('wcBlend') !== null) q += wcQ({ blend: 'wcBlend', hand: 'wcHand' });
+  return wcCmd(q).then(function() { wcClrEd(['wcZYaw', 'wcZSpd', 'wcZTime', 'wcBlend', 'wcHand']); });
 }
-function wcSaveLimits() {
-  fetch('/api/wascal?params=1&maxl=' + document.getElementById('ksgMaxL').value
-        + '&maxr=' + document.getElementById('ksgMaxR').value, { cache: 'no-store' })
+function wcSaveLim(idL, idR) {
+  return fetch('/api/wascal?params=1' + wcQ({ maxl: idL, maxr: idR }), { cache: 'no-store' })
     .then(function(r) { return r.text(); })
-    .then(function(t) { document.getElementById('sb').textContent = t.indexOf('OK') === 0 ? 'Steering limits saved.' : t; configLoaded = false; })
+    .then(function(t) { document.getElementById('sb').textContent = t.indexOf('OK') === 0 ? 'Steering limits saved.' : t; configLoaded = false; wcClrEd([idL, idR]); wcPoll(); })
     .catch(function() { document.getElementById('sb').textContent = 'ERROR saving.'; });
 }
-function wcTxt(id, t, col) { var e = document.getElementById(id); if (!e) return; e.textContent = t; if (col !== undefined) e.style.color = col; }
+function wcSaveLimits() { wcSaveLim('ksgMaxL', 'ksgMaxR'); }
+function wcSavePar() {
+  wcCmd('params=1' + wcQ({ maxl: 'pMaxL', maxr: 'pMaxR', blend: 'wcBlend', hand: 'wcHand' }))
+    .then(function(t) { if (t.indexOf('OK') === 0) { wcClrEd(['pMaxL', 'pMaxR', 'wcBlend', 'wcHand']); return wcSaveLT('wcL', 'wcT'); } })
+    .then(function() { document.getElementById('sb').textContent = 'Parameters saved.'; });
+}
+function wcCentre() { if (confirm('Wheels straight? This position becomes 0°.')) wcCmd('centre=1'); }
+function wcSetCenRaw() {
+  if (!wcLast || wcLast.nPts < 2) { alert('No table yet: build one (wizard, manual or counts per degree) or use Set centre now.'); return; }
+  wcCmd('zraw=' + wcVal('pCen')).then(function() { wcClrEd(['pCen']); });
+}
+function wcBuildSlope() {
+  if (!confirm('Build a straight-line table from these counts per degree and use it?')) return;
+  wcCmd('slope=1&cl=' + wcVal('pCL') + '&cr=' + wcVal('pCR') + '&c=' + wcVal('pCen')).then(function() { wcClrEd(['pCL', 'pCR', 'pCen']); });
+}
+function wcCap(w) {
+  var q = 'mcap=' + w;
+  if (w !== 'C') q += '&ang=' + wcVal(w === 'L' ? 'mAL' : 'mAR');
+  wcCmd(q).then(function() { wcClrEd(['mAL', 'mAR']); });
+}
+function wcTxt(id, t, col) { var e = wcEl(id); if (!e) return; e.textContent = t; if (col !== undefined) e.style.color = col; }
 function wcFix(v, n) { return (v === undefined || v === null) ? '—' : Number(v).toFixed(n); }
+function wcSg(v) { return (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '°'; }
 // one wheel → bicycle angle (same formula as the firmware), w signed, side 'R'/'L'
 function wcW2B(w, side, L, T) {
   var m = Math.abs(w), inner = (side === 'R') ? (w > 0) : (w < 0);
@@ -1730,171 +1744,347 @@ function wcW2B(w, side, L, T) {
   var b = (L < 0.1 || den < 0.01) ? m : Math.atan(L * t / den) * 180 / Math.PI;
   return w < 0 ? -b : b;
 }
-// bicycle angle → (right wheel, left wheel)
-function wcB2W(b, L, T) {
-  if (Math.abs(b) < 0.01) return [b, b];
-  var R = L / Math.tan(Math.abs(b) * Math.PI / 180);
-  var inn = Math.atan(L / (R - T / 2)) * 180 / Math.PI, out = Math.atan(L / (R + T / 2)) * 180 / Math.PI;
-  return b > 0 ? [inn, out] : [-out, -inn];
+// table: angle → raw (as the firmware, clamped), in the stored raw domain
+function wcA2R(d, a) {
+  var A = d.tAng, R = d.tRaw, n = d.nPts;
+  if (n < 2) return 0;
+  if (a <= A[0]) return R[0];
+  if (a >= A[n - 1]) return R[n - 1];
+  for (var k = 0; k + 1 < n; k++) if (a >= A[k] && a <= A[k + 1]) return R[k] + (a - A[k]) * (R[k + 1] - R[k]) / (A[k + 1] - A[k]);
+  return R[n - 1];
 }
+
+// ── Live: top view, front up. Steering wheels turn, their angles beside them, the
+// angle sent to AOG in the middle. Rear axle steering: the rear wheels turn (drawn
+// the opposite way, as they do), the numbers keep the AOG sign (right = +).
+function wcSketch(d) {
+  var rear = d.rear == 1, wl = d.wL, wr = d.wR, tbl = d.use == 1 && d.nPts >= 2;
+  var fl = rear ? 0 : wl, fr = rear ? 0 : wr, rl = rear ? -wl : 0, rr = rear ? -wr : 0;
+  var on = '#4ade80', off = '#475569';
+  function wheel(x, y, a, c) { return '<g transform="translate(' + x + ',' + y + ') rotate(' + a.toFixed(1) + ')"><rect x="-7" y="-17" width="14" height="34" rx="3" fill="' + c + '"/></g>'; }
+  var ys = rear ? 128 : 42, s = '';
+  s += '<rect x="112" y="32" width="96" height="106" rx="8" fill="#0f1b30" stroke="#334155"/>';
+  s += '<line x1="100" y1="42" x2="220" y2="42" stroke="#334155"/><line x1="100" y1="128" x2="220" y2="128" stroke="#334155"/>';
+  s += '<text x="160" y="16" text-anchor="middle" fill="#94a3b8" font-size="11">front</text>';
+  s += '<text x="100" y="16" text-anchor="middle" fill="#e2e8f0" font-size="12">L</text><text x="220" y="16" text-anchor="middle" fill="#e2e8f0" font-size="12">R</text>';
+  s += '<text x="160" y="74" text-anchor="middle" fill="#94a3b8" font-size="11">to AOG</text>';
+  s += '<text x="160" y="98" text-anchor="middle" fill="#4ade80" font-size="21" font-weight="bold">' + wcSg(d.aOut) + '</text>';
+  s += wheel(100, 42, fl, rear ? off : on) + wheel(220, 42, fr, rear ? off : on) + wheel(100, 128, rl, rear ? on : off) + wheel(220, 128, rr, rear ? on : off);
+  s += '<text x="84" y="' + (ys + 5) + '" text-anchor="end" fill="#e2e8f0" font-size="14">' + wcSg(wl) + '</text>';
+  s += '<text x="236" y="' + (ys + 5) + '" text-anchor="start" fill="#e2e8f0" font-size="14">' + wcSg(wr) + '</text>';
+  var src = ['ADS1115', 'Keya encoder', 'IMU via CAN', 'CAN valve'][d.src] || '?';
+  var how = d.src == 0 ? (tbl ? 'table' : 'AOG formula') : '';
+  if (d.src == 0 && tbl && d.wCal == 0) how += ', wheels Ackermann';
+  s += '<text x="6" y="172" fill="#94a3b8" font-size="11">' + (rear ? 'REAR' : 'FRONT') + ' axle steering &middot; ' + src + (how ? ' (' + how + ')' : '') + '</text>';
+  wcEl('wcSk').innerHTML = s;
+}
+// Curve in use: ADS raw → angle (table, or the live point on the AOG formula),
+// Keya ticks → angle (two straight lines). Red dashed = steering limits.
+function wcGraph(d) {
+  var W = 320, H = 160, x0 = 34, x1 = 312, yT = 10, yB = 138, s = '';
+  var ym = 40;
+  if (d.nPts >= 2) ym = Math.max(ym, Math.abs(d.tAng[0]), Math.abs(d.tAng[d.nPts - 1]));
+  if (d.maxL > 0) ym = Math.max(ym, d.maxL); if (d.maxR > 0) ym = Math.max(ym, d.maxR);
+  ym = Math.min(60, Math.ceil(ym / 10) * 10);
+  function Y(a) { return (yT + yB) / 2 - a / ym * (yB - yT) / 2; }
+  var line = [], dot = null, xl = 'raw', lo, hi, k;
+  if (d.src == 0) {
+    var sh = d.zShift + d.azShift;
+    if (d.nPts >= 2) for (k = 0; k < d.nPts; k++) line.push([d.tRaw[k] + sh, d.tAng[k]]);
+    var tbl = d.use == 1 && d.nPts >= 2;
+    dot = [d.raw, tbl ? d.aTbl : d.aAog];
+    xl = 'ADS raw' + (tbl ? '' : ' (table off: AOG formula point)');
+  } else if (d.src == 1) {
+    var tL = d.kTL > 0.1 ? d.kTL : d.kTB, tR = d.kTR > 0.1 ? d.kTR : d.kTB, sg = d.kInv ? 1 : -1;
+    var enc = function(a) { var u = a - d.kOff; return d.kZero + sg * u * (u >= 0 ? tR : tL); };
+    line = [[enc(-ym), -ym], [enc(d.kOff), d.kOff], [enc(ym), ym]];
+    dot = [d.kEnc, d.aOut];
+    xl = 'Keya ticks';
+  } else {
+    wcEl('wcGr').innerHTML = '<text x="160" y="84" text-anchor="middle" fill="#64748b" font-size="12">no curve for this WAS source</text>';
+    return;
+  }
+  var xs = line.map(function(p) { return p[0]; }); if (dot) xs.push(dot[0]);
+  lo = Math.min.apply(null, xs); hi = Math.max.apply(null, xs);
+  if (hi - lo < 200) { lo -= 100; hi += 100; }
+  var pad = (hi - lo) * 0.04; lo -= pad; hi += pad;
+  function X(r) { return x0 + (r - lo) / (hi - lo) * (x1 - x0); }
+  s += '<line x1="' + x0 + '" y1="' + Y(0) + '" x2="' + x1 + '" y2="' + Y(0) + '" stroke="#334155"/>';
+  for (var a = -ym; a <= ym; a += 10) s += '<text x="' + (x0 - 3) + '" y="' + (Y(a) + 3) + '" text-anchor="end" fill="#64748b" font-size="9">' + a + '</text>';
+  if (d.maxR > 0) s += '<line x1="' + x0 + '" y1="' + Y(d.maxR) + '" x2="' + x1 + '" y2="' + Y(d.maxR) + '" stroke="#f87171" stroke-dasharray="4 3"/><text x="' + (x1 - 2) + '" y="' + (Y(d.maxR) - 3) + '" text-anchor="end" fill="#f87171" font-size="9">max R ' + d.maxR + '</text>';
+  if (d.maxL > 0) s += '<line x1="' + x0 + '" y1="' + Y(-d.maxL) + '" x2="' + x1 + '" y2="' + Y(-d.maxL) + '" stroke="#f87171" stroke-dasharray="4 3"/><text x="' + (x1 - 2) + '" y="' + (Y(-d.maxL) + 10) + '" text-anchor="end" fill="#f87171" font-size="9">max L ' + d.maxL + '</text>';
+  if (line.length >= 2) {
+    var p = '';
+    line.forEach(function(q, i) { p += (i ? 'L' : 'M') + X(q[0]).toFixed(1) + ' ' + Y(q[1]).toFixed(1) + ' '; });
+    s += '<path d="' + p + '" stroke="#38bdf8" fill="none" stroke-width="2"/>';
+    if (d.src == 0) line.forEach(function(q) { s += '<circle cx="' + X(q[0]).toFixed(1) + '" cy="' + Y(q[1]).toFixed(1) + '" r="2.2" fill="#38bdf8"/>'; });
+  } else s += '<text x="160" y="40" text-anchor="middle" fill="#64748b" font-size="11">no table</text>';
+  if (dot) s += '<circle cx="' + X(dot[0]).toFixed(1) + '" cy="' + Y(Math.max(-ym, Math.min(ym, dot[1]))).toFixed(1) + '" r="5" fill="#4ade80"/>';
+  s += '<text x="' + x0 + '" y="154" fill="#64748b" font-size="9">' + Math.round(lo) + '</text><text x="' + x1 + '" y="154" text-anchor="end" fill="#64748b" font-size="9">' + Math.round(hi) + '</text>';
+  s += '<text x="160" y="154" text-anchor="middle" fill="#94a3b8" font-size="10">' + xl + '</text><text x="4" y="9" fill="#94a3b8" font-size="9">&deg;</text>';
+  wcEl('wcGr').innerHTML = s;
+}
+function wcValsBox(d) {
+  var tbl = d.use == 1 && d.nPts >= 2, h = '';
+  function b(t, v, c) { h += '<div><small>' + t + '</small><b' + (c ? ' style="color:' + c + '"' : '') + '>' + v + '</b></div>'; }
+  b('AOG setpoint', wcSg(d.sp));
+  b('WAS → AOG', wcSg(d.aOut), '#4ade80');
+  if (d.src == 1) {
+    b('Keya ticks', d.kEnc);
+    b('Centre ticks', d.kZero);
+    b('Drift offset', wcSg(d.kOff) + (d.kZd ? '' : ' (no init zero)'));
+  } else if (d.src == 0) {
+    b('ADS raw', d.raw);
+    b('Centre', tbl ? 'raw ' + wcFix(d.raw0, 0) : 'AOG ' + wcFix(d.adsAzOff, 2) + '°');
+    var m = tbl ? 'TABLE' : 'AOG FORMULA';
+    if (d.kx == 1 && d.wAds < 0.999) m += ' · Keya ' + Math.round((1 - d.wAds) * 100) + '%';
+    b('Mode', m);
+  }
+  b('Limits L | R', (d.maxL > 0 ? d.maxL : 'off') + ' | ' + (d.maxR > 0 ? d.maxR : 'off'));
+  wcEl('wcVals').innerHTML = h;
+}
+
+// ── Wizard (ADS) ─────────────────────────────────────────────────────────────
+var wzStep = 1, wzN = 7, wzShown = 0, wzApplied = false;
+var wzNames = ['Check', 'Right wheel', 'Left wheel', 'Result', 'Zero', 'Limits', 'Keya'];
+function wzGo(dl) { wzStep = Math.max(1, Math.min(wzN + 1, wzStep + dl)); wzShown = 0; if (wcLast) wzUpd(wcLast); }
+function wzNav(next, canSkip) {
+  return '<div class="wznav"><button class="btn" onclick="wzGo(-1)"' + (wzStep == 1 ? ' disabled' : '') + '>Back</button>'
+    + (canSkip ? '<button class="btn" onclick="wzGo(1)">Skip</button>' : '')
+    + '<button class="btn green" id="wzNext" onclick="' + (next || 'wzGo(1)') + '">' + (wzStep == wzN ? 'Finish' : 'Next') + '</button></div>';
+}
+function wzRow(t, id) { return '<div class="row"><span class="lbl">' + t + '</span><span id="' + id + '" class="badge fail">--</span></div>'; }
+function wzBadge(id, ok, t) { var e = wcEl(id); if (!e) return; e.className = 'badge ' + (ok ? 'ok' : 'fail'); e.textContent = t; }
+function wzWheelDone(si) {
+  var s = wcLast ? wcLast.ses[si] : null;
+  if (s && s.st == 1) wcCmd('stop=1').then(function() { wzGo(1); }); else wzGo(1);
+}
+function wzApply() {
+  if (!confirm('Apply the new table and use it?')) return;
+  wcCmd('apply=1').then(function(t) { if (t.indexOf('OK') === 0) { wzApplied = true; return wcCmd('use=1'); } });
+}
+function wzBuild(d) {
+  var h = '', rear = d.rear == 1 ? 'rear ' : '';
+  if (wzStep == 1) {
+    h = '<h3>Check</h3><div class="ins">Everything must be OK.</div>'
+      + wzRow('ADS1115 sensor', 'wz1a') + wzRow('Reference IMU on a wheel', 'wz1b') + wzRow('Autosteer off', 'wz1c') + wzRow('Vehicle standing', 'wz1d')
+      + '<div class="ins" style="font-size:14px;color:#94a3b8;margin-top:8px">No reference IMU? Use <b>Manual calibration</b> further down.</div>' + wzNav();
+  } else if (wzStep == 2 || wzStep == 3) {
+    var R = wzStep == 2;
+    h = '<h3>' + (R ? 'Right wheel' : 'Left wheel') + '</h3><div class="ins">'
+      + (R ? 'IMU on the <b>RIGHT ' + rear + 'wheel</b>.' : 'Move the IMU to the <b>LEFT ' + rear + 'wheel</b>.')
+      + ' Wheels straight, press <b>Start</b>. Turn <b>fully RIGHT first</b>, then fully LEFT, then back to straight. Slowly.</div>'
+      + '<div class="big" id="wzAng">&mdash;</div><div class="ctr" id="wzDir"></div>'
+      + '<div class="cov" id="wzCov"></div><div class="covl"><span>-50&deg; left</span><span>0</span><span>+50&deg; right</span></div>'
+      + '<div class="ctr" id="wzSt" style="color:#94a3b8"></div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn green bb" id="wzStart" onclick="wcCmd(\'start=' + (R ? 'R' : 'L') + '\')">Start</button>'
+      + '<button class="btn bb" onclick="wcCmd(\'stop=1\')">Stop</button></div>'
+      + (R ? '' : '<div class="ins" style="font-size:14px;color:#94a3b8;margin-top:8px">Skip = one wheel only (uses L and T from Parameters).</div>')
+      + wzNav('wzWheelDone(' + (R ? 0 : 1) + ')', !R);
+  } else if (wzStep == 4) {
+    h = '<h3>Result</h3><div class="grade" id="wzGr">&hellip;</div><div class="ctr" id="wzGt"></div>'
+      + '<button class="btn green bb" id="wzApply" onclick="wzApply()">Apply &amp; use table</button>'
+      + '<div class="ins" id="wzChk" style="display:none">Now turn the steering wheel to the <b>RIGHT</b>: the wheels in the sketch above must turn right and the angle must be <b>+</b>. Other way round? '
+      + '<button class="btn" onclick="if (confirm(\'Flip the table left / right?\')) wcCmd(\'flip=1\')">Flip table</button></div>'
+      + '<details style="margin-top:10px"><summary style="cursor:pointer;color:#94a3b8">Details</summary>'
+      + '<div class="row"><span class="lbl">Message</span><span class="val" id="wcResMsg" style="font-size:12px">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">RMS | hysteresis mean / max</span><span class="val" id="wcResQ">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Wheels | offset between measurements</span><span class="val" id="wcResW">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Saturated bins | skipped points</span><span class="val" id="wcResS">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Keya ticks/&deg; L | R &middot; lock L | R</span><span class="val" id="wcResK">&mdash;</span></div>'
+      + '<canvas id="wcCurveCv" width="720" height="300" style="width:100%;margin-top:8px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>'
+      + '<p style="color:#94a3b8;font-size:12px;margin-top:4px">Dots = measured (raw, bicycle angle), blue = new table, grey = table in use.</p></details>'
+      + wzNav();
+    wcCurve = null;
+    if (!d.res) wcCmd('compute=1');
+  } else if (wzStep == 5) {
+    h = '<h3>Zero</h3><div class="ins">Wheels straight. Press <b>Set centre now</b>.</div>'
+      + '<div class="big" id="wzZa">&mdash;</div>'
+      + '<button class="btn green bb" onclick="wcCentre()">&#8982; Set centre now</button>'
+      + '<details style="margin-top:10px"><summary style="cursor:pointer;color:#94a3b8">More exact: drive straight both ways</summary>'
+      + '<p style="color:#94a3b8;font-size:12px;line-height:1.4">Above the min speed, a pass counts while the heading moves less than the limit over the window. Drive the line both ways, then Apply mean.</p>'
+      + '<div class="row"><span class="lbl">Speed | heading rate</span><span class="val" id="wcZLive">&mdash;</span></div>'
+      + '<div style="height:10px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;margin:6px 0"><div id="wcZBar" style="height:100%;width:0;background:#38bdf8"></div></div>'
+      + '<div class="row"><span class="lbl">State</span><span class="val" id="wcZMsg">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Passes (angle, sd)</span><span class="val" id="wcZPass">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Zero in use</span><span class="val" id="wcZCur">&mdash;</span></div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn green" onclick="wcCmd(\'zstart=1\')">Start pass</button><button class="btn" onclick="wcCmd(\'zstop=1\')">Stop</button>'
+      + '<button class="btn green" onclick="wcCmd(\'zapply=1\')">Apply mean</button><button class="btn" onclick="wcCmd(\'zclear=1\')">Clear</button></div>'
+      + '<div class="section-row" style="gap:8px;margin-top:8px">'
+      + '<div style="flex:1"><span class="lbl">Heading limit &deg;/s</span><input type="number" id="wcZYaw" min="0.02" max="2" step="0.01" class="ninput" style="width:100%"></div>'
+      + '<div style="flex:1"><span class="lbl">Min speed km/h</span><input type="number" id="wcZSpd" min="1" max="25" step="0.5" class="ninput" style="width:100%"></div>'
+      + '<div style="flex:1"><span class="lbl">Window s</span><input type="number" id="wcZTime" min="2" max="60" step="1" class="ninput" style="width:100%"></div></div>'
+      + '<button class="btn green" onclick="wcSaveParams()">Save zero settings</button></details>'
+      + wzNav();
+  } else if (wzStep == 6) {
+    h = '<h3>Limits</h3><div class="ins">Max steering angle each side. Set 2&ndash;3&deg; below the lock. 0 = no limit.</div>'
+      + '<div class="section-row" style="gap:10px"><div style="flex:1"><span class="lbl">Max left &deg;</span><input type="number" id="wzMaxL" min="0" max="80" step="0.1" class="ninput wzin"></div>'
+      + '<div style="flex:1"><span class="lbl">Max right &deg;</span><input type="number" id="wzMaxR" min="0" max="80" step="0.1" class="ninput wzin"></div></div>'
+      + '<div class="ctr" id="wzLock" style="color:#94a3b8;margin-top:8px"></div>'
+      + '<button class="btn green bb" onclick="wcSaveLim(\'wzMaxL\', \'wzMaxR\')">Save limits</button>' + wzNav();
+  } else if (wzStep == 7) {
+    var kOk = d.kTpdL && d.kTpdR;
+    h = '<h3>Keya takes over</h3><div class="ins">Optional. Skip if you do not use the Keya for large angles (U / K turns).</div>'
+      + (kOk ? '<label class="chk-row" style="font-size:17px"><input type="checkbox" id="wzKx" onchange="wcCmd(\'kx=\' + (this.checked ? 1 : 0))"> Keya extends the range</label>'
+        + '<div class="section-row" style="gap:10px"><div style="flex:1"><span class="lbl">Handover angle &deg; (0 = table ends)</span><input type="number" id="wzHand" min="0" max="60" step="0.5" class="ninput wzin"></div>'
+        + '<div style="flex:1"><span class="lbl">Blend zone &deg;</span><input type="number" id="wzBlend" min="1" max="15" step="0.5" class="ninput wzin"></div></div>'
+        + '<button class="btn green bb" onclick="wcCmd(\'params=1\' + wcQ({ hand: \'wzHand\', blend: \'wzBlend\' })).then(function() { wcClrEd([\'wzHand\', \'wzBlend\']); })">Save</button>'
+        : '<div class="ins" style="color:#f59e0b">No Keya data in this table (the Keya was not connected while turning).</div>')
+      + wzNav(null, true);
+  } else {
+    h = '<h3>Calibration finished</h3>'
+      + '<div class="row"><span class="lbl">Table</span><span id="wzF1" class="badge fail">--</span></div>'
+      + '<div class="row"><span class="lbl">Limits L | R</span><span class="val" id="wzF2">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Keya extends</span><span id="wzF3" class="badge fail">--</span></div>'
+      + '<div class="ins" style="font-size:14px;color:#94a3b8;margin-top:8px">Every value stays editable in Parameters below.</div>'
+      + '<button class="btn bb" onclick="wzStep=1;wzApplied=false;wzGo(0)">Start again</button>';
+  }
+  wcEl('wzView').innerHTML = h;
+  // fields: fill once from the Teensy
+  if (wzStep == 5) { wcSetIn('wcZYaw', d.zyaw); wcSetIn('wcZSpd', d.zspd); wcSetIn('wcZTime', d.ztime); }
+  if (wzStep == 6) { wcSetIn('wzMaxL', d.maxL); wcSetIn('wzMaxR', d.maxR); }
+  if (wzStep == 7) { wcSetIn('wzHand', d.hand); wcSetIn('wzBlend', d.blend); }
+  var b = '';
+  for (var i = 1; i <= wzN; i++) b += '<span class="' + (i < wzStep ? 'd' : i == wzStep ? 'c' : '') + '" title="' + wzNames[i - 1] + '"></span>';
+  wcEl('wzBar').innerHTML = b;
+  wcTxt('wzNo', wzStep <= wzN ? 'Step ' + wzStep + ' of ' + wzN + ' · ' + wzNames[wzStep - 1] : 'Done');
+  wzShown = wzStep;
+}
+function wzUpd(d) {
+  if (wzShown != wzStep) wzBuild(d);
+  var nx = wcEl('wzNext');
+  if (wzStep == 1) {
+    var ok = [d.ads == 1, d.refOk == 1, d.steerOn != 1, d.speed <= 0.5];
+    wzBadge('wz1a', ok[0], ok[0] ? 'OK' : 'NOT FOUND'); wzBadge('wz1b', ok[1], ok[1] ? 'OK' : 'NO SIGNAL');
+    wzBadge('wz1c', ok[2], ok[2] ? 'OK' : 'ENGAGED'); wzBadge('wz1d', ok[3], ok[3] ? 'OK' : 'MOVING');
+    if (nx) nx.disabled = !(ok[0] && ok[1] && ok[2] && ok[3]);
+  } else if (wzStep == 2 || wzStep == 3) {
+    var si = wzStep - 2, s = d.ses[si], rec = s.st == 1;
+    wcTxt('wzAng', rec ? wcSg(s.w) : '—');
+    var dir = wcEl('wzDir');
+    if (dir) {
+      if (rec && !s.sign) { dir.textContent = 'Turn RIGHT first'; dir.style.color = '#f59e0b'; }
+      else if (rec && s.rate > 10) { dir.textContent = 'Too fast - slower'; dir.style.color = '#f87171'; }
+      else if (s.sign) { dir.textContent = 'Direction set (right = +)'; dir.style.color = '#4ade80'; }
+      else { dir.textContent = 'Press Start'; dir.style.color = '#94a3b8'; }
+    }
+    var c = '';
+    for (var g = 0; g < 21; g++) c += '<i class="' + (s.cov[g] == 3 ? 'f' : s.cov[g] ? 'h' : '') + '"></i>';
+    var cv = wcEl('wzCov'); if (cv) cv.innerHTML = c;
+    wcTxt('wzSt', ['not started', 'RECORDING', 'done'][s.st] + (s.st ? ' · ' + s.n + ' samples' : '') + (s.fast ? ' · too fast ' + s.fast : '') + (s.stale ? ' · no IMU ' + s.stale : ''));
+    var st = wcEl('wzStart'); if (st) st.textContent = s.st ? 'Start again' : 'Start';
+    if (nx) { nx.disabled = !(s.st >= 1 && s.n > 20 && s.sign); nx.textContent = 'Done'; }
+  } else if (wzStep == 4) {
+    var ap = wcEl('wzApply'), ck = wcEl('wzChk');
+    if (d.res) {
+      var gq = d.res.rms < 0.6 && d.res.hyst < 1.5 ? ['GOOD', '#4ade80'] : d.res.rms < 1.2 ? ['OK', '#fbbf24'] : ['POOR', '#f87171'];
+      wcTxt('wzGr', gq[0], gq[1]);
+      wcTxt('wzGt', 'accuracy ' + wcFix(d.res.rms, 2) + '° · ' + wcFix(d.res.ang[0], 1) + ' … ' + wcFix(d.res.ang[d.res.nPts - 1], 1) + '° · ' + d.res.nPts + ' points');
+      if (ap) ap.style.display = '';
+      if (ck) ck.style.display = 'none';
+      if (d.res.cRaw) wcCurve = { raw: d.res.cRaw, bike: d.res.cBike };
+      wcTxt('wcResMsg', d.msg);
+      wcTxt('wcResQ', wcFix(d.res.rms, 2) + '° | ' + wcFix(d.res.hyst, 2) + ' / ' + wcFix(d.res.hystMax, 2) + '°');
+      wcTxt('wcResW', (d.res.two ? 'both' : 'one (L/T used)') + ' | ' + wcFix(d.res.rel, 2) + '°');
+      wcTxt('wcResS', d.res.sat + ' | ' + d.res.inv);
+      wcTxt('wcResK', d.res.kOk ? (wcFix(d.res.kTpdL, 1) + ' | ' + wcFix(d.res.kTpdR, 1) + ' · ' + wcFix(d.res.kMaxL, 1) + ' | ' + wcFix(d.res.kMaxR, 1) + '°') : 'no Keya data');
+      if (wcEl('wcCurveCv')) wcDrawCurve(d);
+    } else if (wzApplied && d.use == 1 && d.nPts >= 2) {
+      wcTxt('wzGr', 'APPLIED', '#4ade80'); wcTxt('wzGt', 'table in use · ' + d.nPts + ' points');
+      if (ap) ap.style.display = 'none';
+      if (ck) ck.style.display = '';
+    } else {
+      wcTxt('wzGr', 'NO RESULT', '#f87171'); wcTxt('wzGt', d.msg);
+      if (ap) ap.style.display = 'none';
+      if (ck) ck.style.display = 'none';
+    }
+  } else if (wzStep == 5) {
+    wcTxt('wzZa', wcSg(d.aOut));
+    var z = d.z;
+    wcTxt('wcZLive', wcFix(d.speed, 1) + ' km/h | ' + wcFix(d.hdgRate, 2) + ' °/s' + (d.vtg ? ' (VTG)' : ''));
+    var zb = wcEl('wcZBar'); if (zb) zb.style.width = Math.round(z.prog * 100) + '%';
+    wcTxt('wcZMsg', (z.run ? 'running: ' : '') + z.msg);
+    var pp = [];
+    for (var k = 0; k < z.n; k++) pp.push(wcFix(z.ang[k], 2) + '° (' + wcFix(z.sd[k], 2) + ')');
+    wcTxt('wcZPass', z.n ? pp.join(', ') + ' → mean ' + wcFix(z.mean, 2) + '° [' + (z.tbl ? 'table' : 'AOG') + ']' : '—');
+    var tb = d.use == 1 && d.nPts >= 2;
+    wcTxt('wcZCur', tb ? ('table: zero ' + wcFix(d.zShift, 1) + ' + auto ' + wcFix(d.azShift, 1) + ' counts')
+                       : ('AOG: auto offset ' + wcFix(d.adsAzOff, 3) + '°' + (d.adsAz ? '' : ' (auto-zero off)')));
+  } else if (wzStep == 6) {
+    wcTxt('wzLock', 'Measured lock L | R: ' + wcLockTxt(d));
+  } else if (wzStep == 7) {
+    var kx = wcEl('wzKx'); if (kx) kx.checked = d.kx == 1;
+  } else if (wzStep == wzN + 1) {
+    var t = d.use == 1 && d.nPts >= 2;
+    wzBadge('wzF1', t, t ? 'IN USE' : 'OFF');
+    wcTxt('wzF2', (d.maxL > 0 ? d.maxL : 'off') + ' | ' + (d.maxR > 0 ? d.maxR : 'off'));
+    wzBadge('wzF3', d.kx == 1, d.kx == 1 ? 'ON' : 'OFF');
+  }
+}
+function wcLockTxt(d) {
+  return d.kTpdL && d.kTpdR ? wcFix(-d.kMaxL, 1) + ' | ' + wcFix(d.kMaxR, 1) + '° (Keya)'
+       : d.nPts >= 2 ? wcFix(-d.tAng[0], 1) + ' | ' + wcFix(d.tAng[d.nPts - 1], 1) + '° (table ends)' : '—';
+}
+
+// ── Poll result ──────────────────────────────────────────────────────────────
 function wcUpd(d) {
   wcLast = d;
   var tbl = d.use == 1 && d.nPts >= 2;
-  var mb = document.getElementById('wcMode');
-  mb.className = 'badge ' + (tbl ? 'ok' : 'fail'); mb.textContent = tbl ? 'WAS: TABLE' : 'WAS: AOG SETTINGS';
-  var u = document.getElementById('wcUse'); u.checked = d.use == 1; u.disabled = d.nPts < 2;
-  var rb = document.getElementById('wcRefBadge');
-  rb.className = 'badge ' + (d.refOk ? 'ok' : 'fail'); rb.textContent = d.refOk ? 'OK' : '--';
-  var side = document.getElementById('wcSide').value, si = side === 'R' ? 0 : 1;
-  var sg = d.ses[si].sign || 1;
-  var wRef = d.ses[si].st == 1 ? d.ses[si].w : (d.ref - wcRefZero) * sg;
-  var bRef = wcW2B(wRef, side, d.L, d.T);
+  wcSketch(d); wcGraph(d); wcValsBox(d);
   wcTxt('wcMsg', d.msg);
-  if (document.activeElement.id !== 'wcL' && document.activeElement.id !== 'wcT') {
-    document.getElementById('wcL').value = d.L; document.getElementById('wcT').value = d.T;
+  var fa = wcEl('wcAxF'), ra = wcEl('wcAxR');
+  if (fa) fa.style.outline = d.rear == 1 ? '' : '2px solid #38bdf8';
+  if (ra) ra.style.outline = d.rear == 1 ? '2px solid #38bdf8' : '';
+  wcTxt('wcLimLock', d.src == 1 ? 'see Keya auto-calibration result' : wcLockTxt(d));
+  if (d.src != 0) return;                      // the rest is the ADS part
+
+  wzUpd(d);
+  // parameters
+  var mb = wcEl('wcMode');
+  mb.className = 'badge ' + (tbl ? 'ok' : 'fail'); mb.textContent = tbl ? 'WAS: TABLE' : 'WAS: AOG SETTINGS';
+  var u = wcEl('wcUse'); u.checked = d.use == 1; u.disabled = d.nPts < 2;
+  var kinds = ['IMU', 'manual', 'counts per °'];
+  wcTxt('wcTInfo', d.nPts >= 2 ? (kinds[d.kind] || '?') + (d.kind == 0 ? (d.two ? ', 2 wheels' : ', 1 wheel') : '') + ' · ' + d.nPts + ' pts · '
+        + wcFix(d.tAng[0], 1) + ' … ' + wcFix(d.tAng[d.nPts - 1], 1) + '°' + (d.kind == 0 ? ' · RMS ' + wcFix(d.rms, 2) + '°' : '') : 'none');
+  wcSetIn('pMaxL', d.maxL); wcSetIn('pMaxR', d.maxR);
+  wcTxt('pLock', wcLockTxt(d));
+  wcSetIn('pCen', d.nPts >= 2 ? Math.round(d.raw0) : Math.round(d.rawAvg));
+  if (d.nPts >= 2) {
+    var aR = Math.min(10, d.tAng[d.nPts - 1] - 0.1), aL = Math.max(-10, d.tAng[0] + 0.1);
+    var cR = (wcA2R(d, aR) - wcA2R(d, 0)) / aR, cL = (wcA2R(d, 0) - wcA2R(d, aL)) / -aL;
+    wcSetIn('pCL', Math.abs(cL).toFixed(1)); wcSetIn('pCR', Math.abs(cR).toFixed(1));
+    wcTxt('pDir', (cR > 0 ? 'raw rises' : 'raw falls') + ' turning right · wrong way: Flip table');
+  } else wcTxt('pDir', 'no table · AOG Invert WAS ' + (d.aogInv ? 'ON' : 'off') + ' (set in AOG)');
+  wcSetIn('wcL', d.L); wcSetIn('wcT', d.T); wcSetIn('mL', d.L); wcSetIn('mT', d.T);
+  var kx = wcEl('wcKx');
+  kx.checked = d.kx == 1; kx.disabled = !(d.kTpdL && d.kTpdR);
+  wcTxt('wcKTpd', d.kTpdL ? '(ticks/° L ' + wcFix(d.kTpdL, 1) + ' | R ' + wcFix(d.kTpdR, 1) + ')' : '(no Keya data in the table)');
+  wcTxt('wcKW', d.kx == 1 ? 'ADS weight ' + wcFix(d.wAds, 2) + (d.keya ? '' : ' (Keya not detected)') : 'off');
+  wcSetIn('wcHand', d.hand); wcSetIn('wcBlend', d.blend);
+  var key = d.nPts + ':' + d.tRaw.join(',') + ':' + d.zShift + ':' + d.azShift;
+  if (key !== wcPtsKey) {
+    wcPtsKey = key;
+    var sh = d.zShift + d.azShift, wm = d.tWR.length == d.nPts;
+    var t = '<table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="color:#64748b"><td>raw</td><td>angle</td>' + (wm ? '<td>wheel L</td><td>wheel R</td>' : '') + '</tr>';
+    for (var i = 0; i < d.nPts; i++) t += '<tr><td>' + Math.round(d.tRaw[i] + sh) + '</td><td>' + wcSg(d.tAng[i]) + '</td>' + (wm ? '<td>' + wcSg(d.tWL[i]) + '</td><td>' + wcSg(d.tWR[i]) + '</td>' : '') + '</tr>';
+    wcEl('wcPts').innerHTML = d.nPts >= 2 ? t + '</table>' : '<span style="color:#64748b">no table</span>';
   }
-  // measurements
-  var names = ['RIGHT wheel', 'LEFT wheel'], stn = ['—', 'RECORDING', 'done'];
-  for (var i = 0; i < 2; i++) {
-    var s = d.ses[i], h = '<b>' + names[i] + '</b>: ' + stn[s.st];
-    if (s.st) {
-      h += ' &middot; ' + s.n + ' samples';
-      if (s.st == 1) h += ' &middot; now ' + wcFix(s.w, 1) + '° &middot; <span style="color:' + (s.rate > 10 ? '#f87171' : '#4ade80') + '">' + wcFix(s.rate, 1) + ' °/s</span>';
-      if (s.st == 1 && !s.sign) h += ' &middot; <span style="color:#f59e0b">turn RIGHT first</span>';
-      if (s.fast) h += ' &middot; too fast ' + s.fast;
-      if (s.stale) h += ' &middot; no ref ' + s.stale;
-      h += ' &middot; Keya ' + (s.ticks ? 'yes' : 'no');
-      h += '<div style="display:flex;gap:2px;margin-top:3px">';
-      for (var g = 0; g < 21; g++) {
-        var c = s.cov[g], col = c == 3 ? '#16a34a' : (c ? '#ca8a04' : '#334155');
-        h += '<span title="' + ((g - 10) * 5) + '°" style="flex:1;height:12px;background:' + col + ';font-size:9px;text-align:center;color:#0f172a">' + (g % 2 ? '' : (g - 10) * 5) + '</span>';
-      }
-      h += '</div>';
-    }
-    document.getElementById('wcSes' + i).innerHTML = h;
-  }
-  // computed result
-  var box = document.getElementById('wcResBox');
-  if (d.res) {
-    box.style.display = '';
-    if (d.res.cRaw) wcCurve = { raw: d.res.cRaw, bike: d.res.cBike };
-    wcTxt('wcResMsg', d.msg);
-    wcTxt('wcResQ', wcFix(d.res.rms, 2) + '° | ' + wcFix(d.res.hyst, 2) + ' / ' + wcFix(d.res.hystMax, 2) + '°');
-    wcTxt('wcResW', (d.res.two ? 'both' : 'one (L/T used)') + ' | ' + wcFix(d.res.rel, 2) + '°');
-    wcTxt('wcResS', d.res.sat + ' | ' + d.res.inv);
-    wcTxt('wcResK', d.res.kOk ? (wcFix(d.res.kTpdL, 1) + ' | ' + wcFix(d.res.kTpdR, 1) + ' · ' + wcFix(d.res.kMaxL, 1) + ' | ' + wcFix(d.res.kMaxR, 1) + '°') : 'no Keya data');
-    wcDrawCurve(d);
-  } else { box.style.display = 'none'; wcCurve = null; }
-  wcTxt('wcTInfo', d.nPts >= 2 ? (d.nPts + ' | ' + wcFix(d.tAng[0], 1) + ' … ' + wcFix(d.tAng[d.nPts - 1], 1) + '°') : 'none');
-  wcTxt('wcTQual', d.nPts >= 2 ? (wcFix(d.rms, 2) + '° | ' + wcFix(d.hyst, 2) + '° | ' + (d.two ? 'both' : 'one')) : '—');
-  if (document.getElementById('wcZMsg')) {
-    var z = d.z;
-    wcTxt('wcZLive', wcFix(d.speed, 1) + ' km/h | ' + wcFix(d.hdgRate, 2) + ' °/s' + (d.vtg ? ' (VTG)' : ''));
-    document.getElementById('wcZBar').style.width = Math.round(z.prog * 100) + '%';
-    wcTxt('wcZMsg', (z.run ? 'running: ' : '') + z.msg);
-    var p = [];
-    for (var k = 0; k < z.n; k++) p.push(wcFix(z.ang[k], 2) + '° (' + wcFix(z.sd[k], 2) + ')');
-    wcTxt('wcZPass', z.n ? p.join(', ') + ' → mean ' + wcFix(z.mean, 2) + '° [' + (z.tbl ? 'table' : 'AOG') + ']' : '—');
-    wcTxt('wcZCur', tbl ? ('table: zero ' + wcFix(d.zShift, 1) + ' + auto ' + wcFix(d.azShift, 1) + ' counts')
-                        : ('AOG: auto offset ' + wcFix(d.adsAzOff, 3) + '°' + (d.adsAz ? '' : ' (auto-zero off)')));
-  }
-  var kx = document.getElementById('wcKx');
-  if (kx) {
-    kx.checked = d.kx == 1; kx.disabled = !(d.kTpdL && d.kTpdR);
-    wcTxt('wcKTpd', d.kTpdL ? wcFix(d.kTpdL, 2) + ' | ' + wcFix(d.kTpdR, 2) : 'no Keya data');
-    wcTxt('wcKMax', d.kTpdL ? wcFix(d.kMaxL, 1) + ' | ' + wcFix(d.kMaxR, 1) : '—');
-    wcTxt('wcKW', d.kx ? wcFix(d.wAds, 2) + (d.keya ? '' : ' (Keya not detected)') : 'off');
-  }
-  // measured lock for the steering limits: Keya lock from the table, else the table ends
-  wcTxt('wcLimLock', d.kTpdL && d.kTpdR ? wcFix(-d.kMaxL, 1) + ' | ' + wcFix(d.kMaxR, 1) + '° (Keya)'
-                   : d.nPts >= 2 ? wcFix(-d.tAng[0], 1) + ' | ' + wcFix(d.tAng[d.nPts - 1], 1) + '° (table ends)' : '—');
-  if (!wcParamsLoaded) {
-    var set = function(id, v) { var e = document.getElementById(id); if (e) e.value = v; };
-    set('wcZYaw', d.zyaw); set('wcZSpd', d.zspd); set('wcZTime', d.ztime); set('wcBlend', d.blend); set('wcHand', d.hand);
-    wcParamsLoaded = true;
-  }
-  wcDrawGeo(d, side, wRef, bRef);
-}
-// Top view, every number on the sketch: reference IMU row (dashed white), this
-// module's WAS row (green: left wheel / bicycle → AOG / right wheel), differences,
-// and the tractor with the two front wheels plus the virtual bicycle wheel.
-function wcDrawGeo(d, side, wRef, bRef) {
-  var cv = document.getElementById('wcGeo'), x = cv.getContext('2d'), W = cv.width, H = cv.height;
-  x.clearRect(0, 0, W, H);
-  var xL = 255, xC = W / 2 + 15, xR = W - 195, fy = 400, ry = 590, rad = Math.PI / 180;
-  var ref = d.refOk ? 1 : 0, refX = side === 'R' ? xR : xL, wAt = side === 'R' ? d.wR : d.wL;
-  var tbl = d.use == 1 && d.nPts >= 2;
-  function sg(v) { return (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '°'; }
-  function dcol(v) { v = Math.abs(v); return v < 0.5 ? '#4ade80' : (v < 1.5 ? '#e2b23e' : '#f87171'); }
-  // row labels
-  x.textAlign = 'left';
-  x.font = 'bold 12px monospace'; x.fillStyle = '#e2e8f0'; x.fillText('REFERENCE', 12, 62);
-  x.font = '11px monospace'; x.fillStyle = '#94a3b8'; x.fillText('ESP32 IMU', 12, 78);
-  x.font = 'bold 12px monospace'; x.fillStyle = '#4ade80'; x.fillText('WAS', 12, 172);
-  x.font = '11px monospace'; x.fillStyle = '#94a3b8'; x.fillText('this module', 12, 188);
-  x.fillText('difference', 12, 268);
-  function box(cx, y, w, h, stroke, dash, title, val, valCol, big, sub) {
-    x.fillStyle = '#081120'; x.strokeStyle = stroke; x.lineWidth = big ? 3 : 1.5; x.setLineDash(dash ? [6, 4] : []);
-    x.beginPath(); x.rect(cx - w / 2, y, w, h); x.fill(); x.stroke(); x.setLineDash([]);
-    x.textAlign = 'center'; x.fillStyle = '#94a3b8'; x.font = '11px monospace'; x.fillText(title, cx, y + 16);
-    x.fillStyle = valCol; x.font = 'bold ' + (big ? 30 : 24) + 'px monospace'; x.fillText(val, cx, y + (big ? 52 : 48));
-    if (sub) { x.fillStyle = '#94a3b8'; x.font = '12px monospace'; x.fillText(sub, cx, y + h - 10); }
-  }
-  function empty(cx, y, w, h, t) {
-    x.strokeStyle = '#1e293b'; x.lineWidth = 1; x.setLineDash([3, 4]); x.strokeRect(cx - w / 2, y, w, h); x.setLineDash([]);
-    x.textAlign = 'center'; x.fillStyle = '#334155'; x.font = '11px monospace'; x.fillText(t, cx, y + h / 2 + 4);
-  }
-  // reference row
-  var refCol = ref ? '#e2e8f0' : '#475569';
-  box(refX, 40, 200, 64, refCol, true, (side === 'R' ? 'RIGHT' : 'LEFT') + ' wheel - IMU measured', ref ? sg(wRef) : 'no signal', refCol, false);
-  empty(side === 'R' ? xL : xR, 40, 200, 64, 'no IMU on this wheel');
-  box(xC, 40, 260, 64, refCol, true, 'IMU → bicycle (calculated)', ref ? sg(bRef) : '—', refCol, false);
-  // WAS row
-  var mode = d.src != 0 ? 'Keya / other' : (tbl ? 'table' : 'AOG formula');
-  var sub = 'raw ' + d.raw + ' · ' + mode;
-  if (tbl && d.region) sub += d.region < 0 ? ' · end L' : ' · end R';
-  if (d.kx == 1 && d.wAds < 0.999) sub += ' · Keya ' + Math.round((1 - d.wAds) * 100) + '%';
-  box(xL, 140, 200, 64, '#4ade80', false, 'LEFT wheel (' + (d.wCal & 2 ? 'calibrated' : 'Ackermann') + ')', sg(d.wL), '#4ade80', false);
-  box(xR, 140, 200, 64, '#4ade80', false, 'RIGHT wheel (' + (d.wCal & 1 ? 'calibrated' : 'Ackermann') + ')', sg(d.wR), '#4ade80', false);
-  box(xC, 128, 260, 100, '#4ade80', false, 'WAS sensor → bicycle (to AOG)', sg(d.aOut), '#4ade80', true, sub);
-  // differences (only with a fresh reference)
-  x.font = 'bold 15px monospace'; x.textAlign = 'center';
-  if (ref) {
-    var dW = wAt - wRef, dB = d.aOut - bRef;
-    x.fillStyle = dcol(dW); x.fillText('WAS − IMU ' + sg(dW), refX, 268);
-    x.fillStyle = dcol(dB); x.fillText('WAS − ref ' + sg(dB), xC, 268);
-  } else { x.fillStyle = '#475569'; x.font = '12px monospace'; x.fillText('no reference IMU signal', xC, 268); }
-  // tractor: chassis, rear axle, front wheels from WAS, virtual bicycle wheel, reference outlines
-  x.strokeStyle = '#334155'; x.lineWidth = 4; x.beginPath();
-  x.moveTo(xL, fy); x.lineTo(xR, fy); x.moveTo(xC, fy); x.lineTo(xC, ry); x.moveTo(xL + 60, ry); x.lineTo(xR - 60, ry); x.stroke();
-  x.fillStyle = '#475569'; x.fillRect(xL + 49, ry - 30, 22, 60); x.fillRect(xR - 71, ry - 30, 22, 60);
-  function wheel(px, a, st) {
-    x.save(); x.translate(px, fy); x.rotate(a * rad);
-    if (st === 'was') { x.fillStyle = '#4ade80'; x.fillRect(-11, -36, 22, 72); }
-    else if (st === 'bike') { x.fillStyle = '#16a34a'; x.fillRect(-8, -30, 16, 60); x.strokeStyle = '#4ade80'; x.lineWidth = 2; x.strokeRect(-8, -30, 16, 60); }
-    else { x.strokeStyle = '#e2e8f0'; x.setLineDash([5, 3]); x.lineWidth = 2; x.strokeRect(-14, -40, 28, 80); x.setLineDash([]); }
-    x.restore();
-  }
-  wheel(xL, d.wL, 'was'); wheel(xR, d.wR, 'was'); wheel(xC, d.aOut, 'bike');
-  if (ref) { wheel(refX, wRef, 'ref'); wheel(xC, bRef, 'ref'); }
-  x.strokeStyle = '#1e3a5f'; x.lineWidth = 1; x.setLineDash([2, 4]);
-  [xL, xC, xR].forEach(function(px) { x.beginPath(); x.moveTo(px, 290); x.lineTo(px, fy - 50); x.stroke(); });
-  x.setLineDash([]);
-  x.fillStyle = '#64748b'; x.font = '11px monospace'; x.textAlign = 'center'; x.fillText('virtual bicycle wheel', xC, fy + 58);
-  // sources (bottom left)
-  var rows = [['source', d.src != 0 ? 'not ADS' : ('ADS1115 · ' + (tbl ? 'TABLE' : 'AOG FORMULA')), '#e2e8f0']];
-  if (d.nPts >= 2) rows.push(['table', sg(d.aTbl), '#38bdf8']);
-  rows.push(['AOG formula', sg(d.aAog), '#94a3b8']);
-  if (d.kInit) rows.push(['Keya', sg(d.aKeya), '#f59e0b']);
-  x.textAlign = 'left'; x.font = '12px monospace';
-  rows.forEach(function(r, i) { x.fillStyle = '#64748b'; x.fillText(r[0], 12, 470 + i * 18); x.fillStyle = r[2]; x.fillText(r[1], 110, 470 + i * 18); });
-  // legend (bottom right)
-  x.textAlign = 'right';
-  x.fillStyle = '#4ade80'; x.fillText('solid green = WAS (this module)', W - 12, H - 30);
-  x.fillStyle = '#e2e8f0'; x.fillText('dashed white = reference IMU', W - 12, H - 12);
+  // manual calibration
+  var side = d.sensL ? 'L' : 'R';
+  wcEl('mSR').style.outline = side === 'R' ? '2px solid #38bdf8' : '';
+  wcEl('mSL').style.outline = side === 'L' ? '2px solid #38bdf8' : '';
+  wcTxt('mHL', (side === 'R' ? '(right wheel = outer)' : '(left wheel = inner)') + (d.man.have & 1 ? ' ✓ raw ' + d.man.raw[0] : ''));
+  wcTxt('mHC', d.man.have & 2 ? '✓ raw ' + d.man.raw[1] : '');
+  wcTxt('mHR', (side === 'R' ? '(right wheel = inner)' : '(left wheel = outer)') + (d.man.have & 4 ? ' ✓ raw ' + d.man.raw[2] : ''));
+  if (d.man.have & 1) wcSetIn('mAL', d.man.ang[0]);
+  if (d.man.have & 4) wcSetIn('mAR', d.man.ang[2]);
+  var L = parseFloat(wcVal('mL')) || d.L, T = parseFloat(wcVal('mT')) || d.T;
+  var vl = parseFloat(wcVal('mAL')), vr = parseFloat(wcVal('mAR'));
+  wcTxt('mBL', vl > 0 ? '= bicycle angle ' + wcSg(wcW2B(-vl, side, L, T)) : '');
+  wcTxt('mBR', vr > 0 ? '= bicycle angle ' + wcSg(wcW2B(vr, side, L, T)) : '');
 }
 function wcDrawCurve(d) {
-  var cv = document.getElementById('wcCurveCv'), x = cv.getContext('2d'), W = cv.width, H = cv.height;
+  var cv = wcEl('wcCurveCv'), x = cv.getContext('2d'), W = cv.width, H = cv.height;
   x.clearRect(0, 0, W, H);
   var r = d.res, xs = [].concat(r.raw), ys = [].concat(r.ang);
   if (wcCurve) { xs = xs.concat(wcCurve.raw); ys = ys.concat(wcCurve.bike); }
@@ -1946,7 +2136,7 @@ function tick() {
     return;
   }
   // WAS cal tab with the ADS source: its own status (table, recording, zero)
-  if (activeTab === 'wascal' && wcSrcCur == 0) { wcPoll(); return; }
+  if (activeTab === 'wascal') { wcPoll(); if (wcSrcCur == 0) return; }
   // Other tabs: lightweight full live update
   fetch('/api/live', { cache: 'no-store' })
     .then(function(r) { return r.json(); })

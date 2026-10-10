@@ -20,6 +20,9 @@
 // degree per side and the reachable maximum, used to extend the range past the
 // end of the analog sensor (blend near the ends, or from a set handover angle,
 // clamp at the measured lock).
+// v1.0.13: no IMU needed for a manual table (wheel angle typed at both locks +
+// centre) or a table from counts per degree; Flip mirrors a table made the wrong
+// way round.
 // ─────────────────────────────────────────────────────────────────────────────
 #pragma once
 #include <stdint.h>
@@ -39,6 +42,14 @@
 #define WC_SIGN_DEG     5.0f       // first turn RIGHT past this many degrees sets the signs
 #define WC_STORE_MAGIC  0xC511
 
+// WasCalStore.flags (an older block has 0 = IMU table, front axle, sensor on the right wheel)
+#define WC_F_KIND       0x03       // how the table was made:
+#define WC_KIND_IMU     0          //   reference IMU, turning by hand
+#define WC_KIND_MANUAL  1          //   manual: wheel angle typed at both locks + centre
+#define WC_KIND_SLOPE   2          //   counts per degree typed per side
+#define WC_F_REAR       0x04       // rear-axle steering (sketch only, no effect on the angle)
+#define WC_F_SENS_LEFT  0x08       // manual calibration: sensor on the left wheel
+
 // ── Persisted block (own EEPROM address, own magic) ──────────────────────────
 struct WasCalStore {
     uint16_t magic;
@@ -47,7 +58,7 @@ struct WasCalStore {
     uint8_t  nPts;              // valid points in ang/raw (0 = no calibration)
     uint8_t  twoWheel;          // calibration used both wheels
     uint8_t  wheelMask;         // wR/wL measured: bit0 right, bit1 left (0 = none, older block)
-    uint8_t  pad;
+    uint8_t  flags;             // v1.0.13 (was pad = 0): WC_F_* below
     float    ang[WC_NPTS];      // bike angle, ascending (right = +)
     float    raw[WC_NPTS];      // ADS raw at that angle (monotonic)
     float    zeroShift;         // raw counts, from the straight-driving zero
@@ -494,6 +505,108 @@ struct WcCal {
         R.keyaOk = (R.keyaTpdL != 0 && R.keyaTpdR != 0);
     }
 };
+
+// ── Flip: mirror a stored table (made with the turning direction the wrong way round) ──
+// angle → −angle, order reversed. One measured wheel: the bicycle angle is worked out
+// again from that wheel (inner and outer swap); both wheels or none: only the sign.
+// Keya ticks / lock: sides and signs swap. The raw zero shifts stay (raw domain).
+inline bool wcFlipStore(WasCalStore &s, float L, float T) {
+    uint8_t n = s.nPts;
+    if (n < 2 || n > WC_NPTS) return false;
+    float a[WC_NPTS], r[WC_NPTS], wr[WC_NPTS], wl[WC_NPTS];
+    for (uint8_t i = 0; i < n; i++) {
+        uint8_t j = n - 1 - i;
+        a[i] = -s.ang[j]; r[i] = s.raw[j]; wr[i] = -s.wR[j]; wl[i] = -s.wL[j];
+    }
+    uint8_t m = s.wheelMask;
+    if (m == 1 || m == 2) {
+        for (uint8_t i = 0; i < n; i++) {
+            float w = (m == 1) ? wr[i] : wl[i];
+            bool inner = (m == 1) ? (w > 0) : (w < 0);      // right wheel is inner in a right turn
+            float b = wcWheelToBike(fabsf(w), inner, L, T);
+            a[i] = (w < 0) ? -b : b;
+            float er, el;
+            wcBikeToWheels(a[i], L, T, er, el);
+            if (m == 1) wl[i] = el; else wr[i] = er;
+        }
+    }
+    memcpy(s.ang, a, n * sizeof(float)); memcpy(s.raw, r, n * sizeof(float));
+    memcpy(s.wR, wr, n * sizeof(float)); memcpy(s.wL, wl, n * sizeof(float));
+    float tL = s.keyaTpdL, tR = s.keyaTpdR, mL = s.keyaMaxL, mR = s.keyaMaxR;
+    s.keyaTpdR = -tL; s.keyaTpdL = -tR;
+    s.keyaMaxR = -mL; s.keyaMaxL = -mR;
+    return true;
+}
+
+// ── Manual calibration (no IMU) ──────────────────────────────────────────────
+// The angle of the wheel with the sensor is typed at both locks (magnitudes), the raw
+// is captured there and straight ahead. That wheel's angle is taken as linear in raw
+// on each side; points every 5° of the wheel (10° when the range is very wide), the
+// bicycle angle from L / T. The raw direction comes from the captures, so the sign
+// cannot come out wrong. Keya ticks at the captures (optional) give ticks per bike
+// degree per side; the lock is the table end.
+inline bool wcBuildManual(WcResult &R, bool sensLeft, float angL, float rawL, float rawC,
+                          float angR, float rawR, float L, float T,
+                          bool ticks, int32_t tkL, int32_t tkC, int32_t tkR) {
+    memset(&R, 0, sizeof(R));
+    if (!(angL >= 3 && angL <= 70 && angR >= 3 && angR <= 70)) { strcpy(R.msg, "lock angles must be 3..70 deg"); return false; }
+    float dl = rawC - rawL, dr = rawR - rawC;
+    if (fabsf(dl) < 50 || fabsf(dr) < 50) { strcpy(R.msg, "raw hardly moved - capture both locks and the centre"); return false; }
+    if ((dl > 0) != (dr > 0)) { strcpy(R.msg, "centre is not between the locks - capture again"); return false; }
+    float step = WC_GRID_STEP;
+    int nl = (int)((angL - 0.5f) / step), nr = (int)((angR - 0.5f) / step);
+    if (nl + nr + 3 > WC_NPTS) { step = 2 * WC_GRID_STEP; nl = (int)((angL - 0.5f) / step); nr = (int)((angR - 0.5f) / step); }
+    float w[WC_NPTS];
+    uint8_t n = 0;
+    w[n++] = -angL;
+    for (int k = nl; k >= 1; k--) w[n++] = -k * step;
+    w[n++] = 0;
+    for (int k = 1; k <= nr; k++) w[n++] = k * step;
+    w[n++] = angR;
+    for (uint8_t i = 0; i < n; i++) {
+        float x = w[i];
+        float rr = (x < 0) ? rawC - dl * (-x / angL) : rawC + dr * (x / angR);
+        bool inner = sensLeft ? (x < 0) : (x > 0);
+        float b = wcWheelToBike(fabsf(x), inner, L, T);
+        if (x < 0) b = -b;
+        float er, el;
+        wcBikeToWheels(b, L, T, er, el);
+        if (sensLeft) el = x; else er = x;
+        R.ang[i] = b; R.raw[i] = rr; R.wR[i] = er; R.wL[i] = el;
+        R.curveRaw[i] = rr; R.curveBike[i] = b;
+    }
+    R.nPts = n; R.nCurve = n;
+    R.wheelMask = sensLeft ? 2 : 1;
+    if (ticks) {
+        float bl = R.ang[0], br = R.ang[n - 1];
+        R.keyaTpdL = (float)(tkL - tkC) / bl;
+        R.keyaTpdR = (float)(tkR - tkC) / br;
+        if (fabsf(R.keyaTpdL) < 0.1f || fabsf(R.keyaTpdR) < 0.1f) R.keyaTpdL = R.keyaTpdR = 0;
+        else { R.keyaMaxL = bl; R.keyaMaxR = br; R.keyaOk = true; }
+    }
+    snprintf(R.msg, sizeof(R.msg), "OK manual: %.1f..%.1f deg, %u pts", R.ang[0], R.ang[n - 1], n);
+    R.ok = true;
+    return true;
+}
+
+// ── Table from counts per bicycle degree per side, around the raw at 0° ─────
+// Straight lines, ends at ±50°. dir = +1: raw rises turning right. Wheels from Ackermann.
+inline bool wcBuildSlope(WcResult &R, float rawC, float cpdL, float cpdR, int8_t dir, float L, float T) {
+    memset(&R, 0, sizeof(R));
+    if (!(cpdL >= 5 && cpdL <= 2000 && cpdR >= 5 && cpdR <= 2000)) { strcpy(R.msg, "counts per degree must be 5..2000"); return false; }
+    if (!(rawC >= 100 && rawC <= 16300)) { strcpy(R.msg, "centre raw must be 100..16300"); return false; }
+    float d = (dir < 0) ? -1.0f : 1.0f;
+    float a[3] = {-50, 0, 50}, r[3] = {rawC - d * 50 * cpdL, rawC, rawC + d * 50 * cpdR};
+    for (uint8_t i = 0; i < 3; i++) {
+        R.ang[i] = a[i]; R.raw[i] = r[i];
+        wcBikeToWheels(a[i], L, T, R.wR[i], R.wL[i]);
+        R.curveRaw[i] = r[i]; R.curveBike[i] = a[i];
+    }
+    R.nPts = 3; R.nCurve = 3; R.wheelMask = 0;
+    snprintf(R.msg, sizeof(R.msg), "OK counts: L %.1f | R %.1f per deg, centre %.0f", cpdL, cpdR, rawC);
+    R.ok = true;
+    return true;
+}
 
 // ── Straight-driving zero ────────────────────────────────────────────────────
 // Window counts while the speed is up, the wheel is still and the heading has
