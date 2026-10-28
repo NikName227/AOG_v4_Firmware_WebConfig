@@ -184,6 +184,12 @@ uint8_t  customEngLastBuf[8] = {0};  // last frame seen on configured ID (for Le
 bool     customEngSeen   = false;    // a frame with the configured ID has arrived
 bool     customEngMatch  = false;    // mask+match currently satisfied
 bool     adcConnected    = false;  // true if ADS1115 responded at boot
+
+// WAS source Keya + ADS (zWasFuse.h)
+WasFuse  wasFuse;
+char     wasFuseErr[40] = "";      // empty = fine; set while the steering is stopped
+float    wasDeltaDeg    = 0;       // ADS angle change between two ADS samples (live graph, WAS delta)
+uint32_t adsSampleSeq   = 0;       // counts ADS samples (readAdsRaw)
 bool logActive       = true;   // enabled on boot to capture setup messages
 
 // ── Graph sampling (Live tab → Graph) ────────────────────────────────────────

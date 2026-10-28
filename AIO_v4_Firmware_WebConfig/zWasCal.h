@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include "zWasFuse.h"
 
 #define WC_BIN_SHIFT    7          // 128 raw counts per bin (~1° on a typical sensor)
 #define WC_NBINS        128        // raw 0..16383 (ADS >> 1)
@@ -73,6 +74,8 @@ struct WasCalStore {
     float    rms, hyst;         // quality of the applied calibration (deg)
     // v1.0.10 — appended so an older block still loads (wheelMask was pad = 0)
     float    wR[WC_NPTS], wL[WC_NPTS];   // right / left wheel angle at raw[i] (display only)
+    // v1.0.20 — appended; an older block has no valid magic here and gets the defaults
+    WasFuseCfg fuse;            // WAS source "Keya + ADS" (zWasFuse.h)
 };
 
 inline void wcStoreDefaults(WasCalStore &s) {
@@ -82,6 +85,7 @@ inline void wcStoreDefaults(WasCalStore &s) {
     s.zYawMax   = 0.1f;
     s.zSpeedMin = 3.0f;
     s.zTimeMs   = 8000;
+    wfDefaults(s.fuse);
 }
 
 // ── Table lookup ─────────────────────────────────────────────────────────────

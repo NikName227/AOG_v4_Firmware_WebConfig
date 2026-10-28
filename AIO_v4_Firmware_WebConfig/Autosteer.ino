@@ -351,6 +351,7 @@ void readAdsRaw()
         adsRawCounts = raw;
     }
     helloSteerPosition = adsRawCounts - 6800;
+    adsSampleSeq++;
 }
 
 void autosteerLoop()
@@ -584,7 +585,7 @@ void autosteerLoop()
     // regardless of which source is selected. Full rate when ADS is the active source;
     // a light 20 Hz monitor read otherwise (keeps loop time low).
     if (adcConnected) {
-        if (moduleConfig.wasSource == WAS_SOURCE_ADS1115) {
+        if (moduleConfig.wasSource == WAS_SOURCE_ADS1115 || moduleConfig.wasSource == WAS_SOURCE_KEYA_ADS) {
             readAdsRaw();
         } else {
             static elapsedMillis adsMonTimer = 0;
@@ -775,6 +776,61 @@ void autosteerLoop()
         steerAngleActual_previous = steerAngleActual;
         break;
     }
+    case WAS_SOURCE_KEYA_ADS:
+    {
+        // Keya encoder = angle, ADS1115 pulls the offset (zWasFuse.h). Any fault: stop, no fallback.
+        const char *err = "";
+        bool reset = false;                                         // a lost sensor: start again from the next good sample
+        if (!keyaDetected)                                          { err = "WAS: Keya not detected"; reset = true; }
+        else if (!adcConnected)                                     { err = "WAS: ADS1115 not found"; reset = true; }
+        else if (adsRawCounts < 100 || adsRawCounts > 16250)        { err = "WAS: ADS out of range";  reset = true; }
+
+        static uint32_t fuseSeq = 0, fuseLastMs = 0;
+        if (!*err && adsSampleSeq != fuseSeq) {                     // one fusion step per new ADS sample
+            fuseSeq = adsSampleSeq;
+            uint32_t nowMs = millis();
+            float dt = fuseLastMs ? (nowMs - fuseLastMs) / 1000.0f : 0.025f;
+            fuseLastMs = nowMs;
+            if (dt > 0.5f) dt = 0.5f;
+
+            int32_t deltaTicks = keyaEncoderRaw - moduleConfig.keyaZeroTicks;
+            float deltaSigned = moduleConfig.keyaEncInvert ? (float)deltaTicks : -(float)deltaTicks;
+            float tpd = moduleConfig.keyaTicksPerDeg;
+            if (deltaSigned >= 0) { if (moduleConfig.keyaTicksRight > 0.1f) tpd = moduleConfig.keyaTicksRight; }
+            else                  { if (moduleConfig.keyaTicksLeft  > 0.1f) tpd = moduleConfig.keyaTicksLeft;  }
+            float keyaAng = deltaSigned / tpd;
+
+            int8_t reg;
+            float adsAng = wasCalTableActive() ? wcAdsAngle(wasCal, (float)adsRawCounts, &reg) : adsAogAngle(adsRawCounts);
+            steerAngleActual = wasFuse.step(wasCal.fuse, nowMs, dt, adsAng, keyaAng);
+            if (wasFuse.fault) err = "WAS: ADS unstable";           // stays until the ADS agrees again (or Set centre)
+        } else if (!*err) {
+            steerAngleActual = wasFuse.out;
+            if (wasFuse.fault) err = "WAS: ADS unstable";
+        }
+
+        if (*err) {
+            watchdogTimer = WATCHDOG_FORCE_VALUE;
+            steerAngleActual = 0;
+            if (reset) wasFuse.reset();
+            static uint32_t errMsgMs = 0;
+            if (strcmp(err, wasFuseErr) != 0 || millis() - errMsgMs > 10000) {
+                errMsgMs = millis();
+                sendDisplayMessage(err, 10, 0);
+                webLog(err);
+            }
+        } else if (*wasFuseErr) {
+            webLog("WAS: Keya + ADS running again");
+        }
+        strncpy(wasFuseErr, err, sizeof(wasFuseErr) - 1); wasFuseErr[sizeof(wasFuseErr) - 1] = 0;
+
+        steerAngleSpeedActual = steerAngleSpeedActual * 0.6f
+                              + (steerAngleActual - steerAngleActual_previous) * 0.4f
+                              / (steerSensorReadTime / 1000.0f);
+        steerSensorReadTime = 0;
+        steerAngleActual_previous = steerAngleActual;
+        break;
+    }
     default: // WAS_SOURCE_ADS1115
     {
         steeringPosition = adsRawCounts;   // raw already read above (readAdsRaw)
@@ -827,7 +883,7 @@ void autosteerLoop()
     if (adcConnected) wasCalLoop(steerAngleActual);
 
     //Ackerman fix — not for the calibrated ADS table (the table already is the bike angle)
-    bool wcTable = (moduleConfig.wasSource == WAS_SOURCE_ADS1115) && wasCalTableActive();
+    bool wcTable = (moduleConfig.wasSource == WAS_SOURCE_ADS1115 || moduleConfig.wasSource == WAS_SOURCE_KEYA_ADS) && wasCalTableActive();
     if (steerAngleActual < 0 && !wcTable) steerAngleActual = (steerAngleActual * steerSettings.AckermanFix);
 
     //WAS fault or over 25km, cut steering

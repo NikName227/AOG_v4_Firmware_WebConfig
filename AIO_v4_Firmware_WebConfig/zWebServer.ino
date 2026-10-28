@@ -189,6 +189,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <option value="1">Keya encoder — brushless motor position</option>
 <option value="2">IMU via CAN — wheel-mounted IMU on CAN bus</option>
 <option value="3">CAN valve — angle from V_Bus steer valve</option>
+<option value="4">Keya + ADS1115 — Keya encoder angle, ADS pulls the offset (both must work)</option>
 </select>
 <p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Wheel angle source. For CAN options the corresponding CAN port must be configured below.</p>
 <div class="lbl" style="margin:8px 0 3px">Roll source</div>
@@ -564,6 +565,20 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <input type="number" id="ksgMaxR" min="0" max="80" step="0.1" class="ninput"></div>
 <div class="row"><span class="lbl">Measured lock L | R</span><span class="val" id="wcLimLock">&mdash;</span></div>
 <button class="btn green" onclick="wcSaveLimits()">Save limits</button>
+</div>
+<div class="card" id="wcFuseCard" style="display:none">
+<h2>Keya + ADS &mdash; fusion <span id="wcFzBadge" class="badge ok" style="margin-left:auto">&mdash;</span></h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">The Keya encoder gives the angle, the ADS1115 pulls its offset. An ADS sample that jumps more than the threshold in one step is dropped. If the Keya or the ADS fails, or the disturbance lasts longer than the fault time, the steering stops (no fallback).</p>
+<div class="row"><span class="lbl">Disturbance threshold <small style="color:#64748b">(&deg; per step, def: 1.5)</small></span>
+<input type="number" id="wcFzGate" min="0.1" max="20" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Correction time constant <small style="color:#64748b">(s, def: 3)</small></span>
+<input type="number" id="wcFzTau" min="0.2" max="120" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Max correction speed <small style="color:#64748b">(&deg;/s, def: 0.5)</small></span>
+<input type="number" id="wcFzRate" min="0.01" max="10" step="0.01" class="ninput"></div>
+<div class="row"><span class="lbl">Time to fault <small style="color:#64748b">(s, def: 1)</small></span>
+<input type="number" id="wcFzFail" min="0.1" max="10" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Offset | dropped samples</span><span class="val" id="wcFzVals">&mdash;</span></div>
+<button class="btn green" onclick="wcFuzeSave()">Save</button>
 </div>
 <div id="wcAdsPart" style="display:none">
 <!--WCADS-->
@@ -1256,7 +1271,7 @@ function renderGroup(d) {
   }
   else if (activeGroup === 3) {
     hdr = 'Group 3 — WAS';
-    var srcN = {0:'ADS1115',1:'Keya encoder',2:'IMU via CAN',3:'CAN valve'};
+    var srcN = {0:'ADS1115',1:'Keya encoder',2:'IMU via CAN',3:'CAN valve',4:'Keya + ADS1115'};
     h += lvRow('Active source', srcN[d.src] || d.src);
     h += lvSub('ADS1115');
     h += lvRow('Raw counts', d.adsConn ? (d.adsRaw + (d.src != 0 ? '  (monitor)' : '')) : 'not connected');
@@ -1459,10 +1474,11 @@ function upd(d) {
     document.getElementById('wasSource').value     = d.cfg.wasSource     || 0;
     var _src = d.cfg.wasSource || 0;
     wcSrcCur = _src;
-    var _wn = ['ADS1115 (analog)', 'Keya encoder', 'IMU via CAN', 'CAN valve'];
+    var _wn = ['ADS1115 (analog)', 'Keya encoder', 'IMU via CAN', 'CAN valve', 'Keya + ADS1115'];
     document.getElementById('wcSrc').textContent = _wn[_src] || _src;
-    document.getElementById('wcAdsPart').style.display  = (_src == 0) ? '' : 'none';
-    document.getElementById('wcKeyaPart').style.display = (_src == 1) ? '' : 'none';
+    document.getElementById('wcAdsPart').style.display  = (_src == 0 || _src == 4) ? '' : 'none';
+    document.getElementById('wcFuseCard').style.display = (_src == 4) ? '' : 'none';
+    document.getElementById('wcKeyaPart').style.display = (_src == 1 || _src == 4) ? '' : 'none';
     document.getElementById('wcLimCard').style.display  = (_src == 0) ? 'none' : '';
     document.getElementById('rollSource').value    = d.cfg.rollSource    || 0;
     document.getElementById('headingSource').value = d.cfg.headingSource || 0;
@@ -1687,6 +1703,25 @@ function wcSavePar() {
     .then(function(t) { if (t.indexOf('OK') === 0) { wcClrEd(['pMaxL', 'pMaxR', 'wcBlend', 'wcHand']); return wcSaveLT('wcL', 'wcT'); } })
     .then(function() { document.getElementById('sb').textContent = 'Parameters saved.'; });
 }
+var wcFzDef = { wcFzGate: 1.5, wcFzTau: 3, wcFzRate: 0.5, wcFzFail: 1 };
+function wcFuzeMark() {                      // a value that differs from the default is orange
+  for (var id in wcFzDef) {
+    var el = wcEl(id), v = parseFloat(el.value), diff = !isNaN(v) && Math.abs(v - wcFzDef[id]) > 0.004;
+    el.classList.toggle('tmdiff', diff); el.closest('.row').querySelector('.lbl').classList.toggle('tmdiff', diff);
+  }
+}
+function wcFuzeUpd(d) {
+  var f = d.fz; if (!f || d.src != 4) return;
+  wcSetIn('wcFzGate', f.gate); wcSetIn('wcFzTau', f.tau); wcSetIn('wcFzRate', f.rate); wcSetIn('wcFzFail', f.fail);
+  wcFuzeMark();
+  var b = wcEl('wcFzBadge'); b.className = 'badge ' + (f.err ? 'fail' : 'ok'); b.textContent = f.err || 'OK';
+  wcTxt('wcFzVals', wcFix(f.off, 2) + '° | ' + f.drop);
+}
+document.addEventListener('input', function(e) { if (e.target.id && e.target.id.indexOf('wcFz') === 0) wcFuzeMark(); });
+function wcFuzeSave() {
+  wcCmd('params=1' + wcQ({ fgate: 'wcFzGate', ftau: 'wcFzTau', frate: 'wcFzRate', ffail: 'wcFzFail' }))
+    .then(function() { wcClrEd(['wcFzGate', 'wcFzTau', 'wcFzRate', 'wcFzFail']); });
+}
 function wcCentre() { if (confirm('Wheels straight? This position becomes 0°.')) wcCmd('centre=1'); }
 function wcSetCenRaw() {
   if (!wcLast || wcLast.nPts < 2) { alert('No table yet: build one (wizard, manual or counts per degree) or use Set centre now.'); return; }
@@ -1739,9 +1774,9 @@ function wcSketch(d) {
   s += wheel(100, 42, fl, rear ? off : on) + wheel(220, 42, fr, rear ? off : on) + wheel(100, 128, rl, rear ? on : off) + wheel(220, 128, rr, rear ? on : off);
   s += '<text x="84" y="' + (ys + 5) + '" text-anchor="end" fill="#e2e8f0" font-size="14">' + wcSg(wl) + '</text>';
   s += '<text x="236" y="' + (ys + 5) + '" text-anchor="start" fill="#e2e8f0" font-size="14">' + wcSg(wr) + '</text>';
-  var src = ['ADS1115', 'Keya encoder', 'IMU via CAN', 'CAN valve'][d.src] || '?';
-  var how = d.src == 0 ? (tbl ? 'table' : 'AOG formula') : '';
-  if (d.src == 0 && tbl && d.wCal == 0) how += ', wheels Ackermann';
+  var src = ['ADS1115', 'Keya encoder', 'IMU via CAN', 'CAN valve', 'Keya + ADS1115'][d.src] || '?';
+  var how = (d.src == 0 || d.src == 4) ? (tbl ? 'table' : 'AOG formula') : '';
+  if ((d.src == 0 || d.src == 4) && tbl && d.wCal == 0) how += ', wheels Ackermann';
   s += '<text x="6" y="172" fill="#94a3b8" font-size="11">' + (rear ? 'REAR' : 'FRONT') + ' axle steering &middot; ' + src + (how ? ' (' + how + ')' : '') + '</text>';
   wcEl('wcSk').innerHTML = s;
 }
@@ -1755,7 +1790,7 @@ function wcGraph(d) {
   ym = Math.min(60, Math.ceil(ym / 10) * 10);
   function Y(a) { return (yT + yB) / 2 - a / ym * (yB - yT) / 2; }
   var line = [], dot = null, xl = 'raw', lo, hi, k;
-  if (d.src == 0) {
+  if (d.src == 0 || d.src == 4) {
     var sh = d.zShift + d.azShift;
     if (d.nPts >= 2) for (k = 0; k < d.nPts; k++) line.push([d.tRaw[k] + sh, d.tAng[k]]);
     var tbl = d.use == 1 && d.nPts >= 2;
@@ -1784,7 +1819,7 @@ function wcGraph(d) {
     var p = '';
     line.forEach(function(q, i) { p += (i ? 'L' : 'M') + X(q[0]).toFixed(1) + ' ' + Y(q[1]).toFixed(1) + ' '; });
     s += '<path d="' + p + '" stroke="#38bdf8" fill="none" stroke-width="2"/>';
-    if (d.src == 0) line.forEach(function(q) { s += '<circle cx="' + X(q[0]).toFixed(1) + '" cy="' + Y(q[1]).toFixed(1) + '" r="2.2" fill="#38bdf8"/>'; });
+    if (d.src == 0 || d.src == 4) line.forEach(function(q) { s += '<circle cx="' + X(q[0]).toFixed(1) + '" cy="' + Y(q[1]).toFixed(1) + '" r="2.2" fill="#38bdf8"/>'; });
   } else s += '<text x="160" y="40" text-anchor="middle" fill="#64748b" font-size="11">no table</text>';
   if (dot) s += '<circle cx="' + X(dot[0]).toFixed(1) + '" cy="' + Y(Math.max(-ym, Math.min(ym, dot[1]))).toFixed(1) + '" r="5" fill="#4ade80"/>';
   s += '<text x="' + x0 + '" y="154" fill="#64748b" font-size="9">' + Math.round(lo) + '</text><text x="' + x1 + '" y="154" text-anchor="end" fill="#64748b" font-size="9">' + Math.round(hi) + '</text>';
@@ -1800,12 +1835,13 @@ function wcValsBox(d) {
     b('Keya ticks', d.kEnc);
     b('Centre ticks', d.kZero);
     b('Drift offset', wcSg(d.kOff) + (d.kZd ? '' : ' (no init zero)'));
-  } else if (d.src == 0) {
+  } else if (d.src == 0 || d.src == 4) {
     b('ADS raw', d.raw);
     b('Centre', tbl ? 'raw ' + wcFix(d.raw0, 0) : 'AOG ' + wcFix(d.adsAzOff, 2) + '°');
     var m = tbl ? 'TABLE' : 'AOG FORMULA';
     if (d.kx == 1 && d.wAds < 0.999) m += ' · Keya ' + Math.round((1 - d.wAds) * 100) + '%';
     b('Mode', m);
+    if (d.src == 4 && d.fz) { b('Keya + ADS offset', wcSg(d.fz.off)); b('ADS disturbances', d.fz.drop, d.fz.err ? '#f87171' : ''); }
   }
   b('Limits L | R', (d.maxL > 0 ? d.maxL : 'off') + ' | ' + (d.maxR > 0 ? d.maxR : 'off'));
   wcEl('wcVals').innerHTML = h;
@@ -2003,7 +2039,8 @@ function wcUpd(d) {
   if (fa) fa.style.outline = d.rear == 1 ? '' : '2px solid #38bdf8';
   if (ra) ra.style.outline = d.rear == 1 ? '2px solid #38bdf8' : '';
   wcTxt('wcLimLock', d.src == 1 ? 'see Keya auto-calibration result' : wcLockTxt(d));
-  if (d.src != 0) return;                      // the rest is the ADS part
+  wcFuzeUpd(d);
+  if (d.src != 0 && d.src != 4) return;        // the rest is the ADS part
 
   wzUpd(d);
   // parameters
@@ -2935,6 +2972,7 @@ var gSignals = [
  // ── Gr3 WAS ──
  {id:17,n:'Gr3 WAS ADS raw'},{id:18,n:'Gr3 WAS IMU raw'},{id:19,n:'Gr3 WAS IMU scaled'},
  {id:20,n:'Gr3 WAS chassis yawRate'},{id:21,n:'Gr3 WAS wheelAngleGPS'},{id:22,n:'Gr3 WAS actual'},
+ {id:49,n:'Gr3 WAS delta (deg per ADS sample)'},
  // ── Gr4 Keya ──
  {id:23,n:'Gr4 Keya encoder'},{id:24,n:'Gr4 Keya gpsOffset'},{id:25,n:'Gr4 Keya actSpeed'},{id:26,n:'Gr4 Keya setSpeed'},
  {id:44,n:'Gr4 Keya wheel pos (deg)'},{id:45,n:'Gr4 Keya steering-wheel pos (deg)'},
@@ -3512,6 +3550,8 @@ float getSignalValue(uint8_t id)
     // TM171 status object
     case 47: return useTMxx_IMU ? TM171_IMU.temp : 0;
     case 48: return useTMxx_IMU ? (float)TM171_IMU.qos : 0;
+    // ADS angle change between two ADS samples
+    case 49: return wasDeltaDeg;
     default: return 0;
     }
 }

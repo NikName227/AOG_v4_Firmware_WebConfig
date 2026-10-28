@@ -44,7 +44,7 @@ struct CalFit {
 // addr 80  : ModuleConfig         (NEW)
 // addr 2200: WasCalStore          (F11 WAS calibration, own magic, 424 B incl. wheel tables)
 
-#define FW_VERSION "v1.0.19"   // shown in web GUI; bump before tagging a release branch
+#define FW_VERSION "v1.0.20"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xD1   // change to force EEPROM reset on next boot
@@ -79,6 +79,7 @@ extern char setupNote[EEP_NOTE_MAX + 1];
 #define WAS_SOURCE_KEYA      1   // Keya motor encoder
 #define WAS_SOURCE_IMU_CAN   2   // wheel-mounted IMU via CAN_MODE_IMU port
 #define WAS_SOURCE_CAN_VALVE 3   // tractor valve estCurve via CAN_MODE_VBUS port
+#define WAS_SOURCE_KEYA_ADS  4   // Keya encoder angle, ADS1115 pulls its offset (zWasFuse.h); a fault stops the steering
 
 // Roll source
 #define ROLL_SRC_IMU  0   // roll from active IMU (BNO085 / TM171)
@@ -253,6 +254,10 @@ void disengageLog(const char* reason);   // log autosteer disengage source (DBG_
 // ── F11 WAS calibration (zWasCal.h core, zWasCal.ino glue) ─────────────────────
 #include "zWasCal.h"
 extern WasCalStore wasCal;
+extern WasFuse  wasFuse;          // WAS source "Keya + ADS"
+extern char     wasFuseErr[40];
+extern float    wasDeltaDeg;
+extern uint32_t adsSampleSeq;
 extern float wcAngOut;
 extern float gpsMotionHdg;   // filtered heading of the selected source (updateGpsMotion)
 extern bool  gpsMotionVtg;   // that heading is the VTG fallback

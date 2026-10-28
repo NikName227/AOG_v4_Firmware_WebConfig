@@ -51,6 +51,7 @@ void wasCalLoad()
         if (wbad) wasCal.wheelMask = 0;
     }
     if (!bad && wasCal.handX10 > 600) wasCal.handX10 = 0;     // v1.0.12 field, was pad
+    if (!bad && !wfCfgOk(wasCal.fuse)) wfDefaults(wasCal.fuse);   // v1.0.20 field: old block / blank
     if (bad) {
         wcStoreDefaults(wasCal);
         EEPROM.put(EEP_WASCAL_ADDR, wasCal);
@@ -125,6 +126,11 @@ void wasCalLoop(float angPreAck)
 
     wcAngAog   = adsAogAngle(adsRawCounts);
     wcAngTable = (wasCal.nPts >= 2) ? wcAdsAngle(wasCal, (float)adsRawCounts, 0) : 0;
+    {   // WAS delta: ADS angle change per ADS sample (live graph), every source
+        static float prevAng = 0; static uint32_t prevSeq = 0; static bool have = false;
+        float cur = wasCalTableActive() ? wcAngTable : wcAngAog;
+        if (adsSampleSeq != prevSeq) { wasDeltaDeg = have ? cur - prevAng : 0; prevAng = cur; prevSeq = adsSampleSeq; have = true; }
+    }
 
     if (wcCal.active >= 0) {
         if (gpsSpeed > 0.5f)   { wcCal.stop(); wcSetMsg("WAS cal: vehicle moving - measurement stopped"); }
@@ -226,6 +232,7 @@ void handleApiWasCal(EthernetClient& client, const char* req)
             wasCal.blendDeg = keep.blendDeg; wasCal.zYawMax = keep.zYawMax;
             wasCal.zSpeedMin = keep.zSpeedMin; wasCal.zTimeMs = keep.zTimeMs;
             wasCal.handX10 = keep.handX10;
+            wasCal.fuse = keep.fuse;
             wasCal.flags = keep.flags & (WC_F_REAR | WC_F_SENS_LEFT);   // display / manual side stay
             wasCalSave();
             wcSetMsg("WAS cal: table cleared - AOG settings in use");
@@ -251,6 +258,10 @@ void handleApiWasCal(EthernetClient& client, const char* req)
         if ((p = wcArg(req, "maxl="))  != NULL) { float v = atof(p); if (v >= 0 && v <= 80) { moduleConfig.keyaMaxAngleLeft  = v; lim = true; } }
         if ((p = wcArg(req, "maxr="))  != NULL) { float v = atof(p); if (v >= 0 && v <= 80) { moduleConfig.keyaMaxAngleRight = v; lim = true; } }
         if (lim) moduleConfigSave();
+        if ((p = wcArg(req, "fgate=")) != NULL) { float v = atof(p); if (v >= 0.1f && v <= 20) wasCal.fuse.gate = v; }
+        if ((p = wcArg(req, "ftau="))  != NULL) { float v = atof(p); if (v >= 0.2f && v <= 120) wasCal.fuse.tau = v; }
+        if ((p = wcArg(req, "frate=")) != NULL) { float v = atof(p); if (v >= 0.01f && v <= 10) wasCal.fuse.maxRate = v; }
+        if ((p = wcArg(req, "ffail=")) != NULL) { float v = atof(p); if (v >= 0.1f && v <= 10) wasCal.fuse.failMs = (uint16_t)(v * 1000 + 0.5f); }
         if ((p = wcArg(req, "zyaw="))  != NULL) { float v = atof(p); if (v >= 0.02f && v <= 2) wasCal.zYawMax = v; }
         if ((p = wcArg(req, "zspd="))  != NULL) { float v = atof(p); if (v >= 1 && v <= 25) wasCal.zSpeedMin = v; }
         if ((p = wcArg(req, "ztime=")) != NULL) { float v = atof(p); if (v >= 2 && v <= 60) wasCal.zTimeMs = (uint16_t)(v * 1000); }
@@ -265,8 +276,9 @@ void handleApiWasCal(EthernetClient& client, const char* req)
     else if (wcHas(req, "centre=1")) {
         // Set centre now: the wheels are straight, this reads 0° from now on
         if (wcAutosteerOn()) err = "autosteer engaged";
-        else if (moduleConfig.wasSource == WAS_SOURCE_ADS1115) {
+        else if (moduleConfig.wasSource == WAS_SOURCE_ADS1115 || moduleConfig.wasSource == WAS_SOURCE_KEYA_ADS) {
             if (!adcConnected || !wcRawInit) err = "no ADS1115";
+            else if (moduleConfig.wasSource == WAS_SOURCE_KEYA_ADS && !keyaDetected) err = "Keya not detected";
             else if (wasCalTableActive()) {
                 wasCal.zeroShift = wcRawAvg - wcAngleToRaw(wasCal.ang, wasCal.raw, wasCal.nPts, 0.0f);
                 wasCal.azShift = 0;
@@ -286,6 +298,7 @@ void handleApiWasCal(EthernetClient& client, const char* req)
                     moduleConfigSave();
                     wcSetMsg("WAS cal: centre set (ADS + Keya)");
                 }
+                wasFuse.reset();                             // Keya + ADS: the offset starts again from the next sample
             }
         }
         else if (moduleConfig.wasSource == WAS_SOURCE_KEYA) {
@@ -409,7 +422,7 @@ void handleApiWasCal(EthernetClient& client, const char* req)
 // angle sent to AOG with ideal Ackermann (L, T). Returns the calibrated-wheel mask.
 static uint8_t wcWheelsNow(float &wr, float &wl)
 {
-    if (moduleConfig.wasSource == WAS_SOURCE_ADS1115 && wasCalTableActive() && wasCal.wheelMask
+    if ((moduleConfig.wasSource == WAS_SOURCE_ADS1115 || moduleConfig.wasSource == WAS_SOURCE_KEYA_ADS) && wasCalTableActive() && wasCal.wheelMask
         && wcRegion == 0 && wcKeyaExt.wAds >= 0.999f) {
         float x = (float)adsRawCounts - wasCal.zeroShift - wasCal.azShift;
         wr = wcLookup(wasCal.wR, wasCal.raw, wasCal.nPts, x, 0);
@@ -467,6 +480,13 @@ void handleApiWasCalStatus(EthernetClient& client, const char* req)
     client.print(F(",\"kInv\":")); client.print(moduleConfig.keyaEncInvert ? 1 : 0);
     client.print(F(",\"kOff\":")); client.print(keyaGpsOffset, 2);
     client.print(F(",\"kZd\":")); client.print(keyaInitialZeroDone ? 1 : 0);
+    client.print(F(",\"fz\":{\"gate\":")); client.print(wasCal.fuse.gate, 2);
+    client.print(F(",\"tau\":")); client.print(wasCal.fuse.tau, 2);
+    client.print(F(",\"rate\":")); client.print(wasCal.fuse.maxRate, 2);
+    client.print(F(",\"fail\":")); client.print(wasCal.fuse.failMs / 1000.0f, 2);
+    client.print(F(",\"off\":")); client.print(wasFuse.offset, 2);
+    client.print(F(",\"drop\":")); client.print((unsigned long)wasFuse.dropped);
+    client.print(F(",\"err\":\"")); client.print(wasFuseErr); client.print(F("\"}"));
 
     // stored calibration
     client.print(F(",\"use\":")); client.print(wasCal.useTable);
