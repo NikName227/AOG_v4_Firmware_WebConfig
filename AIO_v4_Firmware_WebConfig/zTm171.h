@@ -145,4 +145,36 @@ inline bool tm171MakeSetting(const uint8_t* cur, const Tm171Form& f, uint8_t* ou
     return true;
 }
 
+
+// ---- Quality-of-service watch -----------------------------------------------------------------------------
+// Message to AOG when the TM171's QoS stays below 4 ("fine service") for more than 30 s. Nothing is sent in the
+// first 5 minutes after power-on (QoS climbs 0 -> 3 by itself, a calibration lifts it to 4). While it stays low
+// the message repeats every 60 s; when QoS is back at 4 or 5 one "OK again" follows. Without a fresh status
+// object (status output off) there is nothing to judge. Pure logic: the sketch only sends what it returns.
+#define TM171_QOS_OK        4
+#define TM171_QOS_GRACE_MS  300000UL
+#define TM171_QOS_LOW_MS    30000UL
+#define TM171_QOS_REPEAT_MS 60000UL
+
+struct Tm171QosWatch {
+    uint32_t t0 = 0, lowSince = 0, lastMsg = 0;    // t0: first call (about power-on); the 5 minutes count from there
+    bool     warned = false;
+    // returns 0 = nothing, 1 = send "quality low", 2 = send "OK again"
+    uint8_t update(uint32_t now, bool haveStatus, uint8_t qos)
+    {
+        if (!t0) t0 = now | 1;
+        if (!haveStatus) { lowSince = 0; return 0; }
+        if (qos >= TM171_QOS_OK) {
+            lowSince = 0;
+            if (warned) { warned = false; return 2; }
+            return 0;
+        }
+        if (!lowSince) lowSince = now | 1;
+        if ((int32_t)(now - t0) < (int32_t)TM171_QOS_GRACE_MS) return 0;
+        if ((int32_t)(now - lowSince) <= (int32_t)TM171_QOS_LOW_MS) return 0;
+        if (!warned || (int32_t)(now - lastMsg) >= (int32_t)TM171_QOS_REPEAT_MS) { warned = true; lastMsg = now; return 1; }
+        return 0;
+    }
+};
+
 #endif

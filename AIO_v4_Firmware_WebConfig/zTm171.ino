@@ -37,6 +37,19 @@ void tm171Loop()
         (watchdogTimer < WATCHDOG_THRESHOLD || gpsSpeed > 1.0f))
         TM171_IMU.calibStop(true);
     TM171_IMU.loop();
+
+    // QoS below 4 for more than 30 s (not in the first 5 minutes after power-on): message to AOG
+    static Tm171QosWatch qw;
+    const uint32_t nowQ = millis();
+    const bool fresh = TM171_IMU.statusMs && (nowQ - TM171_IMU.statusMs) < 5000;
+    const uint8_t act = qw.update(nowQ, fresh, TM171_IMU.qos);
+    if (act == 1) {
+        char m[96];
+        snprintf(m, sizeof(m), "TM171 quality low (QoS %u, %s) - stand still, calibrate the gyro (TM171 tab)", TM171_IMU.qos, tm171QosText(TM171_IMU.qos));
+        sendDisplayMessage(m, 10, 0);
+    } else if (act == 2) {
+        sendDisplayMessage("TM171 quality OK again", 5, 1);
+    }
 }
 
 void handleApiTm171(EthernetClient& client, const char* req)
