@@ -316,6 +316,8 @@ void  handleApiGpsRaw(EthernetClient& client, const char* req);
 void  handleApiGpsCmd(EthernetClient& client, const char* req);
 void  handleApiGpsBaud(EthernetClient& client, const char* req);
 void  handleApiGpsRsp(EthernetClient& client, const char* req);
+void  handleApiTm171(EthernetClient& client, const char* req);
+void  tm171Loop();
 void  handleApiKeyaZero(EthernetClient& client);
 void  handleApiImuWasZero(EthernetClient& client);
 void  handleApiCanRaw(EthernetClient& client, const char* req);
@@ -531,6 +533,7 @@ void loop()
         TMxx_IMU_Timer = 0;
         readTM171();
     }
+    if (useTMxx_IMU) tm171Loop();
 
     // ── BNO085 RVC ──────────────────────────────────────────────────────────
     if (moduleConfig.imuType == IMU_BNO_RVC && !tm171Enabled()) readBNO_RVC();

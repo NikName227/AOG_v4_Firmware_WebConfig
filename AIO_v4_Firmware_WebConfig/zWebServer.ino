@@ -147,6 +147,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="tabs">
 <button class="tab active" onclick="showTab('config',this)">Config</button>
 <button class="tab" onclick="showTab('live',this)">Live</button>
+<button class="tab" id="tabTm171" onclick="showTab('tm171',this)" style="display:none">TM171</button>
 <button class="tab" onclick="showTab('keya',this)">Keya</button>
 <button class="tab" onclick="showTab('wascal',this)">WAS cal</button>
 <button class="tab" onclick="showTab('cansteer',this)">CAN Steer</button>
@@ -474,6 +475,57 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 </div>
 </div><!-- /live -->
+
+<!-- TM171 TAB: status, calibration, settings (visible only with an active TM171) -->
+<div id="tm171" class="panel">
+<div class="card">
+<h2>TM171 <span id="tmBadge" class="badge fail" style="margin-left:auto">--</span></h2>
+<div class="row"><span class="lbl">Heading | Roll | Pitch</span><span class="val" id="tmAng">&mdash;</span></div>
+<div class="row"><span class="lbl">Temperature</span><span class="val" id="tmTemp">&mdash;</span></div>
+<div class="row"><span class="lbl">Quality (QoS) <small style="color:#64748b">0&ndash;5, 4+ = full performance</small></span><span class="val" id="tmQos">&mdash;</span></div>
+<div class="row"><span class="lbl">Output | internal rate</span><span class="val" id="tmRate">&mdash;</span></div>
+<div class="row"><span class="lbl">Node ID | baud</span><span class="val" id="tmId">&mdash;</span></div>
+<div id="tmBlock" style="color:#e2b23e;font-size:13px;margin-top:6px"></div>
+<div class="row" style="margin-top:6px"><span class="lbl">Message</span><span class="val" id="tmMsg" style="font-size:12px">&mdash;</span></div>
+</div>
+
+<div class="card">
+<h2>Gyro calibration</h2>
+<p style="color:#94a3b8;font-size:13px;line-height:1.4">Tractor parked, autosteer off (the engine may run). The TM171 collects data for 20 s and reports. The result is kept until the TM171 loses power. Finish now uses what was collected (under 12 s is only a partial calibration).</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+<button class="btn green" id="tmBtnCal" onclick="tmCal('g')">Calibrate gyro</button>
+<button class="btn" id="tmBtnStop" onclick="tmCal('s')">Finish now</button>
+<button class="btn" id="tmBtnUndo" onclick="tmCal('u')">Undo</button>
+<span id="tmCalSt" style="color:#94a3b8;font-size:13px"></span>
+</div>
+</div>
+
+<div class="card">
+<h2>Settings <span id="tmSetBadge" class="badge fail" style="margin-left:auto">--</span></h2>
+<label class="chk-row"><input type="checkbox" id="tmM" onchange="tmEd.m=1"> Magnetometer <small style="color:#64748b;font-size:11px">(def: off)</small></label>
+<label class="chk-row"><input type="checkbox" id="tmGe" onchange="tmEd.ge=1"> GyroErrFilter <small style="color:#64748b;font-size:11px">(def: on)</small></label>
+<label class="chk-row"><input type="checkbox" id="tmSa" onchange="tmEd.sa=1"> Self-Adapt filter <small style="color:#64748b;font-size:11px">(def: on)</small></label>
+<label class="chk-row"><input type="checkbox" id="tmSt" onchange="tmEd.st=1"> Status output <small style="color:#64748b;font-size:11px">(def: on; temperature and QoS)</small></label>
+<div class="row"><span class="lbl">Accelerometer gain <small style="color:#64748b;font-size:11px">(def: 3.5)</small></span><input type="number" id="tmAcc" min="0.01" max="20" step="0.01" class="ninput" oninput="tmEd.acc=1"></div>
+<div class="row"><span class="lbl">Magnetometer gain <small style="color:#64748b;font-size:11px">(def: 1.0)</small></span><input type="number" id="tmMg" min="0.01" max="20" step="0.01" class="ninput" oninput="tmEd.mg=1"></div>
+<div class="row"><span class="lbl">Output rate <small style="color:#64748b;font-size:11px">(def: 25 Hz)</small></span><select id="tmOdr" onchange="tmEd.odr=1"><option value="25">25 Hz</option><option value="50">50 Hz</option><option value="100">100 Hz</option></select></div>
+<div class="row"><span class="lbl">Boot mode <small style="color:#64748b;font-size:11px">(def: Auto)</small></span><select id="tmBo" onchange="tmEd.bo=1"><option value="0">Auto</option><option value="1">Static</option><option value="2">Dynamic</option></select></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+<button class="btn" id="tmBtnW" onclick="tmWrite(0)">Write (this session)</button>
+<button class="btn green" id="tmBtnWS" onclick="tmWrite(1)">Write &amp; save to flash</button>
+<button class="btn" onclick="tmRead()">Read again</button>
+</div>
+<div style="color:#64748b;font-size:11px;margin-top:6px">Gyro, accelerometer, roll-pitch-yaw and the UART output stay on; the baud rate is not changed here.</div>
+<details style="margin-top:8px"><summary style="cursor:pointer;color:#94a3b8">Raw settings bytes</summary><div id="tmRaw" style="font-family:monospace;font-size:12px;word-break:break-all;margin-top:4px">&mdash;</div></details>
+</div>
+
+<div class="card">
+<details><summary style="cursor:pointer;font-weight:bold;color:#e2e8f0">Advanced &mdash; new install calibration</summary>
+<p style="color:#94a3b8;font-size:13px;line-height:1.4;margin-top:6px">Needed only when the quality (QoS) stays below 3 after two minutes of standing still, or after a large temperature change. The tractor stands still for about 20 s and the result is written to the TM171's flash. <b>Do not cut the power</b> during those 20 s (it can damage the TM171). Afterwards switch the whole module off and on.</p>
+<button class="btn red" id="tmBtnInst" onclick="tmCal('i')">New install calibration</button>
+</details>
+</div>
+</div><!-- /tm171 -->
 
 <!-- WAS CAL TAB (F11): calibration follows the selected WAS source -->
 <div id="wascal" class="panel">
@@ -1183,6 +1235,10 @@ function renderGroup(d) {
       h += lvRow('Roll', d.tmRoll + ' °');
       h += lvRow('Pitch', d.tmPitch + ' °');
       h += lvRow('Yaw rate', d.tmYaw + ' °/s');
+      if (d.tmQos !== undefined) {
+        h += lvRow('Temperature', d.tmTemp + ' °C');
+        h += lvRow('Quality (QoS)', d.tmQos + ' ' + d.tmQosTxt);
+      }
     } else { h += lvRow('Heading','--')+lvRow('Roll','--')+lvRow('Pitch','--')+lvRow('Yaw rate','--'); }
   }
   else if (activeGroup === 3) {
@@ -1264,11 +1320,12 @@ function showTab(t, el) {
   if (t === 'live' && lvMode === 'graph' && gLogging) fetch(gCfgUrl(false));
   if (t === 'debug') pollLog();
   if (t === 'um98x') pollGpsRaw();
+  if (t === 'tm171') { tmEd = {}; tmPoll(); }
 }
 
 function restartTick() {
   if (tickTimer) clearInterval(tickTimer);
-  var rate = (activeTab === 'live' || activeTab === 'wascal') ? 500 : 2000;
+  var rate = (activeTab === 'live' || activeTab === 'wascal' || activeTab === 'tm171') ? 500 : 2000;
   tickTimer = setInterval(tick, rate);
 }
 
@@ -1404,6 +1461,7 @@ function upd(d) {
     gpsBaudCur = d.cfg.gpsBaud || 115200;
     document.getElementById('tm171Serial').value   = (d.cfg.tm171Serial != null) ? d.cfg.tm171Serial : 2;
     document.getElementById('tm171Baud').value     = d.cfg.tm171Baud     || 115200;
+    document.getElementById('tabTm171').style.display = d.cfg.tm171On ? '' : 'none';
     tmWarnUpd();
     if (document.getElementById('csBrand')) document.getElementById('csBrand').value = d.cfg.steerBrand || 0;
     if (d.custEng) {
@@ -2027,6 +2085,7 @@ function tick() {
     return;
   }
   // WAS cal tab with the ADS source: its own status (table, recording, zero)
+  if (activeTab === 'tm171') { tmPoll(); return; }
   if (activeTab === 'wascal') { wcPoll(); if (wcSrcCur == 0 && !kgOpen()) return; }
   // Other tabs: lightweight full live update
   fetch('/api/live', { cache: 'no-store' })
@@ -2577,7 +2636,7 @@ var GPS_PRESETS = {
   // the baud change goes first: if it does not work the upload stops on line 1, not at the end
   single: ['CONFIG COM1 460800', 'SAVECONFIG'].concat(GPS_COMMON, GPS_COMMON2, ['MODE ROVER AUTOMOTIVE', 'SAVECONFIG',
     'CONFIG SIGNALGROUP 3 6', 'GPGGA COM1 0.1', 'GPVTG COM1 0.1', 'SAVECONFIG']),
-  dual: ['CONFIG COM1 460800', 'SAVECONFIG'].concat(GPS_COMMON, ['CONFIG HEADING OFFSET 180.0 0.0', 'CONFIG HEADING TRACTOR',
+  dual: ['CONFIG COM1 460800', 'SAVECONFIG'].concat(GPS_COMMON, ['CONFIG HEADING OFFSET 90.0 0.0', 'CONFIG HEADING TRACTOR',
     'CONFIG HEADING RELIABILITY 3'], GPS_COMMON2, ['MODE HEADING2 TRACTOR', 'SAVECONFIG', 'CONFIG SIGNALGROUP 3 6',
     'GPHPR COM1 0.1', 'GPGGA COM1 0.1', 'GPVTG COM1 0.1', 'SAVECONFIG'])
 };
@@ -2774,6 +2833,61 @@ async function uploadLines() {
   }
 }
 
+// ── TM171 tab ────────────────────────────────────────────────────────────────
+var tmEd = {};                                   // fields the user has touched: not overwritten by the poll
+function tmQ(u) { return fetch('/api/tm171' + (u ? '?' + u : ''), { cache: 'no-store' }).then(function(r) { return r.json(); }); }
+function tmPoll() { tmQ('').then(tmUpd).catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; }); }
+function tmId(i) { return document.getElementById(i); }
+function tmCal(c) {
+  if (c === 'i' && !confirm('Start the new install calibration? Do NOT cut the power for the next 20 s.')) return;
+  if (c === 'u' && !confirm('Undo the gyro calibration?')) return;
+  tmQ('cal=' + c).then(tmUpd);
+}
+function tmRead() { tmEd = {}; tmQ('read=1').then(tmUpd); }
+function tmWrite(save) {
+  var acc = Math.round(parseFloat(tmId('tmAcc').value) * 100), mg = Math.round(parseFloat(tmId('tmMg').value) * 100);
+  if (!(acc >= 1 && acc <= 2000 && mg >= 1 && mg <= 2000)) { alert('Gain must be 0.01 - 20.00'); return; }
+  if (save && !confirm('Save these settings to the TM171 flash? Keep the power on while it saves.')) return;
+  var q = 'write=1&m=' + (tmId('tmM').checked ? 1 : 0) + '&ge=' + (tmId('tmGe').checked ? 1 : 0) + '&sa=' + (tmId('tmSa').checked ? 1 : 0)
+        + '&st=' + (tmId('tmSt').checked ? 1 : 0) + '&bo=' + tmId('tmBo').value + '&acc=' + acc + '&mg=' + mg
+        + '&odr=' + tmId('tmOdr').value + '&sv=' + (save ? 1 : 0);
+  tmQ(q).then(function(d) { if (!d.err) tmEd = {}; tmUpd(d); });
+}
+function tmUpd(d) {
+  var on = !!d.on;
+  var b = tmId('tmBadge'); b.className = 'badge ' + (on && d.rpy > 0 ? 'ok' : 'fail'); b.textContent = on && d.rpy > 0 ? 'OK' : '--';
+  tmId('tmAng').textContent = d.hdg + ' | ' + d.roll + ' | ' + d.pitch + ' °';
+  var hasSt = d.stAge >= 0 && d.stAge < 5;
+  tmId('tmTemp').textContent = hasSt ? d.temp.toFixed(1) + ' °C' : '— (status output off?)';
+  tmId('tmQos').textContent = hasSt ? d.qos + ' — ' + d.qosTxt : '—';
+  tmId('tmRate').textContent = d.rpy + ' Hz | ' + (hasSt ? d.intRate + ' Hz' : '—');
+  tmId('tmId').textContent = d.id + ' | ' + d.baud;
+  tmId('tmBlock').textContent = d.block ? 'Calibration and Write are blocked: ' + d.block + '.' : '';
+  tmId('tmMsg').textContent = d.err ? ('ERROR: ' + d.err) : (d.msg || '—');
+  tmId('tmMsg').style.color = d.err ? '#f87171' : '#e2e8f0';
+  var s = d.set || {}, sb = tmId('tmSetBadge');
+  sb.className = 'badge ' + (s.ok ? 'ok' : 'fail');
+  sb.textContent = s.ok ? 'read' : (s.odd ? 'layout?' : (s.noAnswer > 1 ? 'no reply' : (s.age < 0 ? '...' : '--')));
+  if (s.age >= 0) {
+    var set = function(id, key, v, chk) { if (!tmEd[key]) { if (chk) tmId(id).checked = !!v; else tmId(id).value = v; } };
+    set('tmM', 'm', s.m, 1); set('tmGe', 'ge', s.ge, 1); set('tmSa', 'sa', s.sa, 1); set('tmSt', 'st', s.st, 1);
+    set('tmAcc', 'acc', (s.acc / 100).toFixed(2)); set('tmMg', 'mg', (s.mg / 100).toFixed(2));
+    set('tmOdr', 'odr', s.odr); set('tmBo', 'bo', s.bo);
+    tmId('tmRaw').textContent = s.raw;
+  } else tmId('tmRaw').textContent = s.noAnswer > 1 ? 'no reply from the TM171: is the Teensy TX wired to the TM171 RX?' : '—';
+  if (s.odd) tmId('tmMsg').textContent = 'Settings layout not recognised: writing is disabled (raw bytes below).';
+  var c = d.cal || {}, left = c.left;
+  var txt = { starting: 'starting...', running: 'collecting' + (left >= 0 ? ' — ' + left + ' s left' : '...'), finishing: 'finishing...',
+              ok: 'done', failed: 'FAILED', noanswer: 'no reply (TX wire?)', aborted: 'stopped (tractor moving)', revoked: 'undone', idle: '' };
+  tmId('tmCalSt').textContent = (txt[c.state] || '') + (c.done >= 0 && !c.busy ? ' (' + c.done + ' s ago)' : '');
+  tmId('tmCalSt').style.color = c.state === 'failed' || c.state === 'noanswer' ? '#f87171' : (c.state === 'ok' ? '#4ade80' : '#94a3b8');
+  var blocked = !!d.block || !!c.busy || !on;
+  tmId('tmBtnCal').disabled = blocked; tmId('tmBtnUndo').disabled = blocked; tmId('tmBtnInst').disabled = blocked;
+  tmId('tmBtnStop').disabled = !c.busy;
+  var wb = (d.block === 'autosteer engaged') || !s.ok;
+  tmId('tmBtnW').disabled = wb; tmId('tmBtnWS').disabled = wb;
+}
+
 // ── Graph (Live tab → Graph) ─────────────────────────────────────────────────
 var gSignals = [
  {id:0,n:'-- none --'},
@@ -2785,6 +2899,7 @@ var gSignals = [
  // ── Gr2 IMU ──
  {id:10,n:'Gr2 BNO heading'},{id:11,n:'Gr2 BNO roll'},{id:12,n:'Gr2 BNO pitch'},{id:13,n:'Gr2 BNO yawRate'},
  {id:14,n:'Gr2 TM171 heading'},{id:15,n:'Gr2 TM171 roll'},{id:16,n:'Gr2 TM171 pitch'},
+ {id:47,n:'Gr2 TM171 temperature (°C)'},{id:48,n:'Gr2 TM171 QoS (0-5)'},
  // ── Gr3 WAS ──
  {id:17,n:'Gr3 WAS ADS raw'},{id:18,n:'Gr3 WAS IMU raw'},{id:19,n:'Gr3 WAS IMU scaled'},
  {id:20,n:'Gr3 WAS chassis yawRate'},{id:21,n:'Gr3 WAS wheelAngleGPS'},{id:22,n:'Gr3 WAS actual'},
@@ -3092,6 +3207,7 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/calib")       != NULL) handleApiCalib(client, reqLine);
     else if (strstr(reqLine, "/api/wascal")      != NULL) handleApiWasCal(client, reqLine);
     else if (strstr(reqLine, "/api/wcstat")      != NULL) handleApiWasCalStatus(client, reqLine);
+    else if (strstr(reqLine, "/api/tm171")       != NULL) handleApiTm171(client, reqLine);
     else if (strstr(reqLine, "/api/keyacfg")     != NULL) handleApiKeyaCfg(client, reqLine);
     else if (strstr(reqLine, "/api/note")        != NULL) handleApiNote(client, reqLine, contentLen);
     else if (Autosteer_running && watchdogTimer < WATCHDOG_THRESHOLD) {
@@ -3271,6 +3387,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"gpsSerial\":")); client.print(moduleConfig.gpsSerial);
     client.print(F(",\"tm171Serial\":")); client.print(moduleConfig.tm171Serial);
     client.print(F(",\"tm171Baud\":")); client.print(moduleConfig.tm171Baud);
+    client.print(F(",\"tm171On\":")); client.print(useTMxx_IMU ? 1 : 0);
     client.print(F(",\"steerBrand\":")); client.print(moduleConfig.steerBrand);
     client.print(F(",\"disengageType\":")); client.print(moduleConfig.disengageType);
     client.print(F(",\"debugFlags\":")); client.print(moduleConfig.debugFlags);
@@ -3360,6 +3477,9 @@ float getSignalValue(uint8_t id)
     case 45: return (float)(keyaEncoderRaw - keyaPosRef) * 360.0f / 65536.0f;
     // Reference IMU wheel angle from the calibration bridge (PGN 0xD6)
     case 46: return refWheelAngle;
+    // TM171 status object
+    case 47: return useTMxx_IMU ? TM171_IMU.temp : 0;
+    case 48: return useTMxx_IMU ? (float)TM171_IMU.qos : 0;
     default: return 0;
     }
 }
@@ -3459,6 +3579,11 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"tmRoll\":\""));   client.print(useTMxx_IMU ? TM171_IMU.getRollStr()  : "0"); client.print('"');
         client.print(F(",\"tmPitch\":\""));  client.print(useTMxx_IMU ? TM171_IMU.getPitchStr() : "0"); client.print('"');
         client.print(F(",\"tmYaw\":\""));    client.print(useTMxx_IMU ? imuYawRate : "0"); client.print('"');
+        if (useTMxx_IMU && TM171_IMU.statusMs) {
+            client.print(F(",\"tmTemp\":")); client.print(TM171_IMU.temp, 1);
+            client.print(F(",\"tmQos\":")); client.print(TM171_IMU.qos);
+            client.print(F(",\"tmQosTxt\":\"")); client.print(tm171QosText(TM171_IMU.qos)); client.print('"');
+        }
         client.print(F("}"));
         break;
     }
