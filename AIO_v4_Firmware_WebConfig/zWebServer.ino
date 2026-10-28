@@ -138,7 +138,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 .ninput{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:4px 6px;border-radius:3px;font-family:monospace;font-size:14px;width:80px;text-align:right}
 .wcv{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.wcv div{flex:1;min-width:118px;background:#0f172a;border:1px solid #334155;border-radius:4px;padding:5px 8px}.wcv small{display:block;color:#94a3b8;font-size:12px}.wcv b{font-size:19px;color:#e2e8f0}
 .wz h3{font-size:21px;color:#e2e8f0;margin:2px 0 6px}.wz .ins{font-size:17px;line-height:1.4;margin:4px 0 10px;color:#e2e8f0}.wz .big{font-size:44px;font-weight:bold;text-align:center;color:#4ade80;margin:4px 0}.wz .ctr{text-align:center;font-size:15px;margin:2px 0 6px}.wz .grade{font-size:40px;font-weight:bold;text-align:center}.wz .bb{font-size:17px;padding:11px 22px}.wz .lbl{font-size:16px}.wz .wzin{width:100%;font-size:22px;padding:8px}
-.stp{display:flex;gap:4px;margin:2px 0 12px}.stp span{flex:1;height:8px;border-radius:3px;background:#334155}.stp .d{background:#16a34a}.stp .c{background:#38bdf8}.cov{display:flex;gap:2px;margin-top:8px}.cov i{flex:1;height:22px;border-radius:2px;background:#334155}.cov i.h{background:#ca8a04}.cov i.f{background:#16a34a}.covl{display:flex;justify-content:space-between;color:#94a3b8;font-size:12px;margin:2px 0 6px}.wznav{display:flex;gap:8px;margin-top:12px}.wznav .btn{flex:1;font-size:16px;padding:11px}.btn:disabled{opacity:.4;cursor:not-allowed}
+.stp{display:flex;gap:4px;margin:2px 0 12px}.stp span{flex:1;height:8px;border-radius:3px;background:#334155}.stp .d{background:#16a34a}.stp .c{background:#38bdf8}.cov{display:flex;gap:2px;margin-top:8px}.cov i{flex:1;height:22px;border-radius:2px;background:#334155}.cov i.h{background:#ca8a04}.cov i.f{background:#16a34a}.covl{display:flex;justify-content:space-between;color:#94a3b8;font-size:12px;margin:2px 0 6px}.wznav{display:flex;gap:8px;margin-top:12px}.wznav .btn{flex:1;font-size:16px;padding:11px}/*tm171 diff*/
+.tmdiff{color:#fb923c !important}
+.btn:disabled{opacity:.4;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -518,6 +520,16 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 <div style="color:#64748b;font-size:11px;margin-top:6px">Gyro, accelerometer, roll-pitch-yaw and the UART output stay on; the baud rate is not changed here.</div>
 <details style="margin-top:8px"><summary style="cursor:pointer;color:#94a3b8">Raw settings bytes</summary><div id="tmRaw" style="font-family:monospace;font-size:12px;word-break:break-all;margin-top:4px">&mdash;</div></details>
+</div>
+
+<div class="card">
+<details><summary style="cursor:pointer;font-weight:bold;color:#e2e8f0">Diagnostics</summary>
+<div class="row" style="margin-top:6px"><span class="lbl">Last frame sent</span></div>
+<div id="tmDgTx" style="font-family:monospace;font-size:12px;word-break:break-all;color:#94a3b8">&mdash;</div>
+<div class="row" style="margin-top:6px"><span class="lbl">Last calibration report</span></div>
+<div id="tmDgCr" style="font-family:monospace;font-size:12px;word-break:break-all;color:#94a3b8">&mdash;</div>
+<div style="color:#64748b;font-size:11px;margin-top:4px">Every TM171 command, report and calibration state change is also in the Debug tab log.</div>
+</details>
 </div>
 
 <div class="card">
@@ -2854,7 +2866,22 @@ function tmWrite(save) {
         + '&odr=' + tmId('tmOdr').value + '&sv=' + (save ? 1 : 0);
   tmQ(q).then(function(d) { if (!d.err) tmEd = {}; tmUpd(d); });
 }
+var tmDef = { tmM: 0, tmGe: 1, tmSa: 1, tmSt: 1, tmRw: 0, tmAcc: 3.5, tmMg: 1.0, tmOdr: 25, tmBo: 0 };
+// a field that differs from the default is shown in orange (label and value), so a difference is seen at once
+function tmMark() {
+  for (var id in tmDef) {
+    var el = tmId(id), cur;
+    if (!el) continue;
+    if (el.type === 'checkbox') cur = el.checked ? 1 : 0; else cur = parseFloat(el.value);
+    var diff = !isNaN(cur) && Math.abs(cur - tmDef[id]) > 0.004;
+    var lab = el.type === 'checkbox' ? el.closest('label') : el.closest('.row').querySelector('.lbl');
+    el.classList.toggle('tmdiff', diff);
+    if (lab) lab.classList.toggle('tmdiff', diff);
+  }
+}
+var tmMarkBound = false;
 function tmUpd(d) {
+  if (!tmMarkBound) { tmMarkBound = true; var pn = tmId('tm171'); pn.addEventListener('input', tmMark); pn.addEventListener('change', tmMark); }
   var on = !!d.on;
   var b = tmId('tmBadge'); b.className = 'badge ' + (on && d.rpy > 0 ? 'ok' : 'fail'); b.textContent = on && d.rpy > 0 ? 'OK' : '--';
   tmId('tmAng').textContent = d.hdg + ' | ' + d.roll + ' | ' + d.pitch + ' °';
@@ -2885,6 +2912,10 @@ function tmUpd(d) {
   var blocked = !!d.block || !!c.busy || !on;
   tmId('tmBtnCal').disabled = blocked; tmId('tmBtnUndo').disabled = blocked; tmId('tmBtnInst').disabled = blocked;
   tmId('tmBtnStop').disabled = !c.busy;
+  tmMark();
+  var dg = d.dg || {};
+  tmId('tmDgTx').textContent = dg.tx || '\u2014';
+  tmId('tmDgCr').textContent = dg.crN ? (dg.cr + '   (#' + dg.crN + ', ' + dg.crAge + ' s ago)') : 'none received yet';
   var wb = (d.block === 'autosteer engaged') || !s.ok;
   tmId('tmBtnW').disabled = wb; tmId('tmBtnWS').disabled = wb;
 }

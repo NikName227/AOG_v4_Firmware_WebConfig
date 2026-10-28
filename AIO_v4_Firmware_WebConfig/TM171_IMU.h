@@ -65,6 +65,12 @@ public:
 
     char     msg[100] = "";          // last message for the page
 
+    // ---- diagnostics (web log + TM171 tab) ----------------------------------------------------------------
+    void   (*logFn)(const char*) = nullptr;   // set by the sketch (webLog)
+    uint32_t calRxN    = 0;          // calibration reports (object 23) received
+    uint32_t calRxMs   = 0;          // when the last one came (0 = none)
+    char     calRxHex[40] = "";      // its content: type, control, ...
+
     void loop();                    // timers; call often (main loop)
     void txHex(char* out, uint16_t size) const;   // last frame sent, "AA 55 ..." (for checking against ImuAssistant)
     uint32_t baudNow() const { return _baud; }
@@ -92,6 +98,8 @@ private:
     uint8_t  lastTxLen = 0;
     uint32_t rpyCount = 0, rateMs = 0, firstMs = 0;
     bool     asked = false;
+    uint8_t  calLogged = TMC_IDLE;
+    uint8_t  seenCmd[16];
 
     uint16_t crc16(uint8_t *data, uint16_t len);
     bool parsePacket();
@@ -99,6 +107,8 @@ private:
     void calibReport(uint8_t type, uint8_t ctrl);
     void send(uint8_t cmd, const uint8_t* content, uint8_t n);
     void calibCmd(uint8_t type, uint8_t ctrl, uint16_t key, uint32_t p2, uint32_t p3);
+    void logf(const char* fmt, ...);
+    void calNote(const char* why);
 };
 
 #endif

@@ -1,4 +1,5 @@
 #include "TM171_IMU.h"
+#include <stdarg.h>
 
 TM171_IMU::TM171_IMU(HardwareSerial &serial, uint16_t timeout)
     : _serial(&serial), timeoutMs(timeout)
@@ -14,6 +15,31 @@ void TM171_IMU::setSerial(HardwareSerial *serial)
 // buffer is 64 bytes, so a longer gap between two reads loses frames, and a lost one-shot reply (settings,
 // calibration report) looks like "no reply". 1 KB of extra receive memory, and readAngles() every loop pass.
 static uint8_t tm171RxMem[1024];
+
+void TM171_IMU::logf(const char* fmt, ...)
+{
+    if (!logFn) return;
+    char b[120];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(b, sizeof(b), fmt, ap);
+    va_end(ap);
+    logFn(b);
+}
+
+static const char* calName(uint8_t s)
+{
+    static const char* const n[] = { "idle", "starting", "running", "finishing", "ok", "failed", "no answer", "aborted", "revoked" };
+    return s < 9 ? n[s] : "?";
+}
+
+// one line to the web log whenever the calibration state changes
+void TM171_IMU::calNote(const char* why)
+{
+    if (calState == calLogged) return;
+    logf("TM171 calibration: %s -> %s (%s)", calName(calLogged), calName(calState), why);
+    calLogged = calState;
+}
 
 void TM171_IMU::begin(uint32_t baud)
 {
@@ -168,6 +194,7 @@ void TM171_IMU::onFrame(uint8_t cmd, const uint8_t* c, uint8_t n)
         if (tm171ParseStatus(c, n, &temp, &intRate, &qos)) statusMs = millis() | 1;
         break;
     case TM171_CMD_SETTING:
+        logf("TM171 RX settings object, %u bytes", n);
         if (n == TM171_SET_LEN)
         {
             memcpy(set, c, TM171_SET_LEN);
@@ -181,11 +208,26 @@ void TM171_IMU::onFrame(uint8_t cmd, const uint8_t* c, uint8_t n)
         break;
     case TM171_CMD_ACK:
         if (n >= 1 && c[0] == TM171_CMD_SETTING) ackMs = millis() | 1;
+        logf("TM171 RX acknowledge of object %u", n ? c[0] : 0);
         break;
     case TM171_CMD_CALIB:
+    {
+        calRxN++;
+        calRxMs = millis() | 1;
+        uint8_t k = n < 12 ? n : 12, o = 0;
+        for (uint8_t i = 0; i < k && (size_t)o + 3 < sizeof(calRxHex); i++) o += snprintf(calRxHex + o, sizeof(calRxHex) - o, i ? " %02X" : "%02X", c[i]);
+        calRxHex[o] = '\0';
+        logf("TM171 RX calibration report: %s (state %s)", calRxHex, calName(calState));
         if (n >= 2) calibReport(c[0], c[1]);
         break;
-    default: break;
+    }
+    default:
+        if (cmd < 128 && !(seenCmd[cmd >> 3] & (1 << (cmd & 7))))
+        {
+            seenCmd[cmd >> 3] |= (1 << (cmd & 7));
+            logf("TM171 RX frame of type %u, %u bytes content (not used)", cmd, n);
+        }
+        break;
     }
 }
 
@@ -194,6 +236,12 @@ void TM171_IMU::send(uint8_t cmd, const uint8_t* content, uint8_t n)
     if (n > 32) return;
     lastTxLen = tm171BuildFrame(lastTx, cmd, nodeId, content, n);
     _serial->write(lastTx, lastTxLen);
+    if (logFn)
+    {
+        char hx[3 * TM171_FRAME_MAX];
+        txHex(hx, sizeof(hx));
+        logf("TM171 TX to ID %u: %s", nodeId, hx);
+    }
 }
 
 void TM171_IMU::txHex(char* out, uint16_t size) const
@@ -253,6 +301,7 @@ bool TM171_IMU::calibStart(uint8_t kind, const char** why)
         calState = TMC_STARTING;
         snprintf(msg, sizeof(msg), "gyro calibration started (%d s, keep the tractor still)", TM171_CALIB_S);
     }
+    calNote("button");
     return true;
 }
 
@@ -264,6 +313,7 @@ void TM171_IMU::calibStop(bool aborted)
     calMs = millis();
     if (aborted) { calState = TMC_ABORTED; calDoneMs = calMs | 1; snprintf(msg, sizeof(msg), "gyro calibration stopped (tractor moving or autosteer on)"); }
     else         { calState = TMC_FINISHING; snprintf(msg, sizeof(msg), "finishing, the TM171 uses what it collected"); }
+    calNote(aborted ? "safety stop" : "finish now");
 }
 
 bool TM171_IMU::calibRevoke(const char** why)
@@ -274,6 +324,7 @@ bool TM171_IMU::calibRevoke(const char** why)
     calState = TMC_FINISHING;                 // waits for the revoke report (0x15/0x05)
     calMs = millis();
     snprintf(msg, sizeof(msg), "undoing the gyro calibration");
+    calNote("undo");
     return true;
 }
 
@@ -282,13 +333,14 @@ void TM171_IMU::calibReport(uint8_t type, uint8_t ctrl)
     const uint32_t now = millis();
     if (type == TM171_REP_GYRO && calKind == TMC_KIND_GYRO)
     {
-        if (ctrl == 0x00 && calState == TMC_STARTING) { calState = TMC_RUNNING; calMs = now; return; }
+        if (ctrl == 0x00 && calState == TMC_STARTING) { calState = TMC_RUNNING; calMs = now; calNote("started report"); return; }
         if (!calibBusy()) return;
         if (ctrl == 0x01)      { calState = TMC_OK;      snprintf(msg, sizeof(msg), "gyro calibration done (kept until the TM171 loses power)"); }
         else if (ctrl == 0x05) { calState = TMC_REVOKED; snprintf(msg, sizeof(msg), "gyro calibration undone"); }
         else if (ctrl == 0xFF) { calState = TMC_FAILED;  snprintf(msg, sizeof(msg), "gyro calibration FAILED (tractor moved or too much vibration), previous values kept"); }
         else return;
         calMs = now; calDoneMs = now | 1;
+        calNote("report");
     }
     else if (type == TM171_REP_INSTALL && calKind == TMC_KIND_INSTALL && calibBusy())
     {
@@ -296,6 +348,7 @@ void TM171_IMU::calibReport(uint8_t type, uint8_t ctrl)
         else if (ctrl == 0xFF) { calState = TMC_FAILED; snprintf(msg, sizeof(msg), "new install calibration FAILED, switch the module off and on and try again"); }
         else return;
         calMs = now; calDoneMs = now | 1;
+        calNote("report");
     }
 }
 
@@ -323,10 +376,11 @@ void TM171_IMU::loop()
     }
     if (now - rateMs >= 1000) { rateMs = now; rpyRate = (uint16_t)rpyCount; rpyCount = 0; }
 
-    if (!calibBusy()) return;
+    if (!calibBusy()) { calNote("timer"); return; }
     if (calKind == TMC_KIND_INSTALL)
     {
         if (tmElapsed(now, calMs, TM171_INSTALL_MS)) { calState = TMC_NO_ANSWER; calMs = now; calDoneMs = now | 1; snprintf(msg, sizeof(msg), "no result from the new install calibration (is TX wired to the TM171 RX?)"); }
+        calNote("timer");
         return;
     }
     switch (calState)
@@ -342,4 +396,5 @@ void TM171_IMU::loop()
         break;
     default: break;
     }
+    calNote("timer");
 }

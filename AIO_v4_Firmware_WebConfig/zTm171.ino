@@ -30,6 +30,8 @@ static const char* tmCalName(uint8_t s)
 // Main loop (only with a TM171): timers, and the safety stop of a running gyro calibration.
 void tm171Loop()
 {
+    static bool logSet = false;
+    if (!logSet) { logSet = true; TM171_IMU.logFn = webLog; }     // TM171 events (commands, reports, state changes) into the web log
     TM171_IMU.readAngles();                  // every pass: the receive buffer is small and replies are one-shot
     if (TM171_IMU.calibBusy() && TM171_IMU.calKind == TMC_KIND_GYRO &&
         (watchdogTimer < WATCHDOG_THRESHOLD || gpsSpeed > 1.0f))
@@ -114,6 +116,14 @@ void handleApiTm171(EthernetClient& client, const char* req)
         client.print(F(",\"raw\":\""));
         for (uint8_t i = 0; i < TM171_SET_LEN; i++) { if (i) client.print(' '); if (s[i] < 16) client.print('0'); client.print(s[i], HEX); }
         client.print('"');
+    }
+    {   // diagnostics: last frame sent, last calibration report received
+        char hx[3 * TM171_FRAME_MAX];
+        TM171_IMU.txHex(hx, sizeof(hx));
+        client.print(F("},\"dg\":{\"tx\":\"")); client.print(hx);
+        client.print(F("\",\"cr\":\"")); client.print(TM171_IMU.calRxHex);
+        client.print(F("\",\"crN\":")); client.print(TM171_IMU.calRxN);
+        client.print(F(",\"crAge\":")); client.print(TM171_IMU.calRxMs ? (long)((now - TM171_IMU.calRxMs) / 1000) : -1L);
     }
     client.print(F("},\"cal\":{\"state\":\"")); client.print(tmCalName(TM171_IMU.calState));
     client.print(F("\",\"kind\":")); client.print(TM171_IMU.calKind);
