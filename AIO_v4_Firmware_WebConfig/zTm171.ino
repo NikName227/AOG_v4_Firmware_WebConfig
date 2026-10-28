@@ -30,6 +30,7 @@ static const char* tmCalName(uint8_t s)
 // Main loop (only with a TM171): timers, and the safety stop of a running gyro calibration.
 void tm171Loop()
 {
+    TM171_IMU.readAngles();                  // every pass: the receive buffer is small and replies are one-shot
     if (TM171_IMU.calibBusy() && TM171_IMU.calKind == TMC_KIND_GYRO &&
         (watchdogTimer < WATCHDOG_THRESHOLD || gpsSpeed > 1.0f))
         TM171_IMU.calibStop(true);
@@ -54,6 +55,7 @@ void handleApiTm171(EthernetClient& client, const char* req)
             f.selfAdapt = (p = tmArg(req, "sa"))  && *p == '1';
             f.status    = (p = tmArg(req, "st"))  && *p == '1';
             f.save      = (p = tmArg(req, "sv"))  && *p == '1';
+            f.raw       = (p = tmArg(req, "rw"))  && *p == '1';
             f.boot      = (p = tmArg(req, "bo"))  ? (uint8_t)atoi(p)  : 0;
             f.acc       = (p = tmArg(req, "acc")) ? (uint16_t)atoi(p) : 0;
             f.magGain   = (p = tmArg(req, "mg"))  ? (uint16_t)atoi(p) : 0;
@@ -103,6 +105,7 @@ void handleApiTm171(EthernetClient& client, const char* req)
         client.print(F(",\"ge\":")); client.print((int)TM171_BIT(w, 3));
         client.print(F(",\"sa\":")); client.print((int)TM171_BIT(w, 4));
         client.print(F(",\"st\":")); client.print((int)TM171_BIT(w, 5));
+        client.print(F(",\"rw\":")); client.print((int)TM171_BIT(w, 6));
         client.print(F(",\"bo\":")); client.print((int)((w >> 24) & 3));
         client.print(F(",\"acc\":")); client.print(tm171U16(s + 10));
         client.print(F(",\"mg\":")); client.print(tm171U16(s + 12));

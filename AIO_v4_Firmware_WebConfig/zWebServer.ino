@@ -506,6 +506,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <label class="chk-row"><input type="checkbox" id="tmGe" onchange="tmEd.ge=1"> GyroErrFilter <small style="color:#64748b;font-size:11px">(def: on)</small></label>
 <label class="chk-row"><input type="checkbox" id="tmSa" onchange="tmEd.sa=1"> Self-Adapt filter <small style="color:#64748b;font-size:11px">(def: on)</small></label>
 <label class="chk-row"><input type="checkbox" id="tmSt" onchange="tmEd.st=1"> Status output <small style="color:#64748b;font-size:11px">(def: on; temperature and QoS)</small></label>
+<label class="chk-row"><input type="checkbox" id="tmRw" onchange="tmEd.rw=1"> Raw data output <small style="color:#64748b;font-size:11px">(def: off)</small></label>
 <div class="row"><span class="lbl">Accelerometer gain <small style="color:#64748b;font-size:11px">(def: 3.5)</small></span><input type="number" id="tmAcc" min="0.01" max="20" step="0.01" class="ninput" oninput="tmEd.acc=1"></div>
 <div class="row"><span class="lbl">Magnetometer gain <small style="color:#64748b;font-size:11px">(def: 1.0)</small></span><input type="number" id="tmMg" min="0.01" max="20" step="0.01" class="ninput" oninput="tmEd.mg=1"></div>
 <div class="row"><span class="lbl">Output rate <small style="color:#64748b;font-size:11px">(def: 25 Hz)</small></span><select id="tmOdr" onchange="tmEd.odr=1"><option value="25">25 Hz</option><option value="50">50 Hz</option><option value="100">100 Hz</option></select></div>
@@ -2849,7 +2850,7 @@ function tmWrite(save) {
   if (!(acc >= 1 && acc <= 2000 && mg >= 1 && mg <= 2000)) { alert('Gain must be 0.01 - 20.00'); return; }
   if (save && !confirm('Save these settings to the TM171 flash? Keep the power on while it saves.')) return;
   var q = 'write=1&m=' + (tmId('tmM').checked ? 1 : 0) + '&ge=' + (tmId('tmGe').checked ? 1 : 0) + '&sa=' + (tmId('tmSa').checked ? 1 : 0)
-        + '&st=' + (tmId('tmSt').checked ? 1 : 0) + '&bo=' + tmId('tmBo').value + '&acc=' + acc + '&mg=' + mg
+        + '&st=' + (tmId('tmSt').checked ? 1 : 0) + '&rw=' + (tmId('tmRw').checked ? 1 : 0) + '&bo=' + tmId('tmBo').value + '&acc=' + acc + '&mg=' + mg
         + '&odr=' + tmId('tmOdr').value + '&sv=' + (save ? 1 : 0);
   tmQ(q).then(function(d) { if (!d.err) tmEd = {}; tmUpd(d); });
 }
@@ -2870,7 +2871,7 @@ function tmUpd(d) {
   sb.textContent = s.ok ? 'read' : (s.odd ? 'layout?' : (s.noAnswer > 1 ? 'no reply' : (s.age < 0 ? '...' : '--')));
   if (s.age >= 0) {
     var set = function(id, key, v, chk) { if (!tmEd[key]) { if (chk) tmId(id).checked = !!v; else tmId(id).value = v; } };
-    set('tmM', 'm', s.m, 1); set('tmGe', 'ge', s.ge, 1); set('tmSa', 'sa', s.sa, 1); set('tmSt', 'st', s.st, 1);
+    set('tmM', 'm', s.m, 1); set('tmGe', 'ge', s.ge, 1); set('tmSa', 'sa', s.sa, 1); set('tmSt', 'st', s.st, 1); set('tmRw', 'rw', s.rw, 1);
     set('tmAcc', 'acc', (s.acc / 100).toFixed(2)); set('tmMg', 'mg', (s.mg / 100).toFixed(2));
     set('tmOdr', 'odr', s.odr); set('tmBo', 'bo', s.bo);
     tmId('tmRaw').textContent = s.raw;

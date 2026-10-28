@@ -117,6 +117,7 @@ struct Tm171Form {
     uint8_t  boot;                 // 0 auto, 1 static, 2 dynamic
     uint16_t acc, magGain;         // x0.01
     uint16_t odr;                  // Hz: 25, 50 or 100
+    bool     raw;                  // raw gyro / accelerometer / magnetometer output (not used by AgOpenGPS, about half of the traffic)
 };
 
 // New Setting content from the one read (cur) and the form. Gyro, accelerometer, roll-pitch-yaw and UART1 output stay
@@ -130,7 +131,7 @@ inline bool tm171MakeSetting(const uint8_t* cur, const Tm171Form& f, uint8_t* ou
     uint32_t w = tm171U32(out);
     #define TM171_SETBIT(n, v) do { if (v) w |= (1UL << (n)); else w &= ~(1UL << (n)); } while (0)
     TM171_SETBIT(0, true); TM171_SETBIT(1, true);
-    TM171_SETBIT(2, f.mag); TM171_SETBIT(3, f.gyroErr); TM171_SETBIT(4, f.selfAdapt); TM171_SETBIT(5, f.status);
+    TM171_SETBIT(2, f.mag); TM171_SETBIT(3, f.gyroErr); TM171_SETBIT(4, f.selfAdapt); TM171_SETBIT(5, f.status); TM171_SETBIT(6, f.raw);
     TM171_SETBIT(11, true);
     TM171_SETBIT(17, true);
     TM171_SETBIT(18, f.save);

@@ -10,9 +10,15 @@ void TM171_IMU::setSerial(HardwareSerial *serial)
     if (serial) _serial = serial;
 }
 
+// The TM171 sends RPY + status + (often) raw data, about 95 bytes every 20 ms at 50 Hz. The Teensy's own receive
+// buffer is 64 bytes, so a longer gap between two reads loses frames, and a lost one-shot reply (settings,
+// calibration report) looks like "no reply". 1 KB of extra receive memory, and readAngles() every loop pass.
+static uint8_t tm171RxMem[1024];
+
 void TM171_IMU::begin(uint32_t baud)
 {
     _baud = baud;
+    _serial->addMemoryForRead(tm171RxMem, sizeof(tm171RxMem));
     _serial->begin(baud);
 }
 
@@ -96,10 +102,12 @@ void TM171_IMU::readAngles()
 {
     while (_serial->available())
     {
-        if (bufferLen < sizeof(buffer))
-            buffer[bufferLen++] = _serial->read();
-        else
-            bufferLen = 0;
+        if (bufferLen >= sizeof(buffer))
+        {
+            parsePacket();                       // make room: whole frames out, a partial one stays
+            if (bufferLen >= sizeof(buffer)) bufferLen = 0;
+        }
+        buffer[bufferLen++] = _serial->read();
     }
 
     parsePacket();
@@ -310,8 +318,8 @@ void TM171_IMU::loop()
     if (setReqMs && tmElapsed(now, setReqMs, TM171_ANSWER_MS))
     {
         setReqMs = 0;
-        if (setNoAnswer++ == 0 && !setMs) requestSettings();           // once more before "no reply" is concluded
-        if (setNoAnswer > 100) setNoAnswer = 100;
+        if (setNoAnswer < 100) setNoAnswer++;
+        if (!setMs && setNoAnswer <= 4) requestSettings();             // a few more tries before "no reply" stays
     }
     if (now - rateMs >= 1000) { rateMs = now; rpyRate = (uint16_t)rpyCount; rpyCount = 0; }
 
