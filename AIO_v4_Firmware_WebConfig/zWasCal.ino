@@ -277,7 +277,16 @@ void handleApiWasCal(EthernetClient& client, const char* req)
                 moduleConfigSave();
                 wcSetMsg("WAS cal: centre set (AOG mode offset)");
             }
-            if (!err) { wcZeroClear(wcZero); memset(&wcKeyaExt, 0, sizeof(wcKeyaExt)); }
+            if (!err) {
+                wcZeroClear(wcZero); memset(&wcKeyaExt, 0, sizeof(wcKeyaExt));
+                if (keyaDetected) {                          // ADS + Keya: the encoder is centred in the same click
+                    moduleConfig.keyaZeroTicks = keyaEncoderRaw;
+                    keyaGpsOffset = 0;
+                    keyaInitialZeroDone = true;
+                    moduleConfigSave();
+                    wcSetMsg("WAS cal: centre set (ADS + Keya)");
+                }
+            }
         }
         else if (moduleConfig.wasSource == WAS_SOURCE_KEYA) {
             if (!keyaDetected) err = "Keya not detected";

@@ -315,6 +315,7 @@ void  handleApiLog(EthernetClient& client, const char* req);
 void  handleApiGpsRaw(EthernetClient& client, const char* req);
 void  handleApiGpsCmd(EthernetClient& client, const char* req);
 void  handleApiGpsBaud(EthernetClient& client, const char* req);
+void  handleApiGpsRsp(EthernetClient& client, const char* req);
 void  handleApiKeyaZero(EthernetClient& client);
 void  handleApiImuWasZero(EthernetClient& client);
 void  handleApiCanRaw(EthernetClient& client, const char* req);

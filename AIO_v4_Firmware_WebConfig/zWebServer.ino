@@ -21,8 +21,36 @@ static char     gpsRawBuf[GPS_RAW_BUF_SIZE];
 static uint16_t gpsRawWrite   = 0;
 static bool     gpsRawWrapped = false;
 
+// Receiver replies for the UM98x tab: only "$command,", "$CONFIG," and "#VERSION," lines are kept
+// (the page checks them), so the NMEA stream does not matter. Always on, no enable needed.
+#define GPS_RSP_BUF_SIZE 4096
+#define GPS_RSP_LINE_MAX 200
+static char     gpsRspBuf[GPS_RSP_BUF_SIZE];
+static uint16_t gpsRspLen = 0;
+static char     gpsLnBuf[GPS_RSP_LINE_MAX];
+static uint8_t  gpsLnLen  = 0;
+
+static void gpsRspByte(uint8_t c)
+{
+    if (c == '\n') {
+        if (gpsLnLen > 9 && gpsLnLen + 1 + gpsRspLen <= GPS_RSP_BUF_SIZE &&
+            (memcmp(gpsLnBuf, "$command,", 9) == 0 || memcmp(gpsLnBuf, "$CONFIG,", 8) == 0 ||
+             memcmp(gpsLnBuf, "#VERSION,", 9) == 0)) {
+            memcpy(gpsRspBuf + gpsRspLen, gpsLnBuf, gpsLnLen);
+            gpsRspLen += gpsLnLen;
+            gpsRspBuf[gpsRspLen++] = '\n';
+        }
+        gpsLnLen = 0;
+    } else if (c != '\r') {
+        if (gpsLnLen == 0 && c != '$' && c != '#') return;   // wait for a line start
+        if (gpsLnLen < GPS_RSP_LINE_MAX) gpsLnBuf[gpsLnLen++] = (char)c;
+        else gpsLnLen = 0;                                   // too long: not a reply line
+    }
+}
+
 void gpsRawByte(uint8_t c)
 {
+    gpsRspByte(c);
     if (!gpsRawActive) return;
     gpsRawBuf[gpsRawWrite] = (char)c;
     if (++gpsRawWrite >= GPS_RAW_BUF_SIZE) { gpsRawWrite = 0; gpsRawWrapped = true; }
@@ -400,7 +428,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="lvtoggle">
 <button class="subtab on" id="lvValuesTab" onclick="lvShow('values')">Values</button>
 <button class="subtab" id="lvGraphTab" onclick="lvShow('graph')">Graph</button>
-<button class="subtab" id="lvKeyaTab" onclick="lvShow('keya')" style="display:none">WAS Geometry</button>
 </div>
 
 <!-- VALUES sub-panel -->
@@ -444,56 +471,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 <canvas id="gcanvas" width="720" height="340" style="width:100%;margin-top:10px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px;cursor:crosshair"></canvas>
 <div id="gReadout" style="font-size:12px;color:#94a3b8;margin-top:6px;font-family:monospace">Paused: drag = pan, wheel = zoom, move = read</div>
-</div>
-</div>
-<!-- KEYA WAS GEOMETRY sub-panel (Ackermann scatter, final check) -->
-<div id="lvKeya" style="display:none">
-<div class="card">
-<h2>WAS Geometry — Ackermann check</h2>
-<p style="color:#94a3b8;font-size:12px;line-height:1.4">Final check after calibration + auto-zero. Reconnect the reference (wheel) IMU, press Start, then turn the steering lock-to-lock. Dots = AOG steer vs reference wheel angle; the red line is the ideal bicycle (Ackermann) curve from wheelbase &amp; track. Dots on the curve = geometry &amp; calibration good.</p>
-<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0">
-<button class="btn green" id="kgBtn" onclick="kgToggle()">&#9654; Start</button>
-<button class="btn" onclick="kgClear()">Clear</button>
-<button class="btn" onclick="kgExportPng()">&#11015; PNG</button>
-<button class="btn" onclick="kgExportCsv()">&#11015; CSV</button>
-<label class="chk-row" style="padding:0"><input type="checkbox" id="kgZero" onchange="kgDraw()"> remove zero offset</label>
-<span id="kgStat" style="font-family:monospace;font-size:12px;color:#94a3b8"></span>
-</div>
-<!-- Live inputs feeding the scatter — check all values are present & changing before/while capturing -->
-<div id="kgLive" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px 16px;margin:8px 0;padding:10px 12px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-family:monospace;font-size:13px">
-<div>Ref IMU <span id="kgvFresh" style="float:right;color:#f0776a">stale</span></div>
-<div>Ref wheel ° <small style="color:#64748b">(X in)</small> <span id="kgvRef" style="float:right;color:#e2e8f0">—</span></div>
-<div>AOG steer ° <small style="color:#64748b">(Y in)</small> <span id="kgvSteer" style="float:right;color:#e2e8f0">—</span></div>
-<div>Ideal bike ° <small style="color:#64748b">@ref</small> <span id="kgvIdeal" style="float:right;color:#e2e8f0">—</span></div>
-<div>Wheelbase L <small style="color:#64748b">(m)</small> <span id="kgvWB" style="float:right;color:#e2e8f0">—</span></div>
-<div>Track T <small style="color:#64748b">(m)</small> <span id="kgvT" style="float:right;color:#e2e8f0">—</span></div>
-<div>Captured pts <span id="kgvPts" style="float:right;color:#e2e8f0">0</span></div>
-<div>Input <span id="kgvGate" style="float:right;color:#94a3b8">idle</span></div>
-</div>
-<canvas id="kgcanvas" width="720" height="430" style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
-
-<h2 style="margin-top:18px">Geometry view &mdash; live</h2>
-<p style="color:#94a3b8;font-size:12px;line-height:1.4">Top view drawn from the Keya encoder. Press Centre with the wheels straight, then turn. Three angles are shown side by side: the pure geometry from ticks, what the steer chain reports, and the reference IMU converted to the bicycle angle. Where they disagree tells you which step is wrong &mdash; geometry, zero, or the Ackerman/map stage.</p>
-<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0">
-<button class="btn" onclick="fetch('/api/keyaposzero')">&#8982; Centre</button>
-<label class="chk-row" style="padding:0">Reference IMU on
-<select id="gvSide" onchange="gvDraw()" style="margin-left:6px"><option value="R">right wheel</option><option value="L">left wheel</option></select></label>
-</div>
-<div id="gvLive" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:6px 16px;margin:8px 0;padding:10px 12px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-family:monospace;font-size:13px">
-<div>Ticks <small style="color:#64748b">rel</small> <span id="gvTick" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>Bike from ticks <span id="gvBike" style="float:right;color:#facc15">&mdash;</span></div>
-<div>Steer actual <small style="color:#64748b">chain</small> <span id="gvSteer" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>Ref IMU &rarr; bike <span id="gvRefBike" style="float:right;color:#4ade80">&mdash;</span></div>
-<div>&Delta; geometry <small style="color:#64748b">ticks-ref</small> <span id="gvD1" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>&Delta; chain <small style="color:#64748b">ticks-steer</small> <span id="gvD2" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>Inner wheel <span id="gvIn" style="float:right;color:#38bdf8">&mdash;</span></div>
-<div>Outer wheel <span id="gvOut" style="float:right;color:#f0776a">&mdash;</span></div>
-<div>Turn radius <span id="gvR" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>T back-solved <small style="color:#64748b">both sides</small> <span id="gvTb" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>tick/deg L &middot; R <span id="gvTpd" style="float:right;color:#94a3b8">&mdash;</span></div>
-<div>AckermanFix <span id="gvAck" style="float:right;color:#94a3b8">&mdash;</span></div>
-</div>
-<canvas id="gvcanvas" width="720" height="440" style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
 </div>
 </div>
 </div><!-- /live -->
@@ -727,6 +704,30 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 
 </div>
+<details class="card" id="kgCard" ontoggle="kgDraw()">
+<summary style="cursor:pointer;font-size:16px;font-weight:bold;color:#e2e8f0">Live check &mdash; Ackermann scatter</summary>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Final check after calibration + auto-zero. Reconnect the reference (wheel) IMU, press Start, then turn the steering lock-to-lock. Dots = AOG steer vs reference wheel angle; the red line is the ideal bicycle (Ackermann) curve from wheelbase &amp; track. Dots on the curve = geometry &amp; calibration good.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0">
+<button class="btn green" id="kgBtn" onclick="kgToggle()">&#9654; Start</button>
+<button class="btn" onclick="kgClear()">Clear</button>
+<button class="btn" onclick="kgExportPng()">&#11015; PNG</button>
+<button class="btn" onclick="kgExportCsv()">&#11015; CSV</button>
+<label class="chk-row" style="padding:0"><input type="checkbox" id="kgZero" onchange="kgDraw()"> remove zero offset</label>
+<span id="kgStat" style="font-family:monospace;font-size:12px;color:#94a3b8"></span>
+</div>
+<!-- Live inputs feeding the scatter — check all values are present & changing before/while capturing -->
+<div id="kgLive" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px 16px;margin:8px 0;padding:10px 12px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-family:monospace;font-size:13px">
+<div>Ref IMU <span id="kgvFresh" style="float:right;color:#f0776a">stale</span></div>
+<div>Ref wheel ° <small style="color:#64748b">(X in)</small> <span id="kgvRef" style="float:right;color:#e2e8f0">—</span></div>
+<div>AOG steer ° <small style="color:#64748b">(Y in)</small> <span id="kgvSteer" style="float:right;color:#e2e8f0">—</span></div>
+<div>Ideal bike ° <small style="color:#64748b">@ref</small> <span id="kgvIdeal" style="float:right;color:#e2e8f0">—</span></div>
+<div>Wheelbase L <small style="color:#64748b">(m)</small> <span id="kgvWB" style="float:right;color:#e2e8f0">—</span></div>
+<div>Track T <small style="color:#64748b">(m)</small> <span id="kgvT" style="float:right;color:#e2e8f0">—</span></div>
+<div>Captured pts <span id="kgvPts" style="float:right;color:#e2e8f0">0</span></div>
+<div>Input <span id="kgvGate" style="float:right;color:#94a3b8">idle</span></div>
+</div>
+<canvas id="kgcanvas" width="720" height="430" style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
+</details>
 </div><!-- /wascal -->
 
 <!-- KEYA TAB -->
@@ -955,16 +956,24 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div id="um98x" class="panel">
 <div class="card">
 <h2>Send GPS commands</h2>
-<p style="color:#64748b;font-size:13px;margin-bottom:8px">Paste config lines (one per line). Upload sends each with 1 s delay. Responses appear in the raw log below.</p>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Load a preset or paste config lines (one per line, lines starting with # are skipped), edit them, then Upload. Each line is sent and checked against the receiver's reply: green = the receiver answered OK. After the last line the receiver's CONFIG is read back and compared.</p>
+<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+<button class="btn" onclick="gpsPreset('single')">Preset: Single (UM980)</button>
+<button class="btn" onclick="gpsPreset('dual')">Preset: Dual (UM982)</button>
+<button class="btn" onclick="gpsDetect()">Detect model</button>
+<span id="gpsModel" style="color:#94a3b8;font-size:12px"></span>
+</div>
 <textarea class="gps-ta" id="gpsLines" placeholder="e.g. CONFIG HEADING FIXINTERVAL 0.1"></textarea>
 <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
-<button class="btn green" onclick="uploadLines()">&#8679; Upload</button>
+<button class="btn green" id="gpsUpBtn" onclick="uploadLines()">&#8679; Upload</button>
+<button class="btn" id="gpsStopBtn" onclick="gpsAbort = true" style="display:none">&#9209; Stop</button>
 <button class="btn" onclick="gpsCmd('CONFIG')">&#128196; Get Config</button>
 <button class="btn" onclick="gpsCmd('VERSION')">&#128196; Get Version</button>
 <button class="btn" onclick="gpsCmd('SAVECONFIG')">&#128190; Save Config</button>
 <button class="btn red" onclick="doFactoryReset()">&#9888; Factory Reset</button>
 <span id="gpsStatus" style="color:#94a3b8;font-size:11px;margin-left:4px"></span>
 </div>
+<div id="gpsList" style="margin-top:10px;font-family:monospace;font-size:12px"></div>
 </div>
 <div class="card">
 <h2>GPS raw serial <button class="btn sm" onclick="clearGpsRaw()">&#128465; Clear</button></h2>
@@ -990,15 +999,12 @@ function lvShow(m) {
   lvMode = m;
   document.getElementById('lvValues').style.display = (m === 'values') ? '' : 'none';
   document.getElementById('lvGraph').style.display  = (m === 'graph')  ? '' : 'none';
-  document.getElementById('lvKeya').style.display   = (m === 'keya')   ? '' : 'none';
   document.getElementById('lvValuesTab').classList.toggle('on', m === 'values');
   document.getElementById('lvGraphTab').classList.toggle('on', m === 'graph');
-  var kt = document.getElementById('lvKeyaTab'); if (kt) kt.classList.toggle('on', m === 'keya');
   if (m === 'graph' && typeof gDraw === 'function') gDraw();
-  if (m === 'keya') kgDraw();
 }
 
-// ── Keya WAS Geometry: Ackermann scatter (final check) ───────────────────────
+// ── WAS cal live check: Ackermann scatter (final check, any WAS source) ───────────────────────
 var kgCapture = false, kgPts = [], kgWB = 0, kgT = 0;
 function wheelToBikeJS(dw, inner, L, T) {
   var s = dw >= 0 ? 1 : -1, a = Math.abs(dw);
@@ -1020,12 +1026,13 @@ function kgToggle() {
   b.innerHTML = kgCapture ? '&#9209; Stop' : '&#9654; Start';
   b.classList.toggle('green', !kgCapture);
 }
+function kgOpen() { var c = document.getElementById('kgCard'); return !!(c && c.open); }
 function kgClear() { kgPts = []; kgDraw(); }
 function kgPush(ref, steer) {
   if (kgPts.length && Math.abs(kgPts[kgPts.length - 1].r - ref) < 0.15) return;  // skip when still
   kgPts.push({ r: ref, s: steer });
   if (kgPts.length > 3000) kgPts.shift();
-  if (lvMode === 'keya') kgDraw();
+  if (kgOpen()) kgDraw();
 }
 function kgDraw() {
   var cv = document.getElementById('kgcanvas'); if (!cv) return;
@@ -1095,116 +1102,6 @@ function kgExportCsv() {
   var blob = new Blob([rows], { type: 'text/csv' });
   var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = 'keya_geometry_' + Date.now() + '.csv'; a.click();
-}
-
-// ── Geometry view: live top-down from the Keya encoder ───────────────────────
-// Three angles are computed from the SAME steering position so they can be told
-// apart: pure geometry (ticks/tpd), the steer chain (steerAngleActual, which has
-// the zero trims, AckermanFix and the map baked in) and the reference IMU wheel
-// angle converted to the bike angle. Their differences localise the fault.
-var gvS = {tick:0, ref:0, fresh:false, steer:0, L:0, T:0, tpdL:24, tpdR:24, ack:1};
-var gvTb = {inn:null, out:null};      // one inner + one outer reading of the SAME wheel -> T
-
-function gvBikeFromTicks(tick, L, T, tpdL, tpdR) {
-  var tpd = (tick >= 0) ? tpdR : tpdL;
-  if (tpd < 1) tpd = 24;
-  return tick / tpd;                                   // signed bike angle, deg
-}
-// bike angle -> the two wheel angles (magnitudes)
-function gvWheels(bike, L, T) {
-  var a = Math.abs(bike);
-  if (a < 1e-4 || L < 0.1) return {inner:0, outer:0, R:Infinity};
-  var R = L / Math.tan(a * Math.PI / 180);
-  var inner = Math.atan(L / Math.max(R - T / 2, 1e-6)) * 180 / Math.PI;
-  var outer = Math.atan(L / (R + T / 2)) * 180 / Math.PI;
-  return {inner:inner, outer:outer, R:R};
-}
-function gvDraw() {
-  var c = document.getElementById('gvcanvas'); if (!c) return;
-  var g = c.getContext('2d'), W = c.width, H = c.height;
-  g.fillStyle = '#050d1a'; g.fillRect(0, 0, W, H);
-  var L = gvS.L, T = gvS.T;
-  if (L < 0.1) { g.fillStyle = '#64748b'; g.font = '13px monospace';
-                 g.fillText('wheelbase not set', 20, 28); return; }
-
-  var bike = gvBikeFromTicks(gvS.tick, L, T, gvS.tpdL, gvS.tpdR);
-  var w = gvWheels(bike, L, T), right = bike >= 0, ab = Math.abs(bike);
-
-  // reference IMU: the selected wheel is inner when turning toward its own side
-  var side = document.getElementById('gvSide').value;
-  var refInner = (side === 'R') ? right : !right;
-  var refBike  = 0;
-  if (gvS.fresh && Math.abs(gvS.ref) > 0.01) {
-    var t = Math.tan(Math.abs(gvS.ref) * Math.PI / 180);
-    var den = L + (refInner ? 1 : -1) * (T / 2) * t;
-    if (den > 0.01) refBike = Math.atan(L * t / den) * 180 / Math.PI * (gvS.ref >= 0 ? 1 : -1);
-  }
-  // T back-solve: needs an inner and an outer reading of the SAME wheel, one per side
-  if (gvS.fresh && Math.abs(gvS.ref) > 8) gvTb[refInner ? 'inn' : 'out'] = Math.abs(gvS.ref);
-  var Tback = null;
-  if (gvTb.inn && gvTb.out) {
-    Tback = L * (1 / Math.tan(gvTb.out * Math.PI / 180) - 1 / Math.tan(gvTb.inn * Math.PI / 180));
-  }
-
-  var S = 78, cx = W / 2, yR = H - 92, yF = yR - L * S, ht = T / 2 * S;
-  function wheel(x, y, deg, col, ww, hh) {
-    g.save(); g.translate(x, y); g.rotate(deg * Math.PI / 180);
-    g.fillStyle = col + '38'; g.strokeStyle = col; g.lineWidth = 2.2;
-    g.beginPath(); g.rect(-ww / 2, -hh / 2, ww, hh); g.fill(); g.stroke(); g.restore();
-  }
-  g.strokeStyle = '#1e3a5f'; g.lineWidth = 1;
-  g.setLineDash([5, 5]); g.beginPath(); g.moveTo(cx, yF - 54); g.lineTo(cx, yR + 52); g.stroke();
-  g.setLineDash([]);
-  g.fillStyle = '#0d1b2e'; g.strokeStyle = '#1e3a5f';
-  g.beginPath(); g.rect(cx - 44, yF - 6, 88, yR - yF + 12); g.fill(); g.stroke();
-  [yR, yF].forEach(function (y) { g.beginPath(); g.moveTo(cx - ht - 26, y); g.lineTo(cx + ht + 26, y); g.stroke(); });
-
-  // rays to the turn centre, when it fits
-  if (isFinite(w.R) && w.R < 26) {
-    var xc = cx + (right ? 1 : -1) * w.R * S;
-    g.strokeStyle = '#334155'; g.setLineDash([3, 4]);
-    [[cx - ht, yF], [cx + ht, yF], [cx, yF], [cx - ht, yR], [cx + ht, yR]].forEach(function (pt) {
-      g.beginPath(); g.moveTo(pt[0], pt[1]); g.lineTo(xc, yR); g.stroke(); });
-    g.setLineDash([]);
-    if (Math.abs(xc - cx) < W / 2 - 14) {
-      g.fillStyle = '#334155'; g.beginPath(); g.arc(xc, yR, 5, 0, 7); g.fill();
-      g.fillStyle = '#64748b'; g.font = '11px monospace'; g.textAlign = 'center';
-      g.fillText('centre', xc, yR + 19);
-    }
-  }
-  wheel(cx - ht, yR, 0, '#475569', 15, 40);
-  wheel(cx + ht, yR, 0, '#475569', 15, 40);
-  var rIn = right, aR = (rIn ? w.inner : w.outer) * (right ? 1 : -1),
-                   aL = (rIn ? w.outer : w.inner) * (right ? 1 : -1);
-  if (ab < 1e-4) { aR = 0; aL = 0; }
-  wheel(cx + ht, yF, aR, rIn ? '#38bdf8' : '#f0776a', 15, 40);
-  wheel(cx - ht, yF, aL, rIn ? '#f0776a' : '#38bdf8', 15, 40);
-  wheel(cx, yF, ab < 1e-4 ? 0 : bike, '#facc15', 11, 44);
-
-  g.font = '12px monospace'; g.textAlign = 'left';
-  g.fillStyle = rIn ? '#38bdf8' : '#f0776a'; g.fillText('R ' + Math.abs(aR).toFixed(1) + '°', cx + ht + 18, yF - 12);
-  g.textAlign = 'right';
-  g.fillStyle = rIn ? '#f0776a' : '#38bdf8'; g.fillText('L ' + Math.abs(aL).toFixed(1) + '°', cx - ht - 18, yF - 12);
-  g.textAlign = 'center'; g.fillStyle = '#facc15';
-  g.fillText('bike ' + bike.toFixed(1) + '°', cx, yF - 30);
-  g.fillStyle = '#64748b';
-  g.fillText('T = ' + T.toFixed(2) + ' m', cx, yR + 40);
-  g.textAlign = 'left'; g.fillText('L = ' + L.toFixed(2) + ' m', cx + ht + 18, (yF + yR) / 2);
-
-  function put(id, v) { var e = document.getElementById(id); if (e) e.textContent = v; }
-  var dash = '—';
-  put('gvTick', gvS.tick);
-  put('gvBike', bike.toFixed(2) + ' °');
-  put('gvSteer', gvS.steer.toFixed(2) + ' °');
-  put('gvRefBike', gvS.fresh ? refBike.toFixed(2) + ' °' : dash);
-  put('gvD1', gvS.fresh ? (bike - refBike).toFixed(2) + ' °' : dash);
-  put('gvD2', (bike - gvS.steer).toFixed(2) + ' °');
-  put('gvIn', ab < 1e-4 ? '0.0 °' : w.inner.toFixed(1) + ' °');
-  put('gvOut', ab < 1e-4 ? '0.0 °' : w.outer.toFixed(1) + ' °');
-  put('gvR', isFinite(w.R) ? w.R.toFixed(1) + ' m' : '∞');
-  put('gvTb', Tback === null ? 'turn both ways' : Tback.toFixed(2) + ' m');
-  put('gvTpd', gvS.tpdL.toFixed(1) + ' · ' + gvS.tpdR.toFixed(1));
-  put('gvAck', (gvS.ack * 100).toFixed(0) + ' %' + (Math.abs(gvS.ack - 1) > 0.005 ? '  (one side scaled)' : ''));
 }
 
 // ── Graph preset: Keya auto-zero ─────────────────────────────────────────────
@@ -1490,9 +1387,7 @@ function upd(d) {
     document.getElementById('can2Baud').value = d.cfg.can2Baud || 250000;
     document.getElementById('can3Baud').value = d.cfg.can3Baud || 250000;
     document.getElementById('wasSource').value     = d.cfg.wasSource     || 0;
-    var _kg = document.getElementById('lvKeyaTab');
     var _src = d.cfg.wasSource || 0;
-    if (_kg) _kg.style.display = (_src == 0 || _src == 1) ? '' : 'none';
     wcSrcCur = _src;
     var _wn = ['ADS1115 (analog)', 'Keya encoder', 'IMU via CAN', 'CAN valve'];
     document.getElementById('wcSrc').textContent = _wn[_src] || _src;
@@ -1506,6 +1401,7 @@ function upd(d) {
     document.getElementById('adsEmaFilter').value  = (d.cfg.adsEmaAlpha   != null) ? d.cfg.adsEmaAlpha   : 0;
     document.getElementById('gpsSerial').value     = d.cfg.gpsSerial     || 7;
     document.getElementById('gpsBaud2').value      = d.cfg.gpsBaud       || 115200;
+    gpsBaudCur = d.cfg.gpsBaud || 115200;
     document.getElementById('tm171Serial').value   = (d.cfg.tm171Serial != null) ? d.cfg.tm171Serial : 2;
     document.getElementById('tm171Baud').value     = d.cfg.tm171Baud     || 115200;
     tmWarnUpd();
@@ -2126,17 +2022,11 @@ function tick() {
         .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
     } else if (lvMode === 'graph') {
       gPoll();
-    } else if (lvMode === 'keya') {
-      // Keya WAS Geometry scatter needs the full live payload (refAngle, steerAngle, geometry)
-      fetch('/api/live', { cache: 'no-store' })
-        .then(function(r) { return r.json(); })
-        .then(function(d) { updLive(d); })
-        .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
     }
     return;
   }
   // WAS cal tab with the ADS source: its own status (table, recording, zero)
-  if (activeTab === 'wascal') { wcPoll(); if (wcSrcCur == 0) return; }
+  if (activeTab === 'wascal') { wcPoll(); if (wcSrcCur == 0 && !kgOpen()) return; }
   // Other tabs: lightweight full live update
   fetch('/api/live', { cache: 'no-store' })
     .then(function(r) { return r.json(); })
@@ -2159,16 +2049,9 @@ function updLive(d) {
   if (ra) ra.textContent = d.refFresh ? (d.refAngle.toFixed(2) + ' °') : '—';
   var va = document.getElementById('calVirt');
   if (va && d.calBI !== undefined) va.textContent = d.refFresh ? (d.calBI.toFixed(1) + ' | ' + d.calBO.toFixed(1) + ' °') : '—';
-  // Keya WAS Geometry scatter: keep geometry fresh, capture (ref, steer) points while running
+  // WAS cal live check (Ackermann scatter): keep geometry fresh, capture (ref, steer) points while running
   if (d.wheelBase !== undefined) { kgWB = d.wheelBase; kgT = d.trackT; }
   if (kgCapture && d.refFresh && d.steerAngle !== undefined) kgPush(d.refAngle, d.steerAngle);
-  // Geometry view below the scatter: same payload, drawn live from the encoder
-  if (d.relTicks !== undefined) {
-    gvS.tick = d.relTicks; gvS.ref = d.refAngle; gvS.fresh = !!d.refFresh;
-    gvS.steer = d.steerAngle; gvS.L = d.wheelBase; gvS.T = d.trackT;
-    if (d.tpdL !== undefined) { gvS.tpdL = d.tpdL; gvS.tpdR = d.tpdR; gvS.ack = d.ackFix; }
-    gvDraw();
-  }
   // Live input readout above the scatter — shows every value feeding the Ackermann calc
   var kgf = document.getElementById('kgvFresh');
   if (kgf) {
@@ -2681,25 +2564,185 @@ function pvedCmd(cmd) {
   });
 }
 
-function uploadLines() {
-  var raw = document.getElementById('gpsLines').value;
-  var lines = raw.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
-  if (!lines.length) { document.getElementById('gpsStatus').textContent = 'No lines to send.'; return; }
-  var i = 0;
+// ── UM98x presets + verified upload ──────────────────────────────────────────
+// Teensy only buffers the receiver's reply lines ($command, $CONFIG, #VERSION) at /api/gpsrsp;
+// all checking happens here.
+var GPS_COMMON = ['CONFIG ANTENNA POWERON', 'CONFIG NMEAVERSION V410', 'CONFIG RTK TIMEOUT 400',
+  'CONFIG RTK RELIABILITY 3 2', 'CONFIG PPP DISABLE'];
+var GPS_COMMON2 = ['CONFIG DGPS TIMEOUT 600', 'CONFIG RTCMB1CB2A ENABLE', 'CONFIG SMOOTH HEADING 0',
+  'CONFIG SMOOTH RTKHEIGHT 0', 'CONFIG SMOOTH PSRVEL DISABLE', 'CONFIG SBAS DISABLE', 'CONFIG PPS DISABLE',
+  'CONFIG MMP ENABLE', 'CONFIG ANTIJAM AUTO', 'CONFIG AGNSS DISABLE', 'CONFIG PSRPOSBIAS ENABLE', 'SAVECONFIG'];
+var GPS_PRESETS = {
+  single: GPS_COMMON.concat(GPS_COMMON2, ['MODE ROVER AUTOMOTIVE', 'SAVECONFIG', 'CONFIG SIGNALGROUP 3 6',
+    'CONFIG COM1 460800', 'SAVECONFIG', 'GPGGA COM1 0.1', 'GPVTG COM1 0.1', 'SAVECONFIG']),
+  dual: GPS_COMMON.concat(['CONFIG HEADING OFFSET 180.0 0.0', 'CONFIG HEADING TRACTOR', 'CONFIG HEADING RELIABILITY 3'],
+    GPS_COMMON2, ['MODE HEADING2 TRACTOR', 'SAVECONFIG', 'CONFIG SIGNALGROUP 3 6', 'CONFIG COM1 460800',
+    'SAVECONFIG', 'GPHPR COM1 0.1', 'GPGGA COM1 0.1', 'GPVTG COM1 0.1', 'SAVECONFIG'])
+};
+var gpsBaudCur = 115200, gpsAbort = false, gpsModelName = '';
+
+function gpsPreset(k) {
+  document.getElementById('gpsLines').value = GPS_PRESETS[k].join('\n');
   var st = document.getElementById('gpsStatus');
-  function sendNext() {
-    if (i >= lines.length) {
-      st.textContent = 'Done — ' + lines.length + ' line(s) sent.';
-      setTimeout(pollGpsRaw, 300);
-      return;
+  st.textContent = (k === 'dual' ? 'Dual (UM982)' : 'Single (UM980)') + ' preset loaded — edit if needed, then Upload.';
+  if (k === 'dual' && /UM980/.test(gpsModelName)) st.textContent += ' Warning: detected ' + gpsModelName + ' (no heading).';
+}
+function gpsSleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+function gpsRsp(clear) { return fetch('/api/gpsrsp' + (clear ? '?clear=1' : ''), { cache: 'no-store' }).then(function(r) { return r.text(); }); }
+
+// Reply of one command: {ok:true|false, text} or null when nothing came back in time.
+function gpsFindReply(buf, cmd) {
+  var pre = '$command,' + cmd + ',response: ', ls = buf.split('\n');
+  for (var i = 0; i < ls.length; i++) {
+    if (ls[i].indexOf(pre) === 0) {
+      var t = ls[i].substring(pre.length).replace(/\*[0-9A-Fa-f]{2}\s*$/, '').trim();
+      return { ok: t === 'OK', text: t };
     }
+  }
+  return null;
+}
+async function gpsSend(cmd, waitMs) {
+  await gpsRsp(true);
+  await fetch('/api/gpscmd?line=' + encodeURIComponent(cmd));
+  var t0 = Date.now();
+  while (Date.now() - t0 < waitMs) {
+    await gpsSleep(120);
+    var r = gpsFindReply(await gpsRsp(false), cmd);
+    if (r) return r;
+  }
+  return null;
+}
+async function gpsSendRetry(cmd) {
+  for (var n = 0; n < 3; n++) {
+    var r = await gpsSend(cmd, 1500);
+    if (r) return r;                      // an error reply is final, no retry
+  }
+  return null;
+}
+async function gpsAlive(maxMs) {          // after MODE: the receiver restarts, poll VERSION until it answers
+  var t0 = Date.now();
+  while (Date.now() - t0 < maxMs) {
+    if (await gpsSend('VERSION', 800)) return true;
+    await gpsSleep(500);
+  }
+  return false;
+}
+function gpsDetect() {
+  var st = document.getElementById('gpsStatus'), m = document.getElementById('gpsModel');
+  st.textContent = 'Reading VERSION...';
+  gpsSend('VERSION', 2000).then(function(r) {
+    if (!r) { st.textContent = 'No reply from the receiver (check GPS serial / baud).'; return; }
+    return gpsSleep(400).then(function() { return gpsRsp(false); }).then(function(b) {
+      var mm = /#VERSION,[^;]*;(UM9[0-9A-Z]+),([^,]*)/.exec(b);
+      gpsModelName = mm ? mm[1] : '';
+      m.textContent = mm ? mm[1] + ' ' + mm[2] : '?';
+      st.textContent = mm ? ('Detected ' + mm[1] + (mm[1] === 'UM982' ? ' — use the Dual preset.' : ' — use the Single preset.')) : 'VERSION reply not recognised.';
+    });
+  });
+}
+function gpsRow(i, cls, txt) {
+  var e = document.getElementById('gpl' + i);
+  if (!e) return;
+  var col = { wait: '#64748b', send: '#e2b23e', ok: '#4ade80', err: '#f87171' }[cls] || '#94a3b8';
+  e.style.color = col;
+  e.querySelector('.gpr').textContent = txt || '';
+}
+function gpsRender(lines) {
+  var h = '';
+  for (var i = 0; i < lines.length; i++)
+    h += '<div id="gpl' + i + '" style="color:#64748b;padding:1px 0"><span class="gpt"></span>' +
+         lines[i].replace(/</g, '&lt;') + ' <span class="gpr" style="opacity:.85"></span></div>';
+  document.getElementById('gpsList').innerHTML = h;
+}
+// CONFIG read-back: "$CONFIG,KEY,CONFIG KEY ... *xx" -> the text after the second comma.
+function gpsCfgLines(buf) {
+  var out = [], ls = buf.split('\n');
+  for (var i = 0; i < ls.length; i++) {
+    var m = /^\$CONFIG,[^,]*,(.*?)(\*[0-9A-Fa-f]{2})?\s*$/.exec(ls[i]);
+    if (m) out.push(m[1].trim().replace(/\s+/g, ' '));
+  }
+  return out;
+}
+// 'ok' identical, 'diff' same key but another value (got = receiver's line), 'na' CONFIG does not list it.
+function gpsCompare(sent, cfg) {
+  var tk = sent.trim().toUpperCase().replace(/\s+/g, ' ').split(' ');
+  var cand = cfg.filter(function(c) { return c.toUpperCase().split(' ')[1] === tk[1]; });
+  // keys with a sub-command (RTK TIMEOUT, HEADING TRACTOR ...): compare only the line of the same sub-command
+  if (/^(RTK|PPP|HEADING|SMOOTH|DGPS)$/.test(tk[1]) || cand.length > 1)
+    cand = cand.filter(function(c) { return c.toUpperCase().split(' ')[2] === tk[2]; });
+  if (!cand.length) return { r: 'na' };
+  return cand[0].toUpperCase() === tk.join(' ') ? { r: 'ok' } : { r: 'diff', got: cand[0] };
+}
+async function gpsReadConfig() {
+  await gpsRsp(true);
+  await fetch('/api/gpscmd?line=CONFIG');
+  var t0 = Date.now(), last = -1, lastT = Date.now(), buf = '';
+  while (Date.now() - t0 < 5000) {
+    await gpsSleep(200);
+    buf = await gpsRsp(false);
+    if (buf.length !== last) { last = buf.length; lastT = Date.now(); }
+    else if (buf.indexOf('$command,CONFIG,response: OK') >= 0 && Date.now() - lastT > 600) break;
+  }
+  return buf.indexOf('$command,CONFIG,response: OK') >= 0 ? gpsCfgLines(buf) : null;
+}
+async function uploadLines() {
+  var raw = document.getElementById('gpsLines').value;
+  var lines = raw.split('\n').map(function(l) { return l.trim(); })
+    .filter(function(l) { return l.length > 0 && l.charAt(0) !== '#'; });
+  var st = document.getElementById('gpsStatus');
+  if (!lines.length) { st.textContent = 'No lines to send.'; return; }
+  var up = document.getElementById('gpsUpBtn'), sp = document.getElementById('gpsStopBtn');
+  up.disabled = true; sp.style.display = ''; gpsAbort = false;
+  gpsRender(lines);
+  var failed = false, i;
+  for (i = 0; i < lines.length && !gpsAbort; i++) {
     var line = lines[i];
     st.textContent = 'Sending ' + (i + 1) + '/' + lines.length + ': ' + line;
-    fetch('/api/gpscmd?line=' + encodeURIComponent(line))
-      .then(function() { i++; setTimeout(sendNext, 1000); })
-      .catch(function() { st.textContent = 'Error on line ' + (i + 1); });
+    gpsRow(i, 'send', 'sending...');
+    var bm = /^CONFIG\s+COM\d+\s+(\d+)\s*$/i.exec(line);
+    if (bm) {                                        // baud change: the reply comes at the OLD baud, so prove the new one
+      var nb = parseInt(bm[1], 10), old = gpsBaudCur;
+      if (nb !== old) {
+        var r0 = await gpsSend(line, 1500);
+        if (r0 && !r0.ok) { gpsRow(i, 'err', r0.text); failed = true; break; }
+        await fetch('/api/gpsbaud?baud=' + nb);
+        await gpsSleep(400);
+        if (await gpsSend('VERSION', 1500)) { gpsBaudCur = nb; gpsRow(i, 'ok', 'OK — Teensy now at ' + nb); continue; }
+        await fetch('/api/gpsbaud?baud=' + old);     // roll back
+        await gpsSleep(400);
+        var back = await gpsSend('VERSION', 1500);
+        gpsRow(i, 'err', 'no reply at ' + nb + ' — Teensy back at ' + old + (back ? '' : ' (receiver silent: set baud on Main config)') +
+               '. Is the Teensy on that receiver COM port?');
+        failed = true; break;
+      }
+    }
+    var r = await gpsSendRetry(line);
+    if (!r) { gpsRow(i, 'err', 'no reply'); failed = true; break; }
+    if (!r.ok) { gpsRow(i, 'err', r.text); failed = true; break; }
+    gpsRow(i, 'ok', 'OK');
+    if (/^(MODE|FRESET)\b/i.test(line)) {            // restarts the receiver
+      st.textContent = 'Waiting for the receiver to restart...';
+      await gpsSleep(2500);
+      if (!(await gpsAlive(15000))) { gpsRow(i, 'err', 'OK, but the receiver did not come back'); failed = true; break; }
+    }
   }
-  sendNext();
+  if (!failed && !gpsAbort) {
+    st.textContent = 'Reading CONFIG back...';
+    var cfg = await gpsReadConfig(), ok = 0, diff = 0, na = 0;
+    if (!cfg) { st.textContent = 'All ' + lines.length + ' lines OK. CONFIG read-back: no reply.'; }
+    else {
+      for (i = 0; i < lines.length; i++) {
+        if (!/^CONFIG\s/i.test(lines[i])) continue;
+        var c = gpsCompare(lines[i], cfg);
+        if (c.r === 'ok') { ok++; gpsRow(i, 'ok', 'OK — confirmed by CONFIG'); }
+        else if (c.r === 'diff') { diff++; gpsRow(i, 'err', 'OK, but CONFIG shows: ' + c.got); }
+        else na++;
+      }
+      st.textContent = 'Done — ' + lines.length + ' lines OK. CONFIG check: ' + ok + ' match, ' + diff + ' differ, ' + na + ' not listed by CONFIG (checked by reply only).';
+    }
+  } else st.textContent = gpsAbort ? 'Stopped.' : 'Stopped at line ' + (i + 1) + ' — fix it or remove the line, then Upload again.';
+  up.disabled = false; sp.style.display = 'none';
+  setTimeout(pollGpsRaw, 300);
 }
 
 // ── Graph (Live tab → Graph) ─────────────────────────────────────────────────
@@ -3003,6 +3046,7 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/gpsraw")      != NULL) handleApiGpsRaw(client, reqLine);
     else if (strstr(reqLine, "/api/gpscmd")      != NULL) handleApiGpsCmd(client, reqLine);
     else if (strstr(reqLine, "/api/gpsbaud")     != NULL) handleApiGpsBaud(client, reqLine);
+    else if (strstr(reqLine, "/api/gpsrsp")      != NULL) handleApiGpsRsp(client, reqLine);
     else if (strstr(reqLine, "/api/keyaforceinit") != NULL) {
       // Manual force: set zero at current position and unlock (for testing, no GPS drive needed)
       moduleConfig.keyaZeroTicks = keyaEncoderRaw - (int32_t)(wheelAngleGPS * moduleConfig.keyaTicksPerDeg);
@@ -3502,16 +3546,10 @@ void handleApiLive(EthernetClient& client)
     calLiveVirtual();   // refresh live bike-angle candidates from the current reference reading
     client.print(F(",\"calBI\":")); client.print(calBikeInner, 1);
     client.print(F(",\"calBO\":")); client.print(calBikeOuter, 1);
-    // F07-style geometry check: AOG steer angle + geometry, for the Keya WAS Geometry scatter
+    // F07-style geometry check: AOG steer angle + geometry, for the WAS cal live check scatter
     client.print(F(",\"steerAngle\":")); client.print(steerAngleActual, 2);
     client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
     client.print(F(",\"trackT\":")); client.print(moduleConfig.keyaTrackT, 2);
-    // Geometry view: encoder ticks from the centre press, plus the two knobs that bend the
-    // tick->angle chain after the pure geometry (so the three angles can be told apart).
-    client.print(F(",\"relTicks\":")); client.print(keyaEncoderRaw - keyaPosRef);
-    client.print(F(",\"tpdL\":")); client.print(moduleConfig.keyaTicksLeft, 1);
-    client.print(F(",\"tpdR\":")); client.print(moduleConfig.keyaTicksRight, 1);
-    client.print(F(",\"ackFix\":")); client.print(steerSettings.AckermanFix, 3);  // fraction, 1.0 = 100 %
     client.print(F(",\"calState\":")); client.print(calState);
     client.print(F(",\"calMsg\":\"")); client.print(calMsg); client.print('"');
     client.print(F(",\"calSpeed\":")); client.print(calSpeed);
@@ -3659,6 +3697,13 @@ static void urlDecode(char* dst, const char* src, size_t maxLen)
         i++;
     }
     *dst = '\0';
+}
+
+void handleApiGpsRsp(EthernetClient& client, const char* req)
+{
+    if (strstr(req, "clear=1") != NULL) gpsRspLen = 0;
+    sendHeaders(client, "text/plain; charset=utf-8");
+    if (gpsRspLen > 0) sendBuf(client, (const uint8_t*)gpsRspBuf, gpsRspLen);
 }
 
 void handleApiGpsBaud(EthernetClient& client, const char* req)
