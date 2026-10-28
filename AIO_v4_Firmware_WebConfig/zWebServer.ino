@@ -2006,6 +2006,7 @@ function clearLog() {
 }
 
 function tick() {
+  if (gpsBusy) return;                    // UM98x upload running: leave the Teensy web server to it
   if (!configLoaded) {
     fetch('/api/status', { cache: 'no-store' })
       .then(function(r) { return r.json(); })
@@ -2573,13 +2574,14 @@ var GPS_COMMON2 = ['CONFIG DGPS TIMEOUT 600', 'CONFIG RTCMB1CB2A ENABLE', 'CONFI
   'CONFIG SMOOTH RTKHEIGHT 0', 'CONFIG SMOOTH PSRVEL DISABLE', 'CONFIG SBAS DISABLE', 'CONFIG PPS DISABLE',
   'CONFIG MMP ENABLE', 'CONFIG ANTIJAM AUTO', 'CONFIG AGNSS DISABLE', 'CONFIG PSRPOSBIAS ENABLE', 'SAVECONFIG'];
 var GPS_PRESETS = {
-  single: GPS_COMMON.concat(GPS_COMMON2, ['MODE ROVER AUTOMOTIVE', 'SAVECONFIG', 'CONFIG SIGNALGROUP 3 6',
-    'CONFIG COM1 460800', 'SAVECONFIG', 'GPGGA COM1 0.1', 'GPVTG COM1 0.1', 'SAVECONFIG']),
-  dual: GPS_COMMON.concat(['CONFIG HEADING OFFSET 180.0 0.0', 'CONFIG HEADING TRACTOR', 'CONFIG HEADING RELIABILITY 3'],
-    GPS_COMMON2, ['MODE HEADING2 TRACTOR', 'SAVECONFIG', 'CONFIG SIGNALGROUP 3 6', 'CONFIG COM1 460800',
-    'SAVECONFIG', 'GPHPR COM1 0.1', 'GPGGA COM1 0.1', 'GPVTG COM1 0.1', 'SAVECONFIG'])
+  // the baud change goes first: if it does not work the upload stops on line 1, not at the end
+  single: ['CONFIG COM1 460800', 'SAVECONFIG'].concat(GPS_COMMON, GPS_COMMON2, ['MODE ROVER AUTOMOTIVE', 'SAVECONFIG',
+    'CONFIG SIGNALGROUP 3 6', 'GPGGA COM1 0.1', 'GPVTG COM1 0.1', 'SAVECONFIG']),
+  dual: ['CONFIG COM1 460800', 'SAVECONFIG'].concat(GPS_COMMON, ['CONFIG HEADING OFFSET 180.0 0.0', 'CONFIG HEADING TRACTOR',
+    'CONFIG HEADING RELIABILITY 3'], GPS_COMMON2, ['MODE HEADING2 TRACTOR', 'SAVECONFIG', 'CONFIG SIGNALGROUP 3 6',
+    'GPHPR COM1 0.1', 'GPGGA COM1 0.1', 'GPVTG COM1 0.1', 'SAVECONFIG'])
 };
-var gpsBaudCur = 115200, gpsAbort = false, gpsModelName = '';
+var gpsBaudCur = 115200, gpsAbort = false, gpsModelName = '', gpsBusy = false, gpsNetErr = false;
 
 function gpsPreset(k) {
   document.getElementById('gpsLines').value = GPS_PRESETS[k].join('\n');
@@ -2588,7 +2590,14 @@ function gpsPreset(k) {
   if (k === 'dual' && /UM980/.test(gpsModelName)) st.textContent += ' Warning: detected ' + gpsModelName + ' (no heading).';
 }
 function gpsSleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
-function gpsRsp(clear) { return fetch('/api/gpsrsp' + (clear ? '?clear=1' : ''), { cache: 'no-store' }).then(function(r) { return r.text(); }); }
+// fetch with a timeout: a stalled request must not freeze the upload
+function gpsFetch(u) {
+  var ctl = new AbortController(), t = setTimeout(function() { ctl.abort(); }, 3000);
+  return fetch(u, { cache: 'no-store', signal: ctl.signal }).then(function(r) { clearTimeout(t); return r; },
+    function(e) { clearTimeout(t); throw e; });
+}
+function gpsRsp(clear) { return gpsFetch('/api/gpsrsp' + (clear ? '?clear=1' : '')).then(function(r) { return r.text(); }); }
+async function gpsBaudSet(n) { try { await gpsFetch('/api/gpsbaud?baud=' + n); return true; } catch (e) { gpsNetErr = true; return false; } }
 
 // Reply of one command: {ok:true|false, text} or null when nothing came back in time.
 function gpsFindReply(buf, cmd) {
@@ -2601,20 +2610,23 @@ function gpsFindReply(buf, cmd) {
   }
   return null;
 }
-async function gpsSend(cmd, waitMs) {
-  await gpsRsp(true);
-  await fetch('/api/gpscmd?line=' + encodeURIComponent(cmd));
-  var t0 = Date.now();
-  while (Date.now() - t0 < waitMs) {
-    await gpsSleep(120);
-    var r = gpsFindReply(await gpsRsp(false), cmd);
-    if (r) return r;
-  }
+async function gpsSend(cmd, waitMs) {     // null = no reply (or no connection to the Teensy: gpsNetErr)
+  try {
+    await gpsRsp(true);
+    await gpsFetch('/api/gpscmd?line=' + encodeURIComponent(cmd));
+    var t0 = Date.now();
+    while (Date.now() - t0 < waitMs) {
+      await gpsSleep(250);
+      var r = gpsFindReply(await gpsRsp(false), cmd);
+      if (r) return r;
+    }
+  } catch (e) { gpsNetErr = true; await gpsSleep(500); }
   return null;
 }
 async function gpsSendRetry(cmd) {
+  gpsNetErr = false;
   for (var n = 0; n < 3; n++) {
-    var r = await gpsSend(cmd, 1500);
+    var r = await gpsSend(cmd, 3000);
     if (r) return r;                      // an error reply is final, no retry
   }
   return null;
@@ -2622,7 +2634,7 @@ async function gpsSendRetry(cmd) {
 async function gpsAlive(maxMs) {          // after MODE: the receiver restarts, poll VERSION until it answers
   var t0 = Date.now();
   while (Date.now() - t0 < maxMs) {
-    if (await gpsSend('VERSION', 800)) return true;
+    if (await gpsSend('VERSION', 1500)) return true;
     await gpsSleep(500);
   }
   return false;
@@ -2630,7 +2642,7 @@ async function gpsAlive(maxMs) {          // after MODE: the receiver restarts, 
 function gpsDetect() {
   var st = document.getElementById('gpsStatus'), m = document.getElementById('gpsModel');
   st.textContent = 'Reading VERSION...';
-  gpsSend('VERSION', 2000).then(function(r) {
+  gpsSend('VERSION', 3000).then(function(r) {
     if (!r) { st.textContent = 'No reply from the receiver (check GPS serial / baud).'; return; }
     return gpsSleep(400).then(function() { return gpsRsp(false); }).then(function(b) {
       var mm = /#VERSION,[^;]*;(UM9[0-9A-Z]+),([^,]*)/.exec(b);
@@ -2674,26 +2686,33 @@ function gpsCompare(sent, cfg) {
   return cand[0].toUpperCase() === tk.join(' ') ? { r: 'ok' } : { r: 'diff', got: cand[0] };
 }
 async function gpsReadConfig() {
-  await gpsRsp(true);
-  await fetch('/api/gpscmd?line=CONFIG');
-  var t0 = Date.now(), last = -1, lastT = Date.now(), buf = '';
-  while (Date.now() - t0 < 5000) {
-    await gpsSleep(200);
-    buf = await gpsRsp(false);
-    if (buf.length !== last) { last = buf.length; lastT = Date.now(); }
-    else if (buf.indexOf('$command,CONFIG,response: OK') >= 0 && Date.now() - lastT > 600) break;
-  }
+  var buf = '';
+  try {
+    await gpsRsp(true);
+    await gpsFetch('/api/gpscmd?line=CONFIG');
+    var t0 = Date.now(), last = -1, lastT = Date.now();
+    while (Date.now() - t0 < 6000) {
+      await gpsSleep(250);
+      buf = await gpsRsp(false);
+      if (buf.length !== last) { last = buf.length; lastT = Date.now(); }
+      else if (buf.indexOf('$command,CONFIG,response: OK') >= 0 && Date.now() - lastT > 700) break;
+    }
+  } catch (e) { return null; }
   return buf.indexOf('$command,CONFIG,response: OK') >= 0 ? gpsCfgLines(buf) : null;
 }
-async function uploadLines() {
+async function gpsUploadMain() {
   var raw = document.getElementById('gpsLines').value;
   var lines = raw.split('\n').map(function(l) { return l.trim(); })
     .filter(function(l) { return l.length > 0 && l.charAt(0) !== '#'; });
   var st = document.getElementById('gpsStatus');
   if (!lines.length) { st.textContent = 'No lines to send.'; return; }
-  var up = document.getElementById('gpsUpBtn'), sp = document.getElementById('gpsStopBtn');
-  up.disabled = true; sp.style.display = ''; gpsAbort = false;
+  gpsAbort = false;
   gpsRender(lines);
+  st.textContent = 'Waiting for the receiver to answer...';
+  if (!(await gpsAlive(15000))) {
+    st.textContent = gpsNetErr ? 'No connection to the Teensy.' : 'The receiver does not answer (check GPS serial / baud on Main config).';
+    return;
+  }
   var failed = false, i;
   for (i = 0; i < lines.length && !gpsAbort; i++) {
     var line = lines[i];
@@ -2703,21 +2722,21 @@ async function uploadLines() {
     if (bm) {                                        // baud change: the reply comes at the OLD baud, so prove the new one
       var nb = parseInt(bm[1], 10), old = gpsBaudCur;
       if (nb !== old) {
-        var r0 = await gpsSend(line, 1500);
+        var r0 = await gpsSend(line, 3000);
         if (r0 && !r0.ok) { gpsRow(i, 'err', r0.text); failed = true; break; }
-        await fetch('/api/gpsbaud?baud=' + nb);
+        if (!(await gpsBaudSet(nb))) { gpsRow(i, 'err', 'no connection to the Teensy'); failed = true; break; }
         await gpsSleep(400);
-        if (await gpsSend('VERSION', 1500)) { gpsBaudCur = nb; gpsRow(i, 'ok', 'OK — Teensy now at ' + nb); continue; }
-        await fetch('/api/gpsbaud?baud=' + old);     // roll back
+        if (await gpsSend('VERSION', 3000)) { gpsBaudCur = nb; gpsRow(i, 'ok', 'OK — Teensy now at ' + nb); continue; }
+        await gpsBaudSet(old);                       // roll back
         await gpsSleep(400);
-        var back = await gpsSend('VERSION', 1500);
+        var back = await gpsSend('VERSION', 3000);
         gpsRow(i, 'err', 'no reply at ' + nb + ' — Teensy back at ' + old + (back ? '' : ' (receiver silent: set baud on Main config)') +
                '. Is the Teensy on that receiver COM port?');
         failed = true; break;
       }
     }
     var r = await gpsSendRetry(line);
-    if (!r) { gpsRow(i, 'err', 'no reply'); failed = true; break; }
+    if (!r) { gpsRow(i, 'err', gpsNetErr ? 'no connection to the Teensy' : 'no reply'); failed = true; break; }
     if (!r.ok) { gpsRow(i, 'err', r.text); failed = true; break; }
     gpsRow(i, 'ok', 'OK');
     if (/^(MODE|FRESET)\b/i.test(line)) {            // restarts the receiver
@@ -2741,8 +2760,18 @@ async function uploadLines() {
       st.textContent = 'Done — ' + lines.length + ' lines OK. CONFIG check: ' + ok + ' match, ' + diff + ' differ, ' + na + ' not listed by CONFIG (checked by reply only).';
     }
   } else st.textContent = gpsAbort ? 'Stopped.' : 'Stopped at line ' + (i + 1) + ' — fix it or remove the line, then Upload again.';
-  up.disabled = false; sp.style.display = 'none';
-  setTimeout(pollGpsRaw, 300);
+}
+async function uploadLines() {
+  if (gpsBusy) return;
+  var up = document.getElementById('gpsUpBtn'), sp = document.getElementById('gpsStopBtn');
+  gpsBusy = true;                         // the page's own polling is paused meanwhile (tick)
+  up.disabled = true; sp.style.display = '';
+  try { await gpsUploadMain(); }
+  catch (e) { document.getElementById('gpsStatus').textContent = 'Upload error: ' + (e && e.message ? e.message : e); }
+  finally {
+    gpsBusy = false; up.disabled = false; sp.style.display = 'none';
+    setTimeout(pollGpsRaw, 300);
+  }
 }
 
 // ── Graph (Live tab → Graph) ─────────────────────────────────────────────────
