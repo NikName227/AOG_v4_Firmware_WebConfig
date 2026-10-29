@@ -144,16 +144,17 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </style>
 </head>
 <body>
+<div id="otaBanner" style="display:none;background:#c2410c;color:#fff7ed;text-align:center;padding:8px 10px;font:bold 15px sans-serif;letter-spacing:1px"></div>
 <h1>&#9881; AIO v4 | Web Config <span id="fwVer" style="font-size:12px;color:#64748b;font-weight:normal"></span></h1>
 <div id="sb">Connecting to Teensy...</div>
 <div class="tabs">
 <button class="tab active" onclick="showTab('config',this)">Config</button>
 <button class="tab" onclick="showTab('live',this)">Live</button>
 <button class="tab" id="tabTm171" onclick="showTab('tm171',this)" style="display:none">TM171</button>
-<button class="tab" onclick="showTab('keya',this)">Keya</button>
+<button class="tab" id="tabKeya" onclick="showTab('keya',this)">Keya</button>
 <button class="tab" onclick="showTab('wascal',this)">WAS cal</button>
-<button class="tab" onclick="showTab('cansteer',this)">CAN Steer</button>
-<button class="tab" onclick="showTab('debug',this)">Debug</button>
+<button class="tab" id="tabCan" onclick="showTab('cansteer',this)">CAN Steer</button>
+<button class="tab" id="tabDebug" onclick="showTab('debug',this)">Debug</button>
 <button class="tab" onclick="showTab('um98x',this)">UM98x Config</button>
 </div>
 
@@ -325,6 +326,27 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <textarea id="noteTxt" maxlength="1000" rows="8" oninput="noteCount()" style="width:100%;box-sizing:border-box;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:8px;font-family:inherit;font-size:13px;resize:vertical"></textarea>
 <div class="row" style="margin-top:6px"><span style="color:#64748b;font-size:12px" id="noteLen">0 / 1000</span>
 <button class="btn green" onclick="saveNote()">Save notes</button></div>
+</div>
+
+<div class="card" id="fwCard">
+<h2>Firmware update <span id="fwCardVer" class="badge ok" style="margin-left:auto">&mdash;</span></h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Upload a <b>.hex</b> built for this firmware (Teensy 4.1). The vehicle must stand still and autosteer must be off. During the upload the Teensy pauses GPS, IMU, CAN and steering; AgIO sees it offline until the update ends. Do not switch the power off during the update (about 30 s). If it fails, press the program button on the Teensy and flash over USB.</p>
+<div class="row"><span class="lbl">Firmware file (.hex)</span><input type="file" id="fwFile" accept=".hex" onchange="fwPick()"></div>
+<div class="row"><span class="lbl">Booted</span><span class="val" id="fwBoot">&mdash;</span></div>
+<div class="row"><span class="lbl">Build</span><span class="val" id="fwBuild">&mdash;</span></div>
+<div class="row"><span class="lbl">Last OTA</span><span class="val" id="fwLast" style="font-size:12px">&mdash;</span></div>
+<div class="row"><span class="lbl">Last restart</span><span class="val" id="fwRst" style="font-size:11px;white-space:normal;text-align:right">&mdash;</span></div>
+<div class="row"><span class="lbl">Image</span><span class="val" id="fwInfo">no file chosen</span></div>
+<div class="row"><span class="lbl">PIN <small style="color:#64748b">(def: 1234)</small></span>
+<input type="password" id="fwPin" maxlength="8" inputmode="numeric" autocomplete="off" class="ninput"></div>
+<progress id="fwProg" value="0" max="100" style="width:100%;height:10px;margin:6px 0"></progress>
+<button class="btn green" id="fwBtn" onclick="fwUpload()" disabled>Upload and update</button>
+<div class="row" style="margin-top:6px"><span class="val" id="fwMsg" style="font-size:12px">&mdash;</span></div>
+<div style="border-top:1px solid #334155;margin:10px 0 8px"></div>
+<div style="color:#38bdf8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Change PIN</div>
+<div class="row"><span class="lbl">Current PIN</span><input type="password" id="fwPinOld" maxlength="8" inputmode="numeric" autocomplete="off" class="ninput"></div>
+<div class="row"><span class="lbl">New PIN <small style="color:#64748b">(4&ndash;8 digits)</small></span><input type="password" id="fwPinNew" maxlength="8" inputmode="numeric" autocomplete="off" class="ninput"></div>
+<button class="btn" onclick="fwChangePin()">Change PIN</button>
 </div>
 
 <div class="card">
@@ -1366,7 +1388,8 @@ function badge(id, ok) {
 function yn(v) { return v ? 'YES' : 'NO'; }
 
 function upd(d) {
-  if (d.fwVer) document.getElementById('fwVer').textContent = d.fwVer;
+  if (d.fwVer) { document.getElementById('fwVer').textContent = d.fwVer; document.getElementById('fwCardVer').textContent = d.fwVer; }
+  fwBootInit(d);
   badge('k_det', d.detected.keya);
   badge('k_zero', d.keya_was.initialZeroDone);
   document.getElementById('k_enc').textContent = d.keya_was.encoderRaw + ' ticks';
@@ -1618,6 +1641,148 @@ function noteLoad() {
 function saveNote() {
   fetch('/api/note', { method: 'POST', body: document.getElementById('noteTxt').value })
     .then(function(r){ document.getElementById('sb').textContent = r.ok ? 'Setup notes saved.' : 'ERROR saving notes.'; });
+}
+
+// ── Firmware update (OTA): the hex is parsed here, the Teensy gets a binary image in 1 KB chunks ──────────────
+var fwImg = null, fwCrc = 0, fwCrcTab = null, fwImgVer = '';
+function fwCrc32(u8, a, b) {
+  if (!fwCrcTab) { fwCrcTab = new Uint32Array(256); for (var i = 0; i < 256; i++) { var c = i; for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); fwCrcTab[i] = c >>> 0; } }
+  var crc = 0xFFFFFFFF;
+  for (var j = a; j < b; j++) crc = fwCrcTab[(crc ^ u8[j]) & 255] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function fwParseHex(txt) {
+  var base = 0, parts = [], lo = 0xFFFFFFFF, hi = 0, lines = txt.split(/\r?\n/);
+  for (var n = 0; n < lines.length; n++) {
+    var l = lines[n].trim(); if (!l) continue;
+    if (l.charAt(0) !== ':' || l.length < 11 || (l.length % 2) !== 1) throw new Error('line ' + (n + 1) + ': not an Intel HEX line');
+    var b = [], sum = 0;
+    for (var i = 1; i < l.length; i += 2) { var v = parseInt(l.substr(i, 2), 16); if (isNaN(v)) throw new Error('line ' + (n + 1) + ': bad hex digit'); b.push(v); sum += v; }
+    if ((sum & 255) !== 0) throw new Error('line ' + (n + 1) + ': checksum error');
+    var len = b[0], addr = (b[1] << 8) | b[2], type = b[3];
+    if (b.length !== len + 5) throw new Error('line ' + (n + 1) + ': length mismatch');
+    if (type === 0) { var a = (base + addr) >>> 0; parts.push([a, b.slice(4, 4 + len)]); if (a < lo) lo = a; if (a + len > hi) hi = a + len; }
+    else if (type === 1) break;
+    else if (type === 2) base = ((b[4] << 8) | b[5]) * 16;
+    else if (type === 4) base = (((b[4] << 8) | b[5]) * 65536) >>> 0;
+  }
+  if (!parts.length) throw new Error('no data in the file');
+  if (lo !== 0x60000000) throw new Error('not a Teensy 4.1 image (starts at 0x' + lo.toString(16) + ')');
+  var total = Math.ceil((hi - lo) / 4096) * 4096;
+  if (total > 0x200000) throw new Error('image too big');
+  var img = new Uint8Array(total); img.fill(0xFF);
+  for (var p = 0; p < parts.length; p++) img.set(parts[p][1], parts[p][0] - lo);
+  return img;
+}
+function fwImgHas(img, s) {
+  outer: for (var i = 0; i + s.length <= img.length; i++) { if (img[i] !== s.charCodeAt(0)) continue; for (var k = 1; k < s.length; k++) if (img[i + k] !== s.charCodeAt(k)) continue outer; return true; }
+  return false;
+}
+// Uptime and build time prove that a flash really restarted the Teensy; an "otatest" build looks different on purpose.
+var fwBootAt = 0;
+function fwBootTxt() {
+  var s = Math.max(0, Math.round((Date.now() - fwBootAt) / 1000)), m = Math.floor(s / 60);
+  return (m ? m + ' min ' : '') + (s % 60) + ' s ago';
+}
+function fwBootInit(d) {
+  if (d.up !== undefined) { fwBootAt = Date.now() - d.up * 1000; document.getElementById('fwBoot').textContent = fwBootTxt(); }
+  if (d.build) document.getElementById('fwBuild').textContent = d.build;
+  fwDiag();
+  if (!window.fwBootTimer) window.fwBootTimer = setInterval(function() { if (fwBootAt) document.getElementById('fwBoot').textContent = fwBootTxt(); }, 1000);
+  var test = !!d.fwVer && d.fwVer.indexOf('otatest') >= 0, b = document.getElementById('otaBanner');
+  b.style.display = test ? '' : 'none';
+  b.textContent = test ? 'OTA TEST BUILD ' + d.fwVer + (d.build ? '  |  ' + d.build : '') : '';
+  document.title = test ? 'OTA TEST ' + d.fwVer : 'AIO v4 Config';
+  ['tabKeya', 'tabCan', 'tabDebug'].forEach(function(id) { var e = document.getElementById(id); if (e) e.style.display = test ? 'none' : ''; });
+}
+function fwDiag() {                      // last OTA result and restart report from the Teensy
+  return fetch('/api/ota?cmd=status', { cache: 'no-store' }).then(function(r) { return r.json(); }).then(function(st) {
+    if (st.last !== undefined) document.getElementById('fwLast').textContent = st.last;
+    if (st.boot !== undefined) document.getElementById('fwRst').textContent = st.boot;
+    return st;
+  }).catch(function() {});
+}
+function fwImgVersion(img) {              // the "fwVer" text in the image (the JSON of /api/status)
+  var key = '{"fw' + 'Ver":"', k = key.length;   // split, so this page (also in the image) does not match itself
+  outer: for (var i = 0; i + k < img.length; i++) {
+    if (img[i] !== 123) continue;
+    for (var j = 1; j < k; j++) if (img[i + j] !== key.charCodeAt(j)) continue outer;
+    var v = ''; for (var q = i + k; q < img.length && img[q] !== 34 && v.length < 40; q++) v += String.fromCharCode(img[q]);
+    if (/^v\d/.test(v)) return v;
+  }
+  return '';
+}
+function fwSay(t, bad) { var e = document.getElementById('fwMsg'); e.textContent = t; e.style.color = bad ? '#f87171' : ''; }
+function fwPick() {
+  var f = document.getElementById('fwFile').files[0]; fwImg = null;
+  document.getElementById('fwBtn').disabled = true; document.getElementById('fwProg').value = 0;
+  if (!f) { document.getElementById('fwInfo').textContent = 'no file chosen'; return; }
+  var rd = new FileReader();
+  rd.onload = function() {
+    try {
+      var img = fwParseHex(String(rd.result));
+      var u32 = function(o) { return (img[o] | (img[o + 1] << 8) | (img[o + 2] << 16) | (img[o + 3] << 24)) >>> 0; };
+      if (u32(0) !== 0x42464346 || u32(0x50) !== 0x00800000 || u32(0x1000) !== 0x432000D1) throw new Error('not a Teensy 4.1 image');
+      if (!fwImgHas(img, 'AIO4-OTA-FW-T41')) throw new Error('not an AIO v4 WebConfig image with update support (flash this one over USB)');
+      fwImg = img; fwCrc = fwCrc32(img, 0, img.length); fwImgVer = fwImgVersion(img);
+      document.getElementById('fwInfo').textContent = (fwImgVer || '?') + ', ' + Math.round(img.length / 1024) + ' KB, CRC ' + fwCrc.toString(16).padStart(8, '0') + ' \u2014 checked';
+      document.getElementById('fwBtn').disabled = false; fwSay('Ready. Enter the PIN and press Upload.');
+    } catch (e) { document.getElementById('fwInfo').textContent = 'refused'; fwSay(e.message, true); }
+  };
+  rd.readAsText(f);
+}
+function fwApi(q, body) {
+  return fetch('/api/ota?' + q, { method: 'POST', body: body, cache: 'no-store' }).then(function(r) { return r.json(); });
+}
+async function fwUpload() {
+  if (!fwImg) return;
+  var pin = document.getElementById('fwPin').value, bar = document.getElementById('fwProg'), btn = document.getElementById('fwBtn');
+  btn.disabled = true; gpsBusy = true; bar.value = 0;
+  try {
+    fwSay('Starting... GPS, IMU, CAN and steering pause until the update ends.');
+    var j = await fwApi('cmd=begin&pin=' + encodeURIComponent(pin) + '&len=' + fwImg.length + '&crc=' + fwCrc.toString(16), '');
+    if (!j.ok) throw new Error(j.err || 'no reply from the Teensy');
+    var tok = j.tok, N = 1024;
+    for (var off = 0; off < fwImg.length; off += N) {
+      var chunk = fwImg.subarray(off, off + N), c = fwCrc32(chunk, 0, chunk.length).toString(16), done = false, last = '';
+      for (var t = 0; t < 4 && !done; t++) {
+        try { var r = await fwApi('cmd=data&tok=' + tok + '&off=' + off + '&c=' + c, chunk); if (r.ok) done = true; else last = r.err || 'rejected'; if (!r.ok && /session|no upload|aborted|moving|autosteer|verify/.test(last)) break; }
+        catch (e) { last = 'no reply'; }
+      }
+      if (!done) throw new Error('chunk at ' + off + ': ' + last);
+      bar.value = Math.round(100 * (off + N) / fwImg.length); fwSay('Uploading... ' + bar.value + ' %');
+    }
+    fwSay('Checking the image...');
+    j = await fwApi('cmd=end&tok=' + tok, '');
+    if (!j.ok) throw new Error(j.err || 'image refused');
+    bar.value = 100; fwSay('Updating - the Teensy restarts, do not switch the power off (about 30 s)...');
+    // success only when the new version runs and the Teensy really restarted after the upload
+    var t0 = Date.now(), up = false;
+    while (Date.now() - t0 < 120000 && !up) {
+      await new Promise(function(res) { setTimeout(res, 3000); });
+      if (Date.now() - t0 < 9000) continue;
+      try {
+        var st = await (await fetch('/api/ota?cmd=status', { cache: 'no-store' })).json();
+        if (!st.ver) continue;
+        up = true;
+        var since = (Date.now() - t0) / 1000, restarted = st.up !== undefined && st.up <= since + 3;
+        document.getElementById('fwLast').textContent = st.last || '\u2014';
+        document.getElementById('fwRst').textContent = st.boot || '\u2014';
+        if (restarted && (!fwImgVer || st.ver === fwImgVer)) { fwSay('Done. Firmware ' + st.ver + ' is running. Reloading...'); setTimeout(function() { location.reload(); }, 2500); }
+        else if (!restarted) fwSay('Firmware NOT replaced: the Teensy did not restart (up ' + st.up + ' s, still ' + st.ver + ').', true);
+        else fwSay('Firmware NOT replaced: the Teensy restarted with ' + st.ver + ' instead of ' + fwImgVer + '. Last OTA: ' + (st.last || '?'), true);
+      } catch (e) {}
+    }
+    if (!up) fwSay('The Teensy does not answer yet. Wait a minute and reload the page.', true);
+  } catch (e) { fwSay('Update failed: ' + e.message, true); btn.disabled = false; }
+  finally { gpsBusy = false; }
+}
+function fwChangePin() {
+  var o = document.getElementById('fwPinOld').value, n = document.getElementById('fwPinNew').value;
+  fetch('/api/ota?cmd=pin&old=' + encodeURIComponent(o) + '&new=' + encodeURIComponent(n), { method: 'POST', body: '', cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(j) { fwSay(j.ok ? 'PIN changed.' : 'PIN not changed: ' + (j.err || 'no reply'), !j.ok); if (j.ok) { document.getElementById('fwPinOld').value = ''; document.getElementById('fwPinNew').value = ''; } })
+    .catch(function() { fwSay('No reply from the Teensy.', true); });
 }
 
 function saveKeya() {
@@ -2973,6 +3138,8 @@ var gSignals = [
  {id:17,n:'Gr3 WAS ADS raw'},{id:18,n:'Gr3 WAS IMU raw'},{id:19,n:'Gr3 WAS IMU scaled'},
  {id:20,n:'Gr3 WAS chassis yawRate'},{id:21,n:'Gr3 WAS wheelAngleGPS'},{id:22,n:'Gr3 WAS actual'},
  {id:49,n:'Gr3 WAS delta (deg per ADS sample)'},
+ // ── Test signals (synthetic, to check the graph) ──
+ {id:60,n:'Test sine (+-10, 10 s)'},{id:61,n:'Test step (0-10 in 2 steps of 2, 2 s each)'},{id:62,n:'Test triangle (0-10, 8 s)'},{id:63,n:'Test noise (+-1)'},
  // ── Gr4 Keya ──
  {id:23,n:'Gr4 Keya encoder'},{id:24,n:'Gr4 Keya gpsOffset'},{id:25,n:'Gr4 Keya actSpeed'},{id:26,n:'Gr4 Keya setSpeed'},
  {id:44,n:'Gr4 Keya wheel pos (deg)'},{id:45,n:'Gr4 Keya steering-wheel pos (deg)'},
@@ -3181,11 +3348,12 @@ restartTick();
 // ── Helper: send buffer in 512-byte chunks ────────────────────────────────────
 void sendBuf(EthernetClient& client, const uint8_t* p, size_t len)
 {
+    uint8_t fails = 0;                       // a browser that went away: give up instead of retrying for seconds
     while (len > 0 && client.connected()) {
         size_t chunk = (len > 512) ? 512 : len;
         size_t sent  = client.write(p, chunk);
-        if (sent == 0) delay(5);
-        else { p += sent; len -= sent; }
+        if (sent == 0 || sent > chunk) { if (++fails >= 10) break; delay(5); }
+        else { fails = 0; p += sent; len -= sent; }
     }
 }
 
@@ -3280,6 +3448,7 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/tm171")       != NULL) handleApiTm171(client, reqLine);
     else if (strstr(reqLine, "/api/keyacfg")     != NULL) handleApiKeyaCfg(client, reqLine);
     else if (strstr(reqLine, "/api/note")        != NULL) handleApiNote(client, reqLine, contentLen);
+    else if (strstr(reqLine, "/api/ota")         != NULL) handleApiOta(client, reqLine, contentLen);
     else if (Autosteer_running && watchdogTimer < WATCHDOG_THRESHOLD) {
         client.println(F("HTTP/1.1 503 Service Unavailable\r\n"
                          "Content-Type: text/plain\r\n"
@@ -3325,7 +3494,8 @@ void handleApiStatus(EthernetClient& client)
 {
     sendHeaders(client, "application/json");
 
-    client.print(F("{\"fwVer\":\"" FW_VERSION "\""));
+    client.print(F("{\"fwVer\":\"" FW_VERSION "\",\"up\":")); client.print((unsigned long)(millis() / 1000));
+    client.print(F(",\"build\":\"" __DATE__ " " __TIME__ "\""));
     client.print(F(",\"detected\":{"));
     client.print(F("\"bno_rvc\":")); client.print(useBNO08xRVC  ? F("true") : F("false"));
     client.print(F(",\"bno_i2c\":")); client.print(useBNO08xI2C ? F("true") : F("false"));
@@ -3552,6 +3722,11 @@ float getSignalValue(uint8_t id)
     case 48: return useTMxx_IMU ? (float)TM171_IMU.qos : 0;
     // ADS angle change between two ADS samples
     case 49: return wasDeltaDeg;
+    // synthetic test signals
+    case 60: return 10.0f * sinf(6.2831853f * (millis() % 10000UL) / 10000.0f);
+    case 61: return 2.0f * (float)((millis() / 2000UL) % 6);
+    case 62: { float ph = (millis() % 8000UL) / 8000.0f; return 10.0f * (ph < 0.5f ? 2.0f * ph : 2.0f - 2.0f * ph); }
+    case 63: return random(-100, 101) / 100.0f;
     default: return 0;
     }
 }

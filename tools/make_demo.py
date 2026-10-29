@@ -21,7 +21,7 @@ MOCK = r'''<script>
       return 0;
     } });
   }
-  var status = empty({ cfg: empty({ wasSource: 4, tm171On: true, fwVersion: '%VER%' }),
+  var status = empty({ fwVer: '%VER%', build: 'demo', cfg: empty({ wasSource: 4, tm171On: true, fwVersion: '%VER%' }),
                        keya_was: empty({}), j1939: empty({}), adsAz: empty({}) });   // nested objects the page reads
   window.fetch = function (url) {
     var u = String(url), isStatus = u.indexOf('/api/status') >= 0;
@@ -30,7 +30,7 @@ MOCK = r'''<script>
     if (write && msg && u.indexOf('/api/wcstat') < 0 && u.indexOf('read=1') < 0) msg.textContent = 'Demo: nothing is sent, no device connected.';
     return Promise.resolve({
       ok: true, status: 200,
-      json: function () { return Promise.resolve(isStatus ? status : empty({})); },
+      json: function () { return Promise.resolve(isStatus ? status : u.indexOf('cmd=status') >= 0 ? empty({ ver: '%VER%', last: 'demo', boot: 'demo' }) : empty({})); },
       text: function () { return Promise.resolve(write ? 'OK' : ''); }
     });
   };
