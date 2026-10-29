@@ -44,7 +44,7 @@ struct CalFit {
 // addr 80  : ModuleConfig         (NEW)
 // addr 2200: WasCalStore          (F11 WAS calibration, own magic, 424 B incl. wheel tables)
 
-#define FW_VERSION "v1.0.21"   // shown in web GUI; bump before tagging a release branch
+#define FW_VERSION "v1.0.22"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xD1   // change to force EEPROM reset on next boot
@@ -256,6 +256,7 @@ void disengageLog(const char* reason);   // log autosteer disengage source (DBG_
 extern WasCalStore wasCal;
 #include "zOta.h"            // OTA firmware update (zOta.ino glue)
 extern OtaSession otaSess;
+extern OtaMode    otaMode;
 extern OtaGuard   otaGuard;
 extern char       otaPin[OTA_PIN_MAX + 1];
 extern bool       otaApplyPending;

@@ -66,6 +66,18 @@ struct OtaGuard {
     }
 };
 
+// Update mode: from a started upload until it ends, fails or stops (no data for 15 s) the main loop runs only the web
+// server and the update itself; GPS, IMU, CAN, UDP and steering are paused so nothing disturbs the upload.
+#define OTA_MODE_TIMEOUT_MS 15000UL
+struct OtaMode {
+    bool     on = false;
+    uint32_t last = 0;
+    void enter(uint32_t now) { on = true; last = now; }
+    void touch(uint32_t now) { last = now; }
+    void leave() { on = false; }
+    bool expired(uint32_t now) const { return on && (int32_t)(now - last) > (int32_t)OTA_MODE_TIMEOUT_MS; }
+};
+
 enum { OTA_IDLE = 0, OTA_RECV = 1, OTA_READY = 2, OTA_ERROR = 3 };
 enum { OTA_CK_WRITE = 0, OTA_CK_DUP = 1, OTA_CK_ERR = 2 };
 

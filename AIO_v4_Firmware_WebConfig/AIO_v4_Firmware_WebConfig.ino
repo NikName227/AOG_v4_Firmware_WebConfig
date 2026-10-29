@@ -187,6 +187,7 @@ bool     adcConnected    = false;  // true if ADS1115 responded at boot
 
 // OTA firmware update (zOta.h / zOta.ino)
 OtaSession otaSess;
+OtaMode    otaMode;
 OtaGuard   otaGuard;
 char       otaPin[OTA_PIN_MAX + 1] = OTA_PIN_DEFAULT;
 bool       otaApplyPending = false;
@@ -333,6 +334,7 @@ void  handleApiTm171(EthernetClient& client, const char* req);
 void  tm171Loop();
 void  otaPinLoad();
 void  otaLoop();
+void  otaModeLoop();
 void  handleApiOta(EthernetClient& client, const char* req, int contentLen);
 void  handleApiKeyaZero(EthernetClient& client);
 void  handleApiImuWasZero(EthernetClient& client);
@@ -492,6 +494,9 @@ void loop()
     static elapsedMillis loopMaxWin = 0;
     if (loopMaxWin > 1000) { loopTimeMax = 0; loopMaxWin = 0; }
     if (loopTimeMs > loopTimeMax) loopTimeMax = loopTimeMs;
+
+    // ── OTA update mode: only the web server and the update run, everything else is paused ──
+    if (otaMode.on) { otaModeLoop(); return; }
 
     // ── GPS parsing ── drain full buffer each loop (prevents overflow if loop stalls)
     while (SerialGPS->available()) {

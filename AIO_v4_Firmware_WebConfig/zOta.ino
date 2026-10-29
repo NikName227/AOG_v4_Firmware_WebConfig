@@ -45,6 +45,20 @@ static const char* otaBlock()
     return NULL;
 }
 
+// Update mode: the main loop skips GPS, IMU, CAN, UDP and the autosteer loop (see loop()). The motor is put in its safe state first.
+static void otaEnter()
+{
+    keyaIntendToSteer = false; pwmDrive = 0; motorDrive();
+    watchdogTimer = WATCHDOG_FORCE_VALUE;
+    otaMode.enter(millis());
+}
+static void otaLeave(const char* why)
+{
+    if (!otaMode.on) return;
+    otaMode.leave();
+    webLog(why);
+}
+
 static const char* qArg(const char* req, const char* key)      // pointer to the value of "key=" in the request line
 {
     const char* p = strstr(req, key);
@@ -101,6 +115,7 @@ void handleApiOta(EthernetClient& client, const char* req, int contentLen)
         client.print(F(",\"err\":\"")); client.print(otaSess.err);
         client.print(F("\",\"blk\":\"")); const char* b = otaBlock(); client.print(b ? b : "");
         client.print(F("\",\"lock\":")); client.print((unsigned long)otaGuard.lockLeftS(now));
+        client.print(F(",\"mode\":")); client.print(otaMode.on ? 1 : 0);
         client.print(F(",\"pinDef\":")); client.print(strcmp(otaPin, OTA_PIN_DEFAULT) == 0 ? 1 : 0);
         client.print(F(",\"max\":")); client.print((unsigned long)OTA_MAX_LEN);
         client.print(F(",\"ver\":\"" FW_VERSION "\"}"));
@@ -137,7 +152,8 @@ void handleApiOta(EthernetClient& client, const char* req, int contentLen)
         const char* e = otaSess.begin((uint32_t)strtoul(l, NULL, 10), (uint32_t)strtoul(c, NULL, 16), tok);
         if (e) { otaJson(client, false, e); return; }
         otaApplyPending = false;
-        webLog("OTA: upload started");
+        otaEnter();
+        webLog("OTA: upload started, GPS / IMU / CAN / steering paused");
         sendHeaders(client, "application/json");
         client.print(F("{\"ok\":1,\"tok\":")); client.print((unsigned long)tok);
         client.print(F(",\"chunk\":1024}"));
@@ -148,14 +164,15 @@ void handleApiOta(EthernetClient& client, const char* req, int contentLen)
     uint32_t tok = a ? (uint32_t)strtoul(a, NULL, 10) : 0;
 
     if (strstr(req, "cmd=cancel")) {
-        if (otaSess.st != OTA_IDLE && tok == otaSess.tok) { otaSess.reset(); otaApplyPending = false; webLog("OTA: cancelled"); }
+        if (otaSess.st != OTA_IDLE && tok == otaSess.tok) { otaSess.reset(); otaApplyPending = false; otaLeave("OTA: cancelled, running again"); }
         otaJson(client, true, "");
         return;
     }
 
     if (strstr(req, "cmd=data")) {
         const char* blk = otaBlock();
-        if (blk && otaSess.st == OTA_RECV) { otaSess.fail(blk); webLog("OTA: aborted (vehicle moving / autosteer on)"); }
+        otaMode.touch(now);
+        if (blk && otaSess.st == OTA_RECV) { otaSess.fail(blk); otaLeave("OTA: aborted (vehicle moving / autosteer on), running again"); }
         const char* o = qArg(req, "off="); const char* c = qArg(req, "c=");
         if (!o || !c) { otaJson(client, false, "off and c needed"); return; }
         uint32_t off = (uint32_t)strtoul(o, NULL, 10), crc = (uint32_t)strtoul(c, NULL, 16);
@@ -165,7 +182,7 @@ void handleApiOta(EthernetClient& client, const char* req, int contentLen)
         if (otaCrc32(0, otaChunkBuf, (uint32_t)bodyN) != crc) { otaJson(client, false, "chunk CRC mismatch"); return; }
         if (act == OTA_CK_WRITE) {
             const char* e = otaFlashWrite(OTA_BUF_ADDR + off, otaChunkBuf, (uint32_t)bodyN);
-            if (e) { otaSess.fail(e); otaJson(client, false, e); return; }
+            if (e) { otaSess.fail(e); otaLeave("OTA: flash write failed, running again"); otaJson(client, false, e); return; }
             otaSess.written((uint32_t)bodyN);
         }
         otaJson(client, true, "");
@@ -176,10 +193,10 @@ void handleApiOta(EthernetClient& client, const char* req, int contentLen)
         if (otaSess.st != OTA_RECV || tok != otaSess.tok) { otaJson(client, false, "no upload running"); return; }
         if (!otaSess.complete()) { otaJson(client, false, "image not complete"); return; }
         const char* blk = otaBlock();
-        if (blk) { otaSess.fail(blk); otaJson(client, false, blk); return; }
+        if (blk) { otaSess.fail(blk); otaLeave("OTA: not applied, running again"); otaJson(client, false, blk); return; }
         arm_dcache_delete((void*)OTA_BUF_ADDR, otaSess.total);
         const char* e = otaImageCheck((const uint8_t*)OTA_BUF_ADDR, otaSess.total, otaSess.crc);
-        if (e) { otaSess.fail(e); webLog(e); otaJson(client, false, e); return; }
+        if (e) { otaSess.fail(e); webLog(e); otaLeave("OTA: image refused, running again"); otaJson(client, false, e); return; }
         otaSess.st = OTA_READY;
         otaApplyAt = millis() + 800;                 // the reply goes out first
         otaApplyPending = true;
@@ -216,13 +233,24 @@ void otaLoop()
 {
     if (otaSess.st == OTA_RECV) {
         const char* blk = otaBlock();
-        if (blk) { otaSess.fail(blk); webLog("OTA: aborted (vehicle moving / autosteer on)"); }
+        if (blk) { otaSess.fail(blk); otaLeave("OTA: aborted (vehicle moving / autosteer on), running again"); }
     }
     if (otaApplyPending && (int32_t)(millis() - otaApplyAt) >= 0) {
         otaApplyPending = false;
         const char* blk = otaBlock();
-        if (blk) { otaSess.fail(blk); webLog("OTA: not applied (vehicle moving / autosteer on)"); return; }
+        if (blk) { otaSess.fail(blk); otaLeave("OTA: not applied (vehicle moving / autosteer on), running again"); return; }
         Serial.println("OTA: applying"); Serial.flush();
         otaApplyNow(otaSess.total / OTA_SECTOR);
+    }
+}
+
+// The main loop in update mode: the web server (the upload itself) and the update; no data for 15 s ends the mode.
+void otaModeLoop()
+{
+    handleWebClient();
+    otaLoop();
+    if (otaMode.expired(millis()) && !otaApplyPending) {
+        otaSess.fail("timeout: no data for 15 s");
+        otaLeave("OTA: no data for 15 s, running again");
     }
 }

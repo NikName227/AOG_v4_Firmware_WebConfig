@@ -329,7 +329,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 
 <div class="card" id="fwCard">
 <h2>Firmware update <span id="fwCardVer" class="badge ok" style="margin-left:auto">&mdash;</span></h2>
-<p style="color:#94a3b8;font-size:12px;line-height:1.4">Upload a <b>.hex</b> built for this firmware (Teensy 4.1). The vehicle must stand still and autosteer must be off. Do not switch the power off during the update (about 30 s). If it fails, press the program button on the Teensy and flash over USB.</p>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Upload a <b>.hex</b> built for this firmware (Teensy 4.1). The vehicle must stand still and autosteer must be off. During the upload the Teensy pauses GPS, IMU, CAN and steering; AgIO sees it offline until the update ends. Do not switch the power off during the update (about 30 s). If it fails, press the program button on the Teensy and flash over USB.</p>
 <div class="row"><span class="lbl">Firmware file (.hex)</span><input type="file" id="fwFile" accept=".hex" onchange="fwPick()"></div>
 <div class="row"><span class="lbl">Image</span><span class="val" id="fwInfo">no file chosen</span></div>
 <div class="row"><span class="lbl">PIN <small style="color:#64748b">(def: 1234)</small></span>
@@ -1699,7 +1699,7 @@ async function fwUpload() {
   var pin = document.getElementById('fwPin').value, bar = document.getElementById('fwProg'), btn = document.getElementById('fwBtn');
   btn.disabled = true; gpsBusy = true; bar.value = 0;
   try {
-    fwSay('Starting...');
+    fwSay('Starting... GPS, IMU, CAN and steering pause until the update ends.');
     var j = await fwApi('cmd=begin&pin=' + encodeURIComponent(pin) + '&len=' + fwImg.length + '&crc=' + fwCrc.toString(16), '');
     if (!j.ok) throw new Error(j.err || 'no reply from the Teensy');
     var tok = j.tok, N = 1024;
