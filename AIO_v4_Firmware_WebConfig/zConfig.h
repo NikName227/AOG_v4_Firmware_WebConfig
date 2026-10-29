@@ -42,8 +42,9 @@ struct CalFit {
 // addr 40  : steerConfig          –  9 bytes (existing)
 // addr 60  : networkAddress       –  3 bytes (existing)
 // addr 80  : ModuleConfig         (NEW)
+// addr 2200: WasCalStore          (F11 WAS calibration, own magic, 424 B incl. wheel tables)
 
-#define FW_VERSION "v1.0.2"   // shown in web GUI; bump before tagging a release branch
+#define FW_VERSION "v1.0.20"   // shown in web GUI; bump before tagging a release branch
 
 #define EEP_MODULE_ADDR  80
 #define EEP_MODULE_IDENT 0xD1   // change to force EEPROM reset on next boot
@@ -52,6 +53,7 @@ struct CalFit {
 // Teensy 4.1 EEPROM is 4284 B total → 1024..2025 leaves huge margin both ways.
 #define EEP_NOTE_ADDR    1024
 #define EEP_NOTE_MAX     1000           // characters (buffer is +1 for the null)
+#define EEP_WASCAL_ADDR  2200           // F11 WAS calibration table (after the note)
 extern char setupNote[EEP_NOTE_MAX + 1];
 
 // IMU type
@@ -77,6 +79,7 @@ extern char setupNote[EEP_NOTE_MAX + 1];
 #define WAS_SOURCE_KEYA      1   // Keya motor encoder
 #define WAS_SOURCE_IMU_CAN   2   // wheel-mounted IMU via CAN_MODE_IMU port
 #define WAS_SOURCE_CAN_VALVE 3   // tractor valve estCurve via CAN_MODE_VBUS port
+#define WAS_SOURCE_KEYA_ADS  4   // Keya encoder angle, ADS1115 pulls its offset (zWasFuse.h); a fault stops the steering
 
 // Roll source
 #define ROLL_SRC_IMU  0   // roll from active IMU (BNO085 / TM171)
@@ -114,7 +117,7 @@ struct ModuleConfig {
     float    yawRateFilter  = 0.2f;               // EMA on auto-zero yaw rate (0=off, lower=smoother)
     float    adsEmaAlpha    = 0.0f;               // EMA on ADS1115 WAS raw counts (0=off, lower=smoother)
     uint8_t  gpsSerial      = 7;                  // GPS receiver hardware serial (Serial1-8)
-    uint8_t  tm171Serial    = 2;                  // TM171 IMU hardware serial (Serial1-8)
+    uint8_t  tm171Serial    = 2;                  // TM171 IMU serial (1-8; 0 = Off → BNO085). Set = TM171 has priority
     uint32_t tm171Baud      = 115200;             // TM171 baud rate
     uint8_t steerBrand      = 1;              // steer-ready brand: 0=Claas 1=Valtra 2=CaseIH
                                               //   3=Fendt 4=JCB 5=FendtOne 6=Lindner 7=AgOpenGPS
@@ -247,3 +250,14 @@ void disengageLog(const char* reason);   // log autosteer disengage source (DBG_
 
 // SLOG – print to USB Serial AND buffer for web display
 #define SLOG(msg)  do { Serial.println(msg); webLog(msg); } while(0)
+
+// ── F11 WAS calibration (zWasCal.h core, zWasCal.ino glue) ─────────────────────
+#include "zWasCal.h"
+extern WasCalStore wasCal;
+extern WasFuse  wasFuse;          // WAS source "Keya + ADS"
+extern char     wasFuseErr[40];
+extern float    wasDeltaDeg;
+extern uint32_t adsSampleSeq;
+extern float wcAngOut;
+extern float gpsMotionHdg;   // filtered heading of the selected source (updateGpsMotion)
+extern bool  gpsMotionVtg;   // that heading is the VTG fallback

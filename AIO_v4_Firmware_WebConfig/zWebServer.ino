@@ -21,8 +21,36 @@ static char     gpsRawBuf[GPS_RAW_BUF_SIZE];
 static uint16_t gpsRawWrite   = 0;
 static bool     gpsRawWrapped = false;
 
+// Receiver replies for the UM98x tab: only "$command,", "$CONFIG," and "#VERSION," lines are kept
+// (the page checks them), so the NMEA stream does not matter. Always on, no enable needed.
+#define GPS_RSP_BUF_SIZE 4096
+#define GPS_RSP_LINE_MAX 200
+static char     gpsRspBuf[GPS_RSP_BUF_SIZE];
+static uint16_t gpsRspLen = 0;
+static char     gpsLnBuf[GPS_RSP_LINE_MAX];
+static uint8_t  gpsLnLen  = 0;
+
+static void gpsRspByte(uint8_t c)
+{
+    if (c == '\n') {
+        if (gpsLnLen > 9 && gpsLnLen + 1 + gpsRspLen <= GPS_RSP_BUF_SIZE &&
+            (memcmp(gpsLnBuf, "$command,", 9) == 0 || memcmp(gpsLnBuf, "$CONFIG,", 8) == 0 ||
+             memcmp(gpsLnBuf, "#VERSION,", 9) == 0)) {
+            memcpy(gpsRspBuf + gpsRspLen, gpsLnBuf, gpsLnLen);
+            gpsRspLen += gpsLnLen;
+            gpsRspBuf[gpsRspLen++] = '\n';
+        }
+        gpsLnLen = 0;
+    } else if (c != '\r') {
+        if (gpsLnLen == 0 && c != '$' && c != '#') return;   // wait for a line start
+        if (gpsLnLen < GPS_RSP_LINE_MAX) gpsLnBuf[gpsLnLen++] = (char)c;
+        else gpsLnLen = 0;                                   // too long: not a reply line
+    }
+}
+
 void gpsRawByte(uint8_t c)
 {
+    gpsRspByte(c);
     if (!gpsRawActive) return;
     gpsRawBuf[gpsRawWrite] = (char)c;
     if (++gpsRawWrite >= GPS_RAW_BUF_SIZE) { gpsRawWrite = 0; gpsRawWrapped = true; }
@@ -69,7 +97,9 @@ void disengageLog(const char* reason)
 }
 
 // ── HTML page stored in flash ──────────────────────────────────────────────────
-static const char HTML_PAGE[] = R"AIOHTML(<!DOCTYPE html>
+// The page lives in flash (PROGMEM): ~160 KB that would otherwise sit in RAM1 (DTCM)
+// next to the stack. Teensy 4 flash is memory-mapped, so strlen/client.write read it directly.
+static const char HTML_PAGE[] PROGMEM = R"AIOHTML(<!DOCTYPE html>
 <html lang="hr">
 <head>
 <meta charset="UTF-8">
@@ -106,6 +136,11 @@ input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:#38bdf8}
 textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334155;color:#7dd3fc;font-family:monospace;font-size:14px;padding:6px;border-radius:3px;resize:vertical}
 .btn.red{background:#7f1d1d}.btn.red:hover{background:#991b1b}
 .ninput{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:4px 6px;border-radius:3px;font-family:monospace;font-size:14px;width:80px;text-align:right}
+.wcv{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.wcv div{flex:1;min-width:118px;background:#0f172a;border:1px solid #334155;border-radius:4px;padding:5px 8px}.wcv small{display:block;color:#94a3b8;font-size:12px}.wcv b{font-size:19px;color:#e2e8f0}
+.wz h3{font-size:21px;color:#e2e8f0;margin:2px 0 6px}.wz .ins{font-size:17px;line-height:1.4;margin:4px 0 10px;color:#e2e8f0}.wz .big{font-size:44px;font-weight:bold;text-align:center;color:#4ade80;margin:4px 0}.wz .ctr{text-align:center;font-size:15px;margin:2px 0 6px}.wz .grade{font-size:40px;font-weight:bold;text-align:center}.wz .bb{font-size:17px;padding:11px 22px}.wz .lbl{font-size:16px}.wz .wzin{width:100%;font-size:22px;padding:8px}
+.stp{display:flex;gap:4px;margin:2px 0 12px}.stp span{flex:1;height:8px;border-radius:3px;background:#334155}.stp .d{background:#16a34a}.stp .c{background:#38bdf8}.cov{display:flex;gap:2px;margin-top:8px}.cov i{flex:1;height:22px;border-radius:2px;background:#334155}.cov i.h{background:#ca8a04}.cov i.f{background:#16a34a}.covl{display:flex;justify-content:space-between;color:#94a3b8;font-size:12px;margin:2px 0 6px}.wznav{display:flex;gap:8px;margin-top:12px}.wznav .btn{flex:1;font-size:16px;padding:11px}/*tm171 diff*/
+.tmdiff{color:#fb923c !important}
+.btn:disabled{opacity:.4;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -114,7 +149,9 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="tabs">
 <button class="tab active" onclick="showTab('config',this)">Config</button>
 <button class="tab" onclick="showTab('live',this)">Live</button>
+<button class="tab" id="tabTm171" onclick="showTab('tm171',this)" style="display:none">TM171</button>
 <button class="tab" onclick="showTab('keya',this)">Keya</button>
+<button class="tab" onclick="showTab('wascal',this)">WAS cal</button>
 <button class="tab" onclick="showTab('cansteer',this)">CAN Steer</button>
 <button class="tab" onclick="showTab('debug',this)">Debug</button>
 <button class="tab" onclick="showTab('um98x',this)">UM98x Config</button>
@@ -152,6 +189,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <option value="1">Keya encoder — brushless motor position</option>
 <option value="2">IMU via CAN — wheel-mounted IMU on CAN bus</option>
 <option value="3">CAN valve — angle from V_Bus steer valve</option>
+<option value="4">Keya + ADS1115 — Keya encoder angle, ADS pulls the offset (both must work)</option>
 </select>
 <p style="color:#94a3b8;font-size:12px;margin:3px 0 8px;line-height:1.3">Wheel angle source. For CAN options the corresponding CAN port must be configured below.</p>
 <div class="lbl" style="margin:8px 0 3px">Roll source</div>
@@ -192,7 +230,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <h2>Serial port assignment <span style="color:#64748b;font-weight:normal;font-size:11px">— restart required on change</span></h2>
 <div class="lbl" style="margin:8px 0 3px">GPS receiver</div>
 <div style="display:flex;gap:8px;margin-bottom:6px">
-<select id="gpsSerial" style="min-width:0;width:38%">
+<select id="gpsSerial" style="min-width:0;width:38%" onchange="tmWarnUpd()">
 <option value="1">Serial1</option><option value="2">Serial2</option><option value="3">Serial3</option>
 <option value="4">Serial4</option><option value="5">Serial5</option><option value="6">Serial6</option>
 <option value="7">Serial7</option><option value="8">Serial8</option>
@@ -204,8 +242,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </select></div>
 <div class="lbl" style="margin:8px 0 3px">TM171 IMU</div>
 <div style="display:flex;gap:8px;margin-bottom:6px">
-<select id="tm171Serial" style="min-width:0;width:38%">
-<option value="1">Serial1</option><option value="2">Serial2</option><option value="3">Serial3</option>
+<select id="tm171Serial" style="min-width:0;width:38%" onchange="tmWarnUpd()">
+<option value="0">Off</option><option value="1">Serial1</option><option value="2">Serial2</option><option value="3">Serial3</option>
 <option value="4">Serial4</option><option value="5">Serial5</option><option value="6">Serial6</option>
 <option value="7">Serial7</option><option value="8">Serial8</option>
 </select>
@@ -214,6 +252,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <option value="57600">57600</option><option value="115200">115200</option><option value="230400">230400</option>
 <option value="460800">460800</option><option value="921600">921600</option>
 </select></div>
+<p style="color:#64748b;font-size:12px;margin:2px 0 0;line-height:1.4">TM171 set → TM171 is used, BNO085 is ignored. Off → BNO085.</p>
+<p id="tmWarn" style="color:#f87171;font-size:12px;margin:4px 0 0;display:none"></p>
 <button class="btn green" onclick="saveSerial()" style="margin-top:8px">Save Serial assignment (restart)</button>
 </div>
 
@@ -310,34 +350,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </div>
 
 <div class="card">
-<h2>WAS — ADS1115 auto-zero</h2>
-<p style="color:#64748b;font-size:13px;margin-bottom:8px">For the analog ADS1115 WAS only. Analog is repeatable but hard to trim to exactly 0°, so this very slowly nudges the angle to 0 while driving straight. The offset sits <b>on top of</b> the AgOpenGPS WAS offset and is kept in EEPROM (saved ~every 5 min), so the next boot starts already zeroed — no need to hit 0 precisely by hand.</p>
-<div class="row"><span class="lbl">Enable <small style="color:#64748b">(def OFF)</small></span>
-<input type="checkbox" id="az0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
-<div class="row"><span class="lbl">Current auto offset</span><span class="val" id="azOff">—</span></div>
-<div class="row"><span class="lbl">Beta / step <small style="color:#64748b">(def 0.02)</small></span>
-<input type="number" id="az1" min="0.001" max="0.5" step="0.001" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How fast it walks toward 0 each cycle. Keep small (0.01–0.03) — analog needs only a gentle, slow trim.</p>
-<div class="row"><span class="lbl">Min GPS speed km/h <small style="color:#64748b">(def 3)</small></span>
-<input type="number" id="az2" min="0" max="25" step="0.5" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Auto-zero only runs above this speed. Higher = stricter (GPS heading is steadier at speed).</p>
-<div class="row"><span class="lbl">Max yaw rate °/s <small style="color:#64748b">(def 0.5)</small></span>
-<input type="number" id="az3" min="0.1" max="5" step="0.1" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Stricter "driving straight" gate than the other sources — lower = only corrects on very straight stretches.</p>
-<div class="section-row" style="gap:8px">
-<div style="flex:1"><span class="lbl">Max angle for zero ° <small style="color:#64748b">(def 10)</small></span>
-<input type="number" id="az4" min="1" max="40" step="1" class="ninput" style="width:100%"></div>
-<div style="flex:1"><span class="lbl">Straight time ms <small style="color:#64748b">(def 1000)</small></span>
-<input type="number" id="az5" min="200" max="5000" step="100" class="ninput" style="width:100%"></div>
-</div>
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-<button class="btn green" onclick="saveAdsAz()">Save ADS auto-zero</button>
-<button class="btn" onclick="resetAdsAz()">Reset offset</button>
-</div>
-<p style="color:#94a3b8;font-size:12px;margin:5px 0 0;line-height:1.3">Reset sets the auto offset back to 0 — use after changing or servicing the WAS sensor (then re-set the AgOpenGPS WAS offset and drive straight to re-converge).</p>
-</div>
-
-<div class="card">
 <h2>IMU as WAS</h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">Dual-IMU steering angle = <b>knuckle yaw − chassis yaw</b> (the chassis term cancels vehicle rotation, so the angle stays correct mid-turn). Knuckle IMU sends yaw over CAN1 (ID 0x300, 250 kbps, 50–100 Hz); chassis = the AIO's own IMU. Set WAS = IMUasWAS and CAN1 = IMUasWAS above. <b>Requires an active chassis IMU.</b></p>
 <div class="row"><span class="lbl">Invert direction <small style="color:#64748b">(def OFF)</small></span>
@@ -420,7 +432,6 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="lvtoggle">
 <button class="subtab on" id="lvValuesTab" onclick="lvShow('values')">Values</button>
 <button class="subtab" id="lvGraphTab" onclick="lvShow('graph')">Graph</button>
-<button class="subtab" id="lvKeyaTab" onclick="lvShow('keya')" style="display:none">Keya WAS Geometry</button>
 </div>
 
 <!-- VALUES sub-panel -->
@@ -466,76 +477,195 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div id="gReadout" style="font-size:12px;color:#94a3b8;margin-top:6px;font-family:monospace">Paused: drag = pan, wheel = zoom, move = read</div>
 </div>
 </div>
-<!-- KEYA WAS GEOMETRY sub-panel (Ackermann scatter, final check) -->
-<div id="lvKeya" style="display:none">
-<div class="card">
-<h2>Keya WAS Geometry — Ackermann check</h2>
-<p style="color:#94a3b8;font-size:12px;line-height:1.4">Final check after calibration + auto-zero. Reconnect the reference (wheel) IMU, press Start, then turn the steering lock-to-lock. Dots = AOG steer vs reference wheel angle; the red line is the ideal bicycle (Ackermann) curve from wheelbase &amp; track. Dots on the curve = geometry &amp; calibration good.</p>
-<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0">
-<button class="btn green" id="kgBtn" onclick="kgToggle()">&#9654; Start</button>
-<button class="btn" onclick="kgClear()">Clear</button>
-<button class="btn" onclick="kgExportPng()">&#11015; PNG</button>
-<button class="btn" onclick="kgExportCsv()">&#11015; CSV</button>
-<label class="chk-row" style="padding:0"><input type="checkbox" id="kgZero" onchange="kgDraw()"> remove zero offset</label>
-<span id="kgStat" style="font-family:monospace;font-size:12px;color:#94a3b8"></span>
-</div>
-<!-- Live inputs feeding the scatter — check all values are present & changing before/while capturing -->
-<div id="kgLive" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px 16px;margin:8px 0;padding:10px 12px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-family:monospace;font-size:13px">
-<div>Ref IMU <span id="kgvFresh" style="float:right;color:#f0776a">stale</span></div>
-<div>Ref wheel ° <small style="color:#64748b">(X in)</small> <span id="kgvRef" style="float:right;color:#e2e8f0">—</span></div>
-<div>AOG steer ° <small style="color:#64748b">(Y in)</small> <span id="kgvSteer" style="float:right;color:#e2e8f0">—</span></div>
-<div>Ideal bike ° <small style="color:#64748b">@ref</small> <span id="kgvIdeal" style="float:right;color:#e2e8f0">—</span></div>
-<div>Wheelbase L <small style="color:#64748b">(m)</small> <span id="kgvWB" style="float:right;color:#e2e8f0">—</span></div>
-<div>Track T <small style="color:#64748b">(m)</small> <span id="kgvT" style="float:right;color:#e2e8f0">—</span></div>
-<div>Captured pts <span id="kgvPts" style="float:right;color:#e2e8f0">0</span></div>
-<div>Input <span id="kgvGate" style="float:right;color:#94a3b8">idle</span></div>
-</div>
-<canvas id="kgcanvas" width="720" height="430" style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
-
-<h2 style="margin-top:18px">Geometry view &mdash; live</h2>
-<p style="color:#94a3b8;font-size:12px;line-height:1.4">Top view drawn from the Keya encoder. Press Centre with the wheels straight, then turn. Three angles are shown side by side: the pure geometry from ticks, what the steer chain reports, and the reference IMU converted to the bicycle angle. Where they disagree tells you which step is wrong &mdash; geometry, zero, or the Ackerman/map stage.</p>
-<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0">
-<button class="btn" onclick="fetch('/api/keyaposzero')">&#8982; Centre</button>
-<label class="chk-row" style="padding:0">Reference IMU on
-<select id="gvSide" onchange="gvDraw()" style="margin-left:6px"><option value="R">right wheel</option><option value="L">left wheel</option></select></label>
-</div>
-<div id="gvLive" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:6px 16px;margin:8px 0;padding:10px 12px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-family:monospace;font-size:13px">
-<div>Ticks <small style="color:#64748b">rel</small> <span id="gvTick" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>Bike from ticks <span id="gvBike" style="float:right;color:#facc15">&mdash;</span></div>
-<div>Steer actual <small style="color:#64748b">chain</small> <span id="gvSteer" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>Ref IMU &rarr; bike <span id="gvRefBike" style="float:right;color:#4ade80">&mdash;</span></div>
-<div>&Delta; geometry <small style="color:#64748b">ticks-ref</small> <span id="gvD1" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>&Delta; chain <small style="color:#64748b">ticks-steer</small> <span id="gvD2" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>Inner wheel <span id="gvIn" style="float:right;color:#38bdf8">&mdash;</span></div>
-<div>Outer wheel <span id="gvOut" style="float:right;color:#f0776a">&mdash;</span></div>
-<div>Turn radius <span id="gvR" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>T back-solved <small style="color:#64748b">both sides</small> <span id="gvTb" style="float:right;color:#e2e8f0">&mdash;</span></div>
-<div>tick/deg L &middot; R <span id="gvTpd" style="float:right;color:#94a3b8">&mdash;</span></div>
-<div>AckermanFix <span id="gvAck" style="float:right;color:#94a3b8">&mdash;</span></div>
-</div>
-<canvas id="gvcanvas" width="720" height="440" style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
-</div>
-</div>
 </div><!-- /live -->
 
-<!-- KEYA TAB -->
-<div id="keya" class="panel">
-<div class="lvtoggle">
-<button class="subtab on" id="kyTuningTab" onclick="kyShow('tuning')">Tuning</button>
-<button class="subtab" id="kyMotorTab" onclick="kyShow('motor')">Motor Config</button>
-</div>
-
-<div id="keyaTuning">
+<!-- TM171 TAB: status, calibration, settings (visible only with an active TM171) -->
+<div id="tm171" class="panel">
 <div class="card">
-<h2>Keya status</h2>
-<div class="row"><span class="lbl">Detected</span><span id="k_det" class="badge fail">--</span></div>
-<div class="row"><span class="lbl">WAS initial zero</span><span id="k_zero" class="badge fail">--</span></div>
-<div class="row"><span class="lbl">Encoder (ticks)</span><span class="val" id="k_enc">-</span></div>
-<div class="row"><span class="lbl">GPS drift offset (°)</span><span class="val" id="k_off">-</span></div>
-<div class="row"><span class="lbl">Actual motor speed</span><span class="val" id="k_act">-</span></div>
-<div class="row"><span class="lbl">Set motor speed</span><span class="val" id="k_set">-</span></div>
+<h2>TM171 <span id="tmBadge" class="badge fail" style="margin-left:auto">--</span></h2>
+<div class="row"><span class="lbl">Heading | Roll | Pitch</span><span class="val" id="tmAng">&mdash;</span></div>
+<div class="row"><span class="lbl">Temperature</span><span class="val" id="tmTemp">&mdash;</span></div>
+<div class="row"><span class="lbl">Quality (QoS) <small style="color:#64748b">0&ndash;5, 4+ = full performance</small></span><span class="val" id="tmQos">&mdash;</span></div>
+<div class="row"><span class="lbl">Output | internal rate</span><span class="val" id="tmRate">&mdash;</span></div>
+<div class="row"><span class="lbl">Node ID | baud</span><span class="val" id="tmId">&mdash;</span></div>
+<div id="tmBlock" style="color:#e2b23e;font-size:13px;margin-top:6px"></div>
+<div class="row" style="margin-top:6px"><span class="lbl">Message</span><span class="val" id="tmMsg" style="font-size:12px">&mdash;</span></div>
 </div>
 
+<div class="card">
+<h2>Gyro calibration</h2>
+<p style="color:#94a3b8;font-size:13px;line-height:1.4">Tractor parked, autosteer off (the engine may run). The TM171 collects data for 20 s and reports. The result is kept until the TM171 loses power. Finish now uses what was collected (under 12 s is only a partial calibration).</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+<button class="btn green" id="tmBtnCal" onclick="tmCal('g')">Calibrate gyro</button>
+<button class="btn" id="tmBtnStop" onclick="tmCal('s')">Finish now</button>
+<button class="btn" id="tmBtnUndo" onclick="tmCal('u')">Undo</button>
+<span id="tmCalSt" style="color:#94a3b8;font-size:13px"></span>
+</div>
+</div>
+
+<div class="card">
+<h2>Settings <span id="tmSetBadge" class="badge fail" style="margin-left:auto">--</span></h2>
+<label class="chk-row"><input type="checkbox" id="tmM" onchange="tmEd.m=1"> Magnetometer <small style="color:#64748b;font-size:11px">(def: off)</small></label>
+<label class="chk-row"><input type="checkbox" id="tmGe" onchange="tmEd.ge=1"> GyroErrFilter <small style="color:#64748b;font-size:11px">(def: on)</small></label>
+<label class="chk-row"><input type="checkbox" id="tmSa" onchange="tmEd.sa=1"> Self-Adapt filter <small style="color:#64748b;font-size:11px">(def: on)</small></label>
+<label class="chk-row"><input type="checkbox" id="tmSt" onchange="tmEd.st=1"> Status output <small style="color:#64748b;font-size:11px">(def: on; temperature and QoS)</small></label>
+<label class="chk-row"><input type="checkbox" id="tmRw" onchange="tmEd.rw=1"> Raw data output <small style="color:#64748b;font-size:11px">(def: off)</small></label>
+<div class="row"><span class="lbl">Accelerometer gain <small style="color:#64748b;font-size:11px">(def: 3.5)</small></span><input type="number" id="tmAcc" min="0.01" max="20" step="0.01" class="ninput" oninput="tmEd.acc=1"></div>
+<div class="row"><span class="lbl">Magnetometer gain <small style="color:#64748b;font-size:11px">(def: 1.0)</small></span><input type="number" id="tmMg" min="0.01" max="20" step="0.01" class="ninput" oninput="tmEd.mg=1"></div>
+<div class="row"><span class="lbl">Output rate <small style="color:#64748b;font-size:11px">(def: 25 Hz)</small></span><select id="tmOdr" onchange="tmEd.odr=1"><option value="25">25 Hz</option><option value="50">50 Hz</option><option value="100">100 Hz</option></select></div>
+<div class="row"><span class="lbl">Boot mode <small style="color:#64748b;font-size:11px">(def: Auto)</small></span><select id="tmBo" onchange="tmEd.bo=1"><option value="0">Auto</option><option value="1">Static</option><option value="2">Dynamic</option></select></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+<button class="btn" id="tmBtnW" onclick="tmWrite(0)">Write (this session)</button>
+<button class="btn green" id="tmBtnWS" onclick="tmWrite(1)">Write &amp; save to flash</button>
+<button class="btn" onclick="tmRead()">Read again</button>
+</div>
+<div style="color:#64748b;font-size:11px;margin-top:6px">Gyro, accelerometer, roll-pitch-yaw and the UART output stay on; the baud rate is not changed here.</div>
+<details style="margin-top:8px"><summary style="cursor:pointer;color:#94a3b8">Raw settings bytes</summary><div id="tmRaw" style="font-family:monospace;font-size:12px;word-break:break-all;margin-top:4px">&mdash;</div></details>
+</div>
+
+<div class="card">
+<details><summary style="cursor:pointer;font-weight:bold;color:#e2e8f0">Diagnostics</summary>
+<div class="row" style="margin-top:6px"><span class="lbl">Last frame sent</span></div>
+<div id="tmDgTx" style="font-family:monospace;font-size:12px;word-break:break-all;color:#94a3b8">&mdash;</div>
+<div class="row" style="margin-top:6px"><span class="lbl">Last calibration report</span></div>
+<div id="tmDgCr" style="font-family:monospace;font-size:12px;word-break:break-all;color:#94a3b8">&mdash;</div>
+<div style="color:#64748b;font-size:11px;margin-top:4px">Every TM171 command, report and calibration state change is also in the Debug tab log.</div>
+</details>
+</div>
+
+<div class="card">
+<details><summary style="cursor:pointer;font-weight:bold;color:#e2e8f0">Advanced &mdash; new install calibration</summary>
+<p style="color:#94a3b8;font-size:13px;line-height:1.4;margin-top:6px">Needed only when the quality (QoS) stays below 3 after two minutes of standing still, or after a large temperature change. The tractor stands still for about 20 s and the result is written to the TM171's flash. <b>Do not cut the power</b> during those 20 s (it can damage the TM171). Afterwards switch the whole module off and on.</p>
+<button class="btn red" id="tmBtnInst" onclick="tmCal('i')">New install calibration</button>
+</details>
+</div>
+</div><!-- /tm171 -->
+
+<!-- WAS CAL TAB (F11): calibration follows the selected WAS source -->
+<div id="wascal" class="panel">
+<div class="card">
+<h2>WAS &mdash; live <span id="wcSrc" class="badge ok" style="margin-left:auto">&mdash;</span></h2>
+<svg id="wcSk" viewBox="0 0 320 180" style="width:100%;max-width:560px;display:block;margin:0 auto;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></svg>
+<svg id="wcGr" viewBox="0 0 320 160" style="width:100%;max-width:560px;display:block;margin:8px auto 0;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></svg>
+<div id="wcVals" class="wcv"></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+<button class="btn green" onclick="wcCentre()">&#8982; Set centre now</button>
+<span class="lbl" style="margin:10px 0 0 10px">Steering axle</span>
+<button class="btn" id="wcAxF" onclick="wcCmd('axle=F')">Front</button>
+<button class="btn" id="wcAxR" onclick="wcCmd('axle=R')">Rear</button>
+</div>
+<div class="row" style="margin-top:6px"><span class="lbl">Message</span><span class="val" id="wcMsg" style="font-size:12px">&mdash;</span></div>
+</div>
+<div class="card" id="wcLimCard">
+<h2>Steering limits</h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">The angle AOG asks for is clamped to this, so the steering never drives into the mechanical stop (U / K turns). Every WAS source. Set 2&ndash;3&deg; below the lock; 0 = no limit.</p>
+<div class="row"><span class="lbl">Max angle left <small style="color:#64748b">(&deg;, 0 = no limit)</small></span>
+<input type="number" id="ksgMaxL" min="0" max="80" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Max angle right <small style="color:#64748b">(&deg;, 0 = no limit)</small></span>
+<input type="number" id="ksgMaxR" min="0" max="80" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Measured lock L | R</span><span class="val" id="wcLimLock">&mdash;</span></div>
+<button class="btn green" onclick="wcSaveLimits()">Save limits</button>
+</div>
+<div class="card" id="wcFuseCard" style="display:none">
+<h2>Keya + ADS &mdash; fusion <span id="wcFzBadge" class="badge ok" style="margin-left:auto">&mdash;</span></h2>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">The Keya encoder gives the angle, the ADS1115 pulls its offset. An ADS sample that jumps more than the threshold in one step is dropped. If the Keya or the ADS fails, or the disturbance lasts longer than the fault time, the steering stops (no fallback).</p>
+<div class="row"><span class="lbl">Disturbance threshold <small style="color:#64748b">(&deg; per step, def: 1.5)</small></span>
+<input type="number" id="wcFzGate" min="0.1" max="20" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Correction time constant <small style="color:#64748b">(s, def: 3)</small></span>
+<input type="number" id="wcFzTau" min="0.2" max="120" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Max correction speed <small style="color:#64748b">(&deg;/s, def: 0.5)</small></span>
+<input type="number" id="wcFzRate" min="0.01" max="10" step="0.01" class="ninput"></div>
+<div class="row"><span class="lbl">Time to fault <small style="color:#64748b">(s, def: 1)</small></span>
+<input type="number" id="wcFzFail" min="0.1" max="10" step="0.1" class="ninput"></div>
+<div class="row"><span class="lbl">Offset | dropped samples</span><span class="val" id="wcFzVals">&mdash;</span></div>
+<button class="btn green" onclick="wcFuzeSave()">Save</button>
+</div>
+<div id="wcAdsPart" style="display:none">
+<!--WCADS-->
+<div class="card wz">
+<h2>Calibration wizard <span id="wzNo" style="margin-left:auto;color:#94a3b8;font-weight:normal;font-size:12px"></span></h2>
+<div class="stp" id="wzBar"></div>
+<div id="wzView"></div>
+</div>
+
+<div class="card">
+<h2>Parameters <span id="wcMode" class="badge fail" style="margin-left:auto">&mdash;</span></h2>
+<label class="chk-row"><input type="checkbox" id="wcUse" onchange="wcCmd('use=' + (this.checked ? 1 : 0))"> Use WAS table <small style="color:#64748b">(off = AOG counts / offset / Ackermann)</small></label>
+<div class="row"><span class="lbl">Table</span><span class="val" id="wcTInfo">&mdash;</span></div>
+<div class="row"><span class="lbl">Max angle left | right <small style="color:#64748b">(&deg;, 0 = no limit)</small></span>
+<span><input type="number" id="pMaxL" min="0" max="80" step="0.1" class="ninput" style="width:70px"> <input type="number" id="pMaxR" min="0" max="80" step="0.1" class="ninput" style="width:70px"></span></div>
+<div class="row"><span class="lbl">Measured lock L | R</span><span class="val" id="pLock">&mdash;</span></div>
+<div class="row"><span class="lbl">Centre raw <small style="color:#64748b">(raw at 0&deg;)</small></span>
+<span><input type="number" id="pCen" min="100" max="16300" step="1" class="ninput" style="width:90px"> <button class="btn sm" style="margin-left:4px" onclick="wcSetCenRaw()">Set</button></span></div>
+<div class="row"><span class="lbl">Counts per &deg; left | right <small style="color:#64748b">(bicycle &deg;)</small></span>
+<span><input type="number" id="pCL" min="5" max="2000" step="0.1" class="ninput" style="width:70px"> <input type="number" id="pCR" min="5" max="2000" step="0.1" class="ninput" style="width:70px"> <button class="btn sm" style="margin-left:4px" onclick="wcBuildSlope()">Build</button></span></div>
+<div class="row"><span class="lbl">Direction</span><span class="val" id="pDir" style="font-size:13px">&mdash;</span></div>
+<div class="row"><span class="lbl">Wheelbase L | track T <small style="color:#64748b">(m)</small></span>
+<span><input type="number" id="wcL" min="0.5" max="6" step="0.01" class="ninput" style="width:70px"> <input type="number" id="wcT" min="0.5" max="4" step="0.01" class="ninput" style="width:70px"></span></div>
+<label class="chk-row"><input type="checkbox" id="wcKx" onchange="wcCmd('kx=' + (this.checked ? 1 : 0))"> Keya extends the range <small id="wcKTpd" style="color:#64748b"></small></label>
+<div class="row"><span class="lbl">Handover angle &deg; <small style="color:#64748b">(0 = at the table ends)</small></span><input type="number" id="wcHand" min="0" max="60" step="0.5" class="ninput"></div>
+<div class="row"><span class="lbl">Blend zone &deg; <small style="color:#64748b">(def 5)</small></span><input type="number" id="wcBlend" min="1" max="15" step="0.5" class="ninput"></div>
+<div class="row"><span class="lbl">Keya now</span><span class="val" id="wcKW">&mdash;</span></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button class="btn green" onclick="wcSavePar()">Save parameters</button>
+<button class="btn" onclick="if (confirm('Flip the table left / right?')) wcCmd('flip=1')">Flip table</button>
+<button class="btn red" onclick="if (confirm('Clear the table? AOG counts / Ackermann are used again.')) wcCmd('resettable=1')">Reset table</button>
+</div>
+<details style="margin-top:10px"><summary style="cursor:pointer;color:#94a3b8">Table points (raw &rarr; angle)</summary>
+<div id="wcPts" style="max-height:240px;overflow-y:auto;margin-top:4px"></div></details>
+</div>
+
+<div class="card">
+<h2>Manual calibration <span style="color:#64748b;font-weight:normal;font-size:11px">&mdash; no IMU</span></h2>
+<p style="color:#94a3b8;font-size:13px;line-height:1.4">Measure only the wheel with the sensor. Standing, autosteer off. Turn to the lock, type that wheel's angle, Capture. The Teensy makes the bicycle angle for AOG from L and T.</p>
+<div class="row"><span class="lbl">Sensor is on the</span><span><button class="btn sm" id="mSR" style="margin-left:0" onclick="wcCmd('mside=R')">Right wheel</button> <button class="btn sm" id="mSL" onclick="wcCmd('mside=L')">Left wheel</button></span></div>
+<div class="row"><span class="lbl">Wheelbase L | track T <small style="color:#64748b">(m)</small></span>
+<span><input type="number" id="mL" min="0.5" max="6" step="0.01" class="ninput" style="width:70px"> <input type="number" id="mT" min="0.5" max="4" step="0.01" class="ninput" style="width:70px"> <button class="btn sm" style="margin-left:4px" onclick="wcSaveLT('mL', 'mT')">Save</button></span></div>
+<div class="row"><span class="lbl">1. Fully LEFT &mdash; wheel &deg; <small id="mHL" style="color:#64748b"></small></span>
+<span><input type="number" id="mAL" min="3" max="70" step="0.1" class="ninput" style="width:70px"> <button class="btn sm" style="margin-left:4px" onclick="wcCap('L')">Capture</button></span></div>
+<div id="mBL" style="text-align:right;color:#4ade80;font-size:13px"></div>
+<div class="row"><span class="lbl">2. Wheels straight <small id="mHC" style="color:#64748b"></small></span>
+<button class="btn sm" onclick="wcCap('C')">Capture</button></div>
+<div class="row"><span class="lbl">3. Fully RIGHT &mdash; wheel &deg; <small id="mHR" style="color:#64748b"></small></span>
+<span><input type="number" id="mAR" min="3" max="70" step="0.1" class="ninput" style="width:70px"> <button class="btn sm" style="margin-left:4px" onclick="wcCap('R')">Capture</button></span></div>
+<div id="mBR" style="text-align:right;color:#4ade80;font-size:13px"></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button class="btn green" onclick="if (confirm('Build the table from the captures and use it?')) wcCmd('mbuild=1')">Build curve &amp; apply</button>
+<button class="btn" onclick="wcCmd('mclear=1')">Clear captures</button>
+</div>
+</div>
+
+<!--/WCADS-->
+<div class="card">
+<h2>WAS — ADS1115 auto-zero</h2>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">For the analog ADS1115 WAS only. Analog is repeatable but hard to trim to exactly 0°, so this very slowly nudges the angle to 0 while driving straight. The offset sits <b>on top of</b> the AgOpenGPS WAS offset and is kept in EEPROM (saved ~every 5 min), so the next boot starts already zeroed — no need to hit 0 precisely by hand. <b>With the WAS table on</b>, the same settings move the table&#39;s raw zero instead (shown in the zero card above); each mode keeps its own zero, so switching the table off and on loses nothing.</p>
+<div class="row"><span class="lbl">Enable <small style="color:#64748b">(def OFF)</small></span>
+<input type="checkbox" id="az0" style="width:15px;height:15px;accent-color:#38bdf8;cursor:pointer"></div>
+<div class="row"><span class="lbl">Current auto offset</span><span class="val" id="azOff">—</span></div>
+<div class="row"><span class="lbl">Beta / step <small style="color:#64748b">(def 0.02)</small></span>
+<input type="number" id="az1" min="0.001" max="0.5" step="0.001" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">How fast it walks toward 0 each cycle. Keep small (0.01–0.03) — analog needs only a gentle, slow trim.</p>
+<div class="row"><span class="lbl">Min GPS speed km/h <small style="color:#64748b">(def 3)</small></span>
+<input type="number" id="az2" min="0" max="25" step="0.5" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Auto-zero only runs above this speed. Higher = stricter (GPS heading is steadier at speed).</p>
+<div class="row"><span class="lbl">Max yaw rate °/s <small style="color:#64748b">(def 0.5)</small></span>
+<input type="number" id="az3" min="0.1" max="5" step="0.1" class="ninput"></div>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Stricter "driving straight" gate than the other sources — lower = only corrects on very straight stretches.</p>
+<div class="section-row" style="gap:8px">
+<div style="flex:1"><span class="lbl">Max angle for zero ° <small style="color:#64748b">(def 10)</small></span>
+<input type="number" id="az4" min="1" max="40" step="1" class="ninput" style="width:100%"></div>
+<div style="flex:1"><span class="lbl">Straight time ms <small style="color:#64748b">(def 1000)</small></span>
+<input type="number" id="az5" min="200" max="5000" step="100" class="ninput" style="width:100%"></div>
+</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+<button class="btn green" onclick="saveAdsAz()">Save ADS auto-zero</button>
+<button class="btn" onclick="resetAdsAz()">Reset offset</button>
+</div>
+<p style="color:#94a3b8;font-size:12px;margin:5px 0 0;line-height:1.3">Reset sets the auto offset back to 0 — use after changing or servicing the WAS sensor (then re-set the AgOpenGPS WAS offset and drive straight to re-converge).</p>
+</div>
+
+</div>
+<div id="wcKeyaPart" style="display:none">
 <div class="card">
 <h2>Keya WAS — steering geometry</h2>
 <p style="color:#64748b;font-size:13px;margin-bottom:8px">Compensates hydraulic backlash on direction reversal and unequal left/right steering. Tune manually here, or use auto-calibration (coming next) with a wheel-mounted reference IMU.</p>
@@ -548,11 +678,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Ticks/deg right <small style="color:#64748b">(0 = same as base)</small></span>
 <input type="number" id="ksgR" min="0" max="500" step="0.1" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Encoder ticks per degree when steering right. Leave 0 to use the base value.</p>
-<div class="row" style="margin-top:6px"><span class="lbl">Max angle left <small style="color:#64748b">(°, 0 = no limit)</small></span>
-<input type="number" id="ksgMaxL" min="0" max="80" step="0.1" class="ninput"></div>
-<div class="row"><span class="lbl">Max angle right <small style="color:#64748b">(°, 0 = no limit)</small></span>
-<input type="number" id="ksgMaxR" min="0" max="80" step="0.1" class="ninput"></div>
-<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Working steering limit per side — the commanded angle is clamped to this so the motor never drives into the mechanical stop (handy for U-turns). Set 2–3° below the physical max. Range calibration suggests the measured maximum; 0 = no limit.</p>
+<p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Max angle left / right moved to <b>Steering limits</b> at the top of this tab (now for every WAS source).</p>
 <button class="btn green" onclick="saveKeyaGeom()" style="margin-top:8px">Save geometry</button>
 </div>
 
@@ -655,6 +781,51 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <input type="number" id="kw11" min="50" max="2000" step="50" class="ninput"></div>
 <p style="color:#94a3b8;font-size:12px;margin:-2px 0 5px;line-height:1.3">Time vehicle must drive straight above the fast threshold. At speed the tractor naturally drives straighter so shorter time is sufficient.</p>
 <button class="btn green" onclick="saveKeyaWas()" style="margin-top:8px">Save WAS params</button>
+</div>
+
+</div>
+<details class="card" id="kgCard" ontoggle="kgDraw()">
+<summary style="cursor:pointer;font-size:16px;font-weight:bold;color:#e2e8f0">Live check &mdash; Ackermann scatter</summary>
+<p style="color:#94a3b8;font-size:12px;line-height:1.4">Final check after calibration + auto-zero. Reconnect the reference (wheel) IMU, press Start, then turn the steering lock-to-lock. Dots = AOG steer vs reference wheel angle; the red line is the ideal bicycle (Ackermann) curve from wheelbase &amp; track. Dots on the curve = geometry &amp; calibration good.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0">
+<button class="btn green" id="kgBtn" onclick="kgToggle()">&#9654; Start</button>
+<button class="btn" onclick="kgClear()">Clear</button>
+<button class="btn" onclick="kgExportPng()">&#11015; PNG</button>
+<button class="btn" onclick="kgExportCsv()">&#11015; CSV</button>
+<label class="chk-row" style="padding:0"><input type="checkbox" id="kgZero" onchange="kgDraw()"> remove zero offset</label>
+<span id="kgStat" style="font-family:monospace;font-size:12px;color:#94a3b8"></span>
+</div>
+<!-- Live inputs feeding the scatter — check all values are present & changing before/while capturing -->
+<div id="kgLive" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px 16px;margin:8px 0;padding:10px 12px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;font-family:monospace;font-size:13px">
+<div>Ref IMU <span id="kgvFresh" style="float:right;color:#f0776a">stale</span></div>
+<div>Ref wheel ° <small style="color:#64748b">(X in)</small> <span id="kgvRef" style="float:right;color:#e2e8f0">—</span></div>
+<div>AOG steer ° <small style="color:#64748b">(Y in)</small> <span id="kgvSteer" style="float:right;color:#e2e8f0">—</span></div>
+<div>Ideal bike ° <small style="color:#64748b">@ref</small> <span id="kgvIdeal" style="float:right;color:#e2e8f0">—</span></div>
+<div>Wheelbase L <small style="color:#64748b">(m)</small> <span id="kgvWB" style="float:right;color:#e2e8f0">—</span></div>
+<div>Track T <small style="color:#64748b">(m)</small> <span id="kgvT" style="float:right;color:#e2e8f0">—</span></div>
+<div>Captured pts <span id="kgvPts" style="float:right;color:#e2e8f0">0</span></div>
+<div>Input <span id="kgvGate" style="float:right;color:#94a3b8">idle</span></div>
+</div>
+<canvas id="kgcanvas" width="720" height="430" style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>
+</details>
+</div><!-- /wascal -->
+
+<!-- KEYA TAB -->
+<div id="keya" class="panel">
+<div class="lvtoggle">
+<button class="subtab on" id="kyTuningTab" onclick="kyShow('tuning')">Tuning</button>
+<button class="subtab" id="kyMotorTab" onclick="kyShow('motor')">Motor Config</button>
+</div>
+
+<div id="keyaTuning">
+<div class="card">
+<h2>Keya status</h2>
+<div class="row"><span class="lbl">Detected</span><span id="k_det" class="badge fail">--</span></div>
+<div class="row"><span class="lbl">WAS initial zero</span><span id="k_zero" class="badge fail">--</span></div>
+<div class="row"><span class="lbl">Encoder (ticks)</span><span class="val" id="k_enc">-</span></div>
+<div class="row"><span class="lbl">GPS drift offset (°)</span><span class="val" id="k_off">-</span></div>
+<div class="row"><span class="lbl">Actual motor speed</span><span class="val" id="k_act">-</span></div>
+<div class="row"><span class="lbl">Set motor speed</span><span class="val" id="k_set">-</span></div>
 </div>
 
 <div class="card">
@@ -865,16 +1036,24 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div id="um98x" class="panel">
 <div class="card">
 <h2>Send GPS commands</h2>
-<p style="color:#64748b;font-size:13px;margin-bottom:8px">Paste config lines (one per line). Upload sends each with 1 s delay. Responses appear in the raw log below.</p>
+<p style="color:#64748b;font-size:13px;margin-bottom:8px">Load a preset or paste config lines (one per line, lines starting with # are skipped), edit them, then Upload. Each line is sent and checked against the receiver's reply: green = the receiver answered OK. After the last line the receiver's CONFIG is read back and compared.</p>
+<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+<button class="btn" onclick="gpsPreset('single')">Preset: Single (UM980)</button>
+<button class="btn" onclick="gpsPreset('dual')">Preset: Dual (UM982)</button>
+<button class="btn" onclick="gpsDetect()">Detect model</button>
+<span id="gpsModel" style="color:#94a3b8;font-size:12px"></span>
+</div>
 <textarea class="gps-ta" id="gpsLines" placeholder="e.g. CONFIG HEADING FIXINTERVAL 0.1"></textarea>
 <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
-<button class="btn green" onclick="uploadLines()">&#8679; Upload</button>
+<button class="btn green" id="gpsUpBtn" onclick="uploadLines()">&#8679; Upload</button>
+<button class="btn" id="gpsStopBtn" onclick="gpsAbort = true" style="display:none">&#9209; Stop</button>
 <button class="btn" onclick="gpsCmd('CONFIG')">&#128196; Get Config</button>
 <button class="btn" onclick="gpsCmd('VERSION')">&#128196; Get Version</button>
 <button class="btn" onclick="gpsCmd('SAVECONFIG')">&#128190; Save Config</button>
 <button class="btn red" onclick="doFactoryReset()">&#9888; Factory Reset</button>
 <span id="gpsStatus" style="color:#94a3b8;font-size:11px;margin-left:4px"></span>
 </div>
+<div id="gpsList" style="margin-top:10px;font-family:monospace;font-size:12px"></div>
 </div>
 <div class="card">
 <h2>GPS raw serial <button class="btn sm" onclick="clearGpsRaw()">&#128465; Clear</button></h2>
@@ -890,6 +1069,7 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 var loaded = false;
 var configLoaded = false;
 var activeTab = 'config';
+var wcSrcCur = 0;   // WAS source from the config (F11 WAS cal tab)
 var logFetching = false;
 var tickTimer = null;
 var activeGroup = 0;       // Live tab: 0=Off, 1=GPS, 2=IMU, 3=WAS, 4=Keya, 5=Steer, 6=CAN
@@ -899,15 +1079,12 @@ function lvShow(m) {
   lvMode = m;
   document.getElementById('lvValues').style.display = (m === 'values') ? '' : 'none';
   document.getElementById('lvGraph').style.display  = (m === 'graph')  ? '' : 'none';
-  document.getElementById('lvKeya').style.display   = (m === 'keya')   ? '' : 'none';
   document.getElementById('lvValuesTab').classList.toggle('on', m === 'values');
   document.getElementById('lvGraphTab').classList.toggle('on', m === 'graph');
-  var kt = document.getElementById('lvKeyaTab'); if (kt) kt.classList.toggle('on', m === 'keya');
   if (m === 'graph' && typeof gDraw === 'function') gDraw();
-  if (m === 'keya') kgDraw();
 }
 
-// ── Keya WAS Geometry: Ackermann scatter (final check) ───────────────────────
+// ── WAS cal live check: Ackermann scatter (final check, any WAS source) ───────────────────────
 var kgCapture = false, kgPts = [], kgWB = 0, kgT = 0;
 function wheelToBikeJS(dw, inner, L, T) {
   var s = dw >= 0 ? 1 : -1, a = Math.abs(dw);
@@ -929,12 +1106,13 @@ function kgToggle() {
   b.innerHTML = kgCapture ? '&#9209; Stop' : '&#9654; Start';
   b.classList.toggle('green', !kgCapture);
 }
+function kgOpen() { var c = document.getElementById('kgCard'); return !!(c && c.open); }
 function kgClear() { kgPts = []; kgDraw(); }
 function kgPush(ref, steer) {
   if (kgPts.length && Math.abs(kgPts[kgPts.length - 1].r - ref) < 0.15) return;  // skip when still
   kgPts.push({ r: ref, s: steer });
   if (kgPts.length > 3000) kgPts.shift();
-  if (lvMode === 'keya') kgDraw();
+  if (kgOpen()) kgDraw();
 }
 function kgDraw() {
   var cv = document.getElementById('kgcanvas'); if (!cv) return;
@@ -1006,116 +1184,6 @@ function kgExportCsv() {
   a.download = 'keya_geometry_' + Date.now() + '.csv'; a.click();
 }
 
-// ── Geometry view: live top-down from the Keya encoder ───────────────────────
-// Three angles are computed from the SAME steering position so they can be told
-// apart: pure geometry (ticks/tpd), the steer chain (steerAngleActual, which has
-// the zero trims, AckermanFix and the map baked in) and the reference IMU wheel
-// angle converted to the bike angle. Their differences localise the fault.
-var gvS = {tick:0, ref:0, fresh:false, steer:0, L:0, T:0, tpdL:24, tpdR:24, ack:1};
-var gvTb = {inn:null, out:null};      // one inner + one outer reading of the SAME wheel -> T
-
-function gvBikeFromTicks(tick, L, T, tpdL, tpdR) {
-  var tpd = (tick >= 0) ? tpdR : tpdL;
-  if (tpd < 1) tpd = 24;
-  return tick / tpd;                                   // signed bike angle, deg
-}
-// bike angle -> the two wheel angles (magnitudes)
-function gvWheels(bike, L, T) {
-  var a = Math.abs(bike);
-  if (a < 1e-4 || L < 0.1) return {inner:0, outer:0, R:Infinity};
-  var R = L / Math.tan(a * Math.PI / 180);
-  var inner = Math.atan(L / Math.max(R - T / 2, 1e-6)) * 180 / Math.PI;
-  var outer = Math.atan(L / (R + T / 2)) * 180 / Math.PI;
-  return {inner:inner, outer:outer, R:R};
-}
-function gvDraw() {
-  var c = document.getElementById('gvcanvas'); if (!c) return;
-  var g = c.getContext('2d'), W = c.width, H = c.height;
-  g.fillStyle = '#050d1a'; g.fillRect(0, 0, W, H);
-  var L = gvS.L, T = gvS.T;
-  if (L < 0.1) { g.fillStyle = '#64748b'; g.font = '13px monospace';
-                 g.fillText('wheelbase not set', 20, 28); return; }
-
-  var bike = gvBikeFromTicks(gvS.tick, L, T, gvS.tpdL, gvS.tpdR);
-  var w = gvWheels(bike, L, T), right = bike >= 0, ab = Math.abs(bike);
-
-  // reference IMU: the selected wheel is inner when turning toward its own side
-  var side = document.getElementById('gvSide').value;
-  var refInner = (side === 'R') ? right : !right;
-  var refBike  = 0;
-  if (gvS.fresh && Math.abs(gvS.ref) > 0.01) {
-    var t = Math.tan(Math.abs(gvS.ref) * Math.PI / 180);
-    var den = L + (refInner ? 1 : -1) * (T / 2) * t;
-    if (den > 0.01) refBike = Math.atan(L * t / den) * 180 / Math.PI * (gvS.ref >= 0 ? 1 : -1);
-  }
-  // T back-solve: needs an inner and an outer reading of the SAME wheel, one per side
-  if (gvS.fresh && Math.abs(gvS.ref) > 8) gvTb[refInner ? 'inn' : 'out'] = Math.abs(gvS.ref);
-  var Tback = null;
-  if (gvTb.inn && gvTb.out) {
-    Tback = L * (1 / Math.tan(gvTb.out * Math.PI / 180) - 1 / Math.tan(gvTb.inn * Math.PI / 180));
-  }
-
-  var S = 78, cx = W / 2, yR = H - 92, yF = yR - L * S, ht = T / 2 * S;
-  function wheel(x, y, deg, col, ww, hh) {
-    g.save(); g.translate(x, y); g.rotate(deg * Math.PI / 180);
-    g.fillStyle = col + '38'; g.strokeStyle = col; g.lineWidth = 2.2;
-    g.beginPath(); g.rect(-ww / 2, -hh / 2, ww, hh); g.fill(); g.stroke(); g.restore();
-  }
-  g.strokeStyle = '#1e3a5f'; g.lineWidth = 1;
-  g.setLineDash([5, 5]); g.beginPath(); g.moveTo(cx, yF - 54); g.lineTo(cx, yR + 52); g.stroke();
-  g.setLineDash([]);
-  g.fillStyle = '#0d1b2e'; g.strokeStyle = '#1e3a5f';
-  g.beginPath(); g.rect(cx - 44, yF - 6, 88, yR - yF + 12); g.fill(); g.stroke();
-  [yR, yF].forEach(function (y) { g.beginPath(); g.moveTo(cx - ht - 26, y); g.lineTo(cx + ht + 26, y); g.stroke(); });
-
-  // rays to the turn centre, when it fits
-  if (isFinite(w.R) && w.R < 26) {
-    var xc = cx + (right ? 1 : -1) * w.R * S;
-    g.strokeStyle = '#334155'; g.setLineDash([3, 4]);
-    [[cx - ht, yF], [cx + ht, yF], [cx, yF], [cx - ht, yR], [cx + ht, yR]].forEach(function (pt) {
-      g.beginPath(); g.moveTo(pt[0], pt[1]); g.lineTo(xc, yR); g.stroke(); });
-    g.setLineDash([]);
-    if (Math.abs(xc - cx) < W / 2 - 14) {
-      g.fillStyle = '#334155'; g.beginPath(); g.arc(xc, yR, 5, 0, 7); g.fill();
-      g.fillStyle = '#64748b'; g.font = '11px monospace'; g.textAlign = 'center';
-      g.fillText('centre', xc, yR + 19);
-    }
-  }
-  wheel(cx - ht, yR, 0, '#475569', 15, 40);
-  wheel(cx + ht, yR, 0, '#475569', 15, 40);
-  var rIn = right, aR = (rIn ? w.inner : w.outer) * (right ? 1 : -1),
-                   aL = (rIn ? w.outer : w.inner) * (right ? 1 : -1);
-  if (ab < 1e-4) { aR = 0; aL = 0; }
-  wheel(cx + ht, yF, aR, rIn ? '#38bdf8' : '#f0776a', 15, 40);
-  wheel(cx - ht, yF, aL, rIn ? '#f0776a' : '#38bdf8', 15, 40);
-  wheel(cx, yF, ab < 1e-4 ? 0 : bike, '#facc15', 11, 44);
-
-  g.font = '12px monospace'; g.textAlign = 'left';
-  g.fillStyle = rIn ? '#38bdf8' : '#f0776a'; g.fillText('R ' + Math.abs(aR).toFixed(1) + '°', cx + ht + 18, yF - 12);
-  g.textAlign = 'right';
-  g.fillStyle = rIn ? '#f0776a' : '#38bdf8'; g.fillText('L ' + Math.abs(aL).toFixed(1) + '°', cx - ht - 18, yF - 12);
-  g.textAlign = 'center'; g.fillStyle = '#facc15';
-  g.fillText('bike ' + bike.toFixed(1) + '°', cx, yF - 30);
-  g.fillStyle = '#64748b';
-  g.fillText('T = ' + T.toFixed(2) + ' m', cx, yR + 40);
-  g.textAlign = 'left'; g.fillText('L = ' + L.toFixed(2) + ' m', cx + ht + 18, (yF + yR) / 2);
-
-  function put(id, v) { var e = document.getElementById(id); if (e) e.textContent = v; }
-  var dash = '—';
-  put('gvTick', gvS.tick);
-  put('gvBike', bike.toFixed(2) + ' °');
-  put('gvSteer', gvS.steer.toFixed(2) + ' °');
-  put('gvRefBike', gvS.fresh ? refBike.toFixed(2) + ' °' : dash);
-  put('gvD1', gvS.fresh ? (bike - refBike).toFixed(2) + ' °' : dash);
-  put('gvD2', (bike - gvS.steer).toFixed(2) + ' °');
-  put('gvIn', ab < 1e-4 ? '0.0 °' : w.inner.toFixed(1) + ' °');
-  put('gvOut', ab < 1e-4 ? '0.0 °' : w.outer.toFixed(1) + ' °');
-  put('gvR', isFinite(w.R) ? w.R.toFixed(1) + ' m' : '∞');
-  put('gvTb', Tback === null ? 'turn both ways' : Tback.toFixed(2) + ' m');
-  put('gvTpd', gvS.tpdL.toFixed(1) + ' · ' + gvS.tpdR.toFixed(1));
-  put('gvAck', (gvS.ack * 100).toFixed(0) + ' %' + (Math.abs(gvS.ack - 1) > 0.005 ? '  (one side scaled)' : ''));
-}
-
 // ── Graph preset: Keya auto-zero ─────────────────────────────────────────────
 // 24 gpsOffset, 20 chassis yawRate, 27 steer actual, 11 roll. Deliberately no
 // signal 44/45, so gSet() does not re-zero the encoder while watching the zero.
@@ -1180,6 +1248,8 @@ function renderGroup(d) {
   }
   else if (activeGroup === 2) {
     hdr = 'Group 2 — IMU';
+    var imuSt = {0:'OK',1:'FROZEN — message sent to AOG',2:'TM171 not found (BNO085 not used)'};
+    h += lvRow('IMU status', imuSt[d.imuSt] || '--');
     h += lvSub('BNO085');
     if (d.bno) {
       h += lvRow('Heading', d.bnoHdg.toFixed(1) + ' °');
@@ -1193,11 +1263,15 @@ function renderGroup(d) {
       h += lvRow('Roll', d.tmRoll + ' °');
       h += lvRow('Pitch', d.tmPitch + ' °');
       h += lvRow('Yaw rate', d.tmYaw + ' °/s');
+      if (d.tmQos !== undefined) {
+        h += lvRow('Temperature', d.tmTemp + ' °C');
+        h += lvRow('Quality (QoS)', d.tmQos + ' ' + d.tmQosTxt);
+      }
     } else { h += lvRow('Heading','--')+lvRow('Roll','--')+lvRow('Pitch','--')+lvRow('Yaw rate','--'); }
   }
   else if (activeGroup === 3) {
     hdr = 'Group 3 — WAS';
-    var srcN = {0:'ADS1115',1:'Keya encoder',2:'IMU via CAN',3:'CAN valve'};
+    var srcN = {0:'ADS1115',1:'Keya encoder',2:'IMU via CAN',3:'CAN valve',4:'Keya + ADS1115'};
     h += lvRow('Active source', srcN[d.src] || d.src);
     h += lvSub('ADS1115');
     h += lvRow('Raw counts', d.adsConn ? (d.adsRaw + (d.src != 0 ? '  (monitor)' : '')) : 'not connected');
@@ -1274,11 +1348,12 @@ function showTab(t, el) {
   if (t === 'live' && lvMode === 'graph' && gLogging) fetch(gCfgUrl(false));
   if (t === 'debug') pollLog();
   if (t === 'um98x') pollGpsRaw();
+  if (t === 'tm171') { tmEd = {}; tmPoll(); }
 }
 
 function restartTick() {
   if (tickTimer) clearInterval(tickTimer);
-  var rate = (activeTab === 'live') ? 500 : 2000;
+  var rate = (activeTab === 'live' || activeTab === 'wascal' || activeTab === 'tm171') ? 500 : 2000;
   tickTimer = setInterval(tick, rate);
 }
 
@@ -1397,8 +1472,14 @@ function upd(d) {
     document.getElementById('can2Baud').value = d.cfg.can2Baud || 250000;
     document.getElementById('can3Baud').value = d.cfg.can3Baud || 250000;
     document.getElementById('wasSource').value     = d.cfg.wasSource     || 0;
-    var _kg = document.getElementById('lvKeyaTab');
-    if (_kg) _kg.style.display = ((d.cfg.wasSource || 0) == 1) ? '' : 'none';
+    var _src = d.cfg.wasSource || 0;
+    wcSrcCur = _src;
+    var _wn = ['ADS1115 (analog)', 'Keya encoder', 'IMU via CAN', 'CAN valve', 'Keya + ADS1115'];
+    document.getElementById('wcSrc').textContent = _wn[_src] || _src;
+    document.getElementById('wcAdsPart').style.display  = (_src == 0 || _src == 4) ? '' : 'none';
+    document.getElementById('wcFuseCard').style.display = (_src == 4) ? '' : 'none';
+    document.getElementById('wcKeyaPart').style.display = (_src == 1 || _src == 4) ? '' : 'none';
+    document.getElementById('wcLimCard').style.display  = (_src == 0) ? 'none' : '';
     document.getElementById('rollSource').value    = d.cfg.rollSource    || 0;
     document.getElementById('headingSource').value = d.cfg.headingSource || 0;
     document.getElementById('nmeaType').value      = d.cfg.nmeaType      || 0;
@@ -1406,8 +1487,11 @@ function upd(d) {
     document.getElementById('adsEmaFilter').value  = (d.cfg.adsEmaAlpha   != null) ? d.cfg.adsEmaAlpha   : 0;
     document.getElementById('gpsSerial').value     = d.cfg.gpsSerial     || 7;
     document.getElementById('gpsBaud2').value      = d.cfg.gpsBaud       || 115200;
-    document.getElementById('tm171Serial').value   = d.cfg.tm171Serial   || 2;
+    gpsBaudCur = d.cfg.gpsBaud || 115200;
+    document.getElementById('tm171Serial').value   = (d.cfg.tm171Serial != null) ? d.cfg.tm171Serial : 2;
     document.getElementById('tm171Baud').value     = d.cfg.tm171Baud     || 115200;
+    document.getElementById('tabTm171').style.display = d.cfg.tm171On ? '' : 'none';
+    tmWarnUpd();
     if (document.getElementById('csBrand')) document.getElementById('csBrand').value = d.cfg.steerBrand || 0;
     if (d.custEng) {
       document.getElementById('ceEnable').checked = !!d.custEng.enable;
@@ -1470,9 +1554,7 @@ function saveMotor() {
 function saveKeyaGeom() {
   var url = '/api/save?keyaDeadZone=' + document.getElementById('ksgDz').value
           + '&keyaTicksLeft='  + document.getElementById('ksgL').value
-          + '&keyaTicksRight=' + document.getElementById('ksgR').value
-          + '&keyaMaxL=' + document.getElementById('ksgMaxL').value
-          + '&keyaMaxR=' + document.getElementById('ksgMaxR').value;
+          + '&keyaTicksRight=' + document.getElementById('ksgR').value;
   fetch(url).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'Steering geometry saved.' : 'ERROR saving.';
   });
@@ -1574,6 +1656,457 @@ function pollLog() {
     .catch(function() { logFetching = false; });
 }
 
+// WCJS{
+// ── WAS cal tab (F11): live sketch + graph for every source, wizard, parameters,
+// manual calibration (v1.0.13) ──────────────────────────────────────────────────
+var wcLast = null, wcCurve = null, wcPtsKey = '';
+function wcCmd(q) {
+  return fetch('/api/wascal?' + q, { cache: 'no-store' })
+    .then(function(r) { return r.text(); })
+    .then(function(t) { if (t.indexOf('ERR') === 0) alert(t); wcPoll(); return t; });
+}
+function wcPoll() {
+  var wantCurve = wcLast && wcLast.res && !wcCurve;
+  fetch('/api/wcstat' + (wantCurve ? '?curve=1' : ''), { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { wcUpd(d); })
+    .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
+}
+function wcEl(id) { return document.getElementById(id); }
+function wcVal(id) { var e = wcEl(id); return e ? e.value : ''; }
+// typed fields are not overwritten by the poll until saved (data-ed set on input)
+document.addEventListener('input', function(e) { if (e.target.closest && e.target.closest('#wascal')) e.target.dataset.ed = 1; });
+function wcSetIn(id, v) { var e = wcEl(id); if (!e || e === document.activeElement || e.dataset.ed) return; e.value = v; }
+function wcClrEd(ids) { ids.forEach(function(id) { var e = wcEl(id); if (e) delete e.dataset.ed; }); }
+// '&key=value' for each field that is not empty (an empty field would read as 0 on the Teensy)
+function wcQ(pairs) { var q = ''; for (var k in pairs) { var v = wcVal(pairs[k]); if (v !== '') q += '&' + k + '=' + v; } return q; }
+function wcSaveLT(idL, idT) {
+  idL = idL || 'wcL'; idT = idT || 'wcT';
+  return fetch('/api/save?wheelBase=' + wcVal(idL) + '&keyaT=' + wcVal(idT))
+    .then(function(r) { document.getElementById('sb').textContent = r.ok ? 'L/T saved.' : 'ERROR.'; configLoaded = false; wcClrEd([idL, idT]); });
+}
+function wcSaveParams() {
+  var q = 'params=1', v = function(id) { var e = wcEl(id); return e ? e.value : null; };
+  if (v('wcZYaw') !== null) q += wcQ({ zyaw: 'wcZYaw', zspd: 'wcZSpd', ztime: 'wcZTime' });
+  if (v('wcBlend') !== null) q += wcQ({ blend: 'wcBlend', hand: 'wcHand' });
+  return wcCmd(q).then(function() { wcClrEd(['wcZYaw', 'wcZSpd', 'wcZTime', 'wcBlend', 'wcHand']); });
+}
+function wcSaveLim(idL, idR) {
+  return fetch('/api/wascal?params=1' + wcQ({ maxl: idL, maxr: idR }), { cache: 'no-store' })
+    .then(function(r) { return r.text(); })
+    .then(function(t) { document.getElementById('sb').textContent = t.indexOf('OK') === 0 ? 'Steering limits saved.' : t; configLoaded = false; wcClrEd([idL, idR]); wcPoll(); })
+    .catch(function() { document.getElementById('sb').textContent = 'ERROR saving.'; });
+}
+function wcSaveLimits() { wcSaveLim('ksgMaxL', 'ksgMaxR'); }
+function wcSavePar() {
+  wcCmd('params=1' + wcQ({ maxl: 'pMaxL', maxr: 'pMaxR', blend: 'wcBlend', hand: 'wcHand' }))
+    .then(function(t) { if (t.indexOf('OK') === 0) { wcClrEd(['pMaxL', 'pMaxR', 'wcBlend', 'wcHand']); return wcSaveLT('wcL', 'wcT'); } })
+    .then(function() { document.getElementById('sb').textContent = 'Parameters saved.'; });
+}
+var wcFzDef = { wcFzGate: 1.5, wcFzTau: 3, wcFzRate: 0.5, wcFzFail: 1 };
+function wcFuzeMark() {                      // a value that differs from the default is orange
+  for (var id in wcFzDef) {
+    var el = wcEl(id), v = parseFloat(el.value), diff = !isNaN(v) && Math.abs(v - wcFzDef[id]) > 0.004;
+    el.classList.toggle('tmdiff', diff); el.closest('.row').querySelector('.lbl').classList.toggle('tmdiff', diff);
+  }
+}
+function wcFuzeUpd(d) {
+  var f = d.fz; if (!f || d.src != 4) return;
+  wcSetIn('wcFzGate', f.gate); wcSetIn('wcFzTau', f.tau); wcSetIn('wcFzRate', f.rate); wcSetIn('wcFzFail', f.fail);
+  wcFuzeMark();
+  var b = wcEl('wcFzBadge'); b.className = 'badge ' + (f.err ? 'fail' : 'ok'); b.textContent = f.err || 'OK';
+  wcTxt('wcFzVals', wcFix(f.off, 2) + '° | ' + f.drop);
+}
+document.addEventListener('input', function(e) { if (e.target.id && e.target.id.indexOf('wcFz') === 0) wcFuzeMark(); });
+function wcFuzeSave() {
+  wcCmd('params=1' + wcQ({ fgate: 'wcFzGate', ftau: 'wcFzTau', frate: 'wcFzRate', ffail: 'wcFzFail' }))
+    .then(function() { wcClrEd(['wcFzGate', 'wcFzTau', 'wcFzRate', 'wcFzFail']); });
+}
+function wcCentre() { if (confirm('Wheels straight? This position becomes 0°.')) wcCmd('centre=1'); }
+function wcSetCenRaw() {
+  if (!wcLast || wcLast.nPts < 2) { alert('No table yet: build one (wizard, manual or counts per degree) or use Set centre now.'); return; }
+  wcCmd('zraw=' + wcVal('pCen')).then(function() { wcClrEd(['pCen']); });
+}
+function wcBuildSlope() {
+  if (!confirm('Build a straight-line table from these counts per degree and use it?')) return;
+  wcCmd('slope=1&cl=' + wcVal('pCL') + '&cr=' + wcVal('pCR') + '&c=' + wcVal('pCen')).then(function() { wcClrEd(['pCL', 'pCR', 'pCen']); });
+}
+function wcCap(w) {
+  var q = 'mcap=' + w;
+  if (w !== 'C') q += '&ang=' + wcVal(w === 'L' ? 'mAL' : 'mAR');
+  wcCmd(q).then(function() { wcClrEd(['mAL', 'mAR']); });
+}
+function wcTxt(id, t, col) { var e = wcEl(id); if (!e) return; e.textContent = t; if (col !== undefined) e.style.color = col; }
+function wcFix(v, n) { return (v === undefined || v === null) ? '—' : Number(v).toFixed(n); }
+function wcSg(v) { return (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '°'; }
+// one wheel → bicycle angle (same formula as the firmware), w signed, side 'R'/'L'
+function wcW2B(w, side, L, T) {
+  var m = Math.abs(w), inner = (side === 'R') ? (w > 0) : (w < 0);
+  var t = Math.tan(m * Math.PI / 180), den = L + (inner ? 1 : -1) * T / 2 * t;
+  var b = (L < 0.1 || den < 0.01) ? m : Math.atan(L * t / den) * 180 / Math.PI;
+  return w < 0 ? -b : b;
+}
+// table: angle → raw (as the firmware, clamped), in the stored raw domain
+function wcA2R(d, a) {
+  var A = d.tAng, R = d.tRaw, n = d.nPts;
+  if (n < 2) return 0;
+  if (a <= A[0]) return R[0];
+  if (a >= A[n - 1]) return R[n - 1];
+  for (var k = 0; k + 1 < n; k++) if (a >= A[k] && a <= A[k + 1]) return R[k] + (a - A[k]) * (R[k + 1] - R[k]) / (A[k + 1] - A[k]);
+  return R[n - 1];
+}
+
+// ── Live: top view, front up. Steering wheels turn, their angles beside them, the
+// angle sent to AOG in the middle. Rear axle steering: the rear wheels turn (drawn
+// the opposite way, as they do), the numbers keep the AOG sign (right = +).
+function wcSketch(d) {
+  var rear = d.rear == 1, wl = d.wL, wr = d.wR, tbl = d.use == 1 && d.nPts >= 2;
+  var fl = rear ? 0 : wl, fr = rear ? 0 : wr, rl = rear ? -wl : 0, rr = rear ? -wr : 0;
+  var on = '#4ade80', off = '#475569';
+  function wheel(x, y, a, c) { return '<g transform="translate(' + x + ',' + y + ') rotate(' + a.toFixed(1) + ')"><rect x="-7" y="-17" width="14" height="34" rx="3" fill="' + c + '"/></g>'; }
+  var ys = rear ? 128 : 42, s = '';
+  s += '<rect x="112" y="32" width="96" height="106" rx="8" fill="#0f1b30" stroke="#334155"/>';
+  s += '<line x1="100" y1="42" x2="220" y2="42" stroke="#334155"/><line x1="100" y1="128" x2="220" y2="128" stroke="#334155"/>';
+  s += '<text x="160" y="16" text-anchor="middle" fill="#94a3b8" font-size="11">front</text>';
+  s += '<text x="100" y="16" text-anchor="middle" fill="#e2e8f0" font-size="12">L</text><text x="220" y="16" text-anchor="middle" fill="#e2e8f0" font-size="12">R</text>';
+  s += '<text x="160" y="74" text-anchor="middle" fill="#94a3b8" font-size="11">to AOG</text>';
+  s += '<text x="160" y="98" text-anchor="middle" fill="#4ade80" font-size="21" font-weight="bold">' + wcSg(d.aOut) + '</text>';
+  s += wheel(100, 42, fl, rear ? off : on) + wheel(220, 42, fr, rear ? off : on) + wheel(100, 128, rl, rear ? on : off) + wheel(220, 128, rr, rear ? on : off);
+  s += '<text x="84" y="' + (ys + 5) + '" text-anchor="end" fill="#e2e8f0" font-size="14">' + wcSg(wl) + '</text>';
+  s += '<text x="236" y="' + (ys + 5) + '" text-anchor="start" fill="#e2e8f0" font-size="14">' + wcSg(wr) + '</text>';
+  var src = ['ADS1115', 'Keya encoder', 'IMU via CAN', 'CAN valve', 'Keya + ADS1115'][d.src] || '?';
+  var how = (d.src == 0 || d.src == 4) ? (tbl ? 'table' : 'AOG formula') : '';
+  if ((d.src == 0 || d.src == 4) && tbl && d.wCal == 0) how += ', wheels Ackermann';
+  s += '<text x="6" y="172" fill="#94a3b8" font-size="11">' + (rear ? 'REAR' : 'FRONT') + ' axle steering &middot; ' + src + (how ? ' (' + how + ')' : '') + '</text>';
+  wcEl('wcSk').innerHTML = s;
+}
+// Curve in use: ADS raw → angle (table, or the live point on the AOG formula),
+// Keya ticks → angle (two straight lines). Red dashed = steering limits.
+function wcGraph(d) {
+  var W = 320, H = 160, x0 = 34, x1 = 312, yT = 10, yB = 138, s = '';
+  var ym = 40;
+  if (d.nPts >= 2) ym = Math.max(ym, Math.abs(d.tAng[0]), Math.abs(d.tAng[d.nPts - 1]));
+  if (d.maxL > 0) ym = Math.max(ym, d.maxL); if (d.maxR > 0) ym = Math.max(ym, d.maxR);
+  ym = Math.min(60, Math.ceil(ym / 10) * 10);
+  function Y(a) { return (yT + yB) / 2 - a / ym * (yB - yT) / 2; }
+  var line = [], dot = null, xl = 'raw', lo, hi, k;
+  if (d.src == 0 || d.src == 4) {
+    var sh = d.zShift + d.azShift;
+    if (d.nPts >= 2) for (k = 0; k < d.nPts; k++) line.push([d.tRaw[k] + sh, d.tAng[k]]);
+    var tbl = d.use == 1 && d.nPts >= 2;
+    dot = [d.raw, tbl ? d.aTbl : d.aAog];
+    xl = 'ADS raw' + (tbl ? '' : ' (table off: AOG formula point)');
+  } else if (d.src == 1) {
+    var tL = d.kTL > 0.1 ? d.kTL : d.kTB, tR = d.kTR > 0.1 ? d.kTR : d.kTB, sg = d.kInv ? 1 : -1;
+    var enc = function(a) { var u = a - d.kOff; return d.kZero + sg * u * (u >= 0 ? tR : tL); };
+    line = [[enc(-ym), -ym], [enc(d.kOff), d.kOff], [enc(ym), ym]];
+    dot = [d.kEnc, d.aOut];
+    xl = 'Keya ticks';
+  } else {
+    wcEl('wcGr').innerHTML = '<text x="160" y="84" text-anchor="middle" fill="#64748b" font-size="12">no curve for this WAS source</text>';
+    return;
+  }
+  var xs = line.map(function(p) { return p[0]; }); if (dot) xs.push(dot[0]);
+  lo = Math.min.apply(null, xs); hi = Math.max.apply(null, xs);
+  if (hi - lo < 200) { lo -= 100; hi += 100; }
+  var pad = (hi - lo) * 0.04; lo -= pad; hi += pad;
+  function X(r) { return x0 + (r - lo) / (hi - lo) * (x1 - x0); }
+  s += '<line x1="' + x0 + '" y1="' + Y(0) + '" x2="' + x1 + '" y2="' + Y(0) + '" stroke="#334155"/>';
+  for (var a = -ym; a <= ym; a += 10) s += '<text x="' + (x0 - 3) + '" y="' + (Y(a) + 3) + '" text-anchor="end" fill="#64748b" font-size="9">' + a + '</text>';
+  if (d.maxR > 0) s += '<line x1="' + x0 + '" y1="' + Y(d.maxR) + '" x2="' + x1 + '" y2="' + Y(d.maxR) + '" stroke="#f87171" stroke-dasharray="4 3"/><text x="' + (x1 - 2) + '" y="' + (Y(d.maxR) - 3) + '" text-anchor="end" fill="#f87171" font-size="9">max R ' + d.maxR + '</text>';
+  if (d.maxL > 0) s += '<line x1="' + x0 + '" y1="' + Y(-d.maxL) + '" x2="' + x1 + '" y2="' + Y(-d.maxL) + '" stroke="#f87171" stroke-dasharray="4 3"/><text x="' + (x1 - 2) + '" y="' + (Y(-d.maxL) + 10) + '" text-anchor="end" fill="#f87171" font-size="9">max L ' + d.maxL + '</text>';
+  if (line.length >= 2) {
+    var p = '';
+    line.forEach(function(q, i) { p += (i ? 'L' : 'M') + X(q[0]).toFixed(1) + ' ' + Y(q[1]).toFixed(1) + ' '; });
+    s += '<path d="' + p + '" stroke="#38bdf8" fill="none" stroke-width="2"/>';
+    if (d.src == 0 || d.src == 4) line.forEach(function(q) { s += '<circle cx="' + X(q[0]).toFixed(1) + '" cy="' + Y(q[1]).toFixed(1) + '" r="2.2" fill="#38bdf8"/>'; });
+  } else s += '<text x="160" y="40" text-anchor="middle" fill="#64748b" font-size="11">no table</text>';
+  if (dot) s += '<circle cx="' + X(dot[0]).toFixed(1) + '" cy="' + Y(Math.max(-ym, Math.min(ym, dot[1]))).toFixed(1) + '" r="5" fill="#4ade80"/>';
+  s += '<text x="' + x0 + '" y="154" fill="#64748b" font-size="9">' + Math.round(lo) + '</text><text x="' + x1 + '" y="154" text-anchor="end" fill="#64748b" font-size="9">' + Math.round(hi) + '</text>';
+  s += '<text x="160" y="154" text-anchor="middle" fill="#94a3b8" font-size="10">' + xl + '</text><text x="4" y="9" fill="#94a3b8" font-size="9">&deg;</text>';
+  wcEl('wcGr').innerHTML = s;
+}
+function wcValsBox(d) {
+  var tbl = d.use == 1 && d.nPts >= 2, h = '';
+  function b(t, v, c) { h += '<div><small>' + t + '</small><b' + (c ? ' style="color:' + c + '"' : '') + '>' + v + '</b></div>'; }
+  b('AOG setpoint', wcSg(d.sp));
+  b('WAS → AOG', wcSg(d.aOut), '#4ade80');
+  if (d.src == 1) {
+    b('Keya ticks', d.kEnc);
+    b('Centre ticks', d.kZero);
+    b('Drift offset', wcSg(d.kOff) + (d.kZd ? '' : ' (no init zero)'));
+  } else if (d.src == 0 || d.src == 4) {
+    b('ADS raw', d.raw);
+    b('Centre', tbl ? 'raw ' + wcFix(d.raw0, 0) : 'AOG ' + wcFix(d.adsAzOff, 2) + '°');
+    var m = tbl ? 'TABLE' : 'AOG FORMULA';
+    if (d.kx == 1 && d.wAds < 0.999) m += ' · Keya ' + Math.round((1 - d.wAds) * 100) + '%';
+    b('Mode', m);
+    if (d.src == 4 && d.fz) { b('Keya + ADS offset', wcSg(d.fz.off)); b('ADS disturbances', d.fz.drop, d.fz.err ? '#f87171' : ''); }
+  }
+  b('Limits L | R', (d.maxL > 0 ? d.maxL : 'off') + ' | ' + (d.maxR > 0 ? d.maxR : 'off'));
+  wcEl('wcVals').innerHTML = h;
+}
+
+// ── Wizard (ADS) ─────────────────────────────────────────────────────────────
+var wzStep = 1, wzN = 7, wzShown = 0, wzApplied = false;
+var wzNames = ['Check', 'Right wheel', 'Left wheel', 'Result', 'Zero', 'Limits', 'Keya'];
+function wzGo(dl) { wzStep = Math.max(1, Math.min(wzN + 1, wzStep + dl)); wzShown = 0; if (wcLast) wzUpd(wcLast); }
+function wzNav(next, canSkip) {
+  return '<div class="wznav"><button class="btn" onclick="wzGo(-1)"' + (wzStep == 1 ? ' disabled' : '') + '>Back</button>'
+    + (canSkip ? '<button class="btn" onclick="wzGo(1)">Skip</button>' : '')
+    + '<button class="btn green" id="wzNext" onclick="' + (next || 'wzGo(1)') + '">' + (wzStep == wzN ? 'Finish' : 'Next') + '</button></div>';
+}
+function wzRow(t, id) { return '<div class="row"><span class="lbl">' + t + '</span><span id="' + id + '" class="badge fail">--</span></div>'; }
+function wzBadge(id, ok, t) { var e = wcEl(id); if (!e) return; e.className = 'badge ' + (ok ? 'ok' : 'fail'); e.textContent = t; }
+function wzWheelDone(si) {
+  var s = wcLast ? wcLast.ses[si] : null;
+  if (s && s.st == 1) wcCmd('stop=1').then(function() { wzGo(1); }); else wzGo(1);
+}
+function wzApply() {
+  if (!confirm('Apply the new table and use it?')) return;
+  wcCmd('apply=1').then(function(t) { if (t.indexOf('OK') === 0) { wzApplied = true; return wcCmd('use=1'); } });
+}
+function wzBuild(d) {
+  var h = '', rear = d.rear == 1 ? 'rear ' : '';
+  if (wzStep == 1) {
+    h = '<h3>Check</h3><div class="ins">Everything must be OK.</div>'
+      + wzRow('ADS1115 sensor', 'wz1a') + wzRow('Reference IMU on a wheel', 'wz1b') + wzRow('Autosteer off', 'wz1c') + wzRow('Vehicle standing', 'wz1d')
+      + '<div class="ins" style="font-size:14px;color:#94a3b8;margin-top:8px">No reference IMU? Use <b>Manual calibration</b> further down.</div>' + wzNav();
+  } else if (wzStep == 2 || wzStep == 3) {
+    var R = wzStep == 2;
+    h = '<h3>' + (R ? 'Right wheel' : 'Left wheel') + '</h3><div class="ins">'
+      + (R ? 'IMU on the <b>RIGHT ' + rear + 'wheel</b>.' : 'Move the IMU to the <b>LEFT ' + rear + 'wheel</b>.')
+      + ' Wheels straight, press <b>Start</b>. Turn <b>fully RIGHT first</b>, then fully LEFT, then back to straight. Slowly.</div>'
+      + '<div class="big" id="wzAng">&mdash;</div><div class="ctr" id="wzDir"></div>'
+      + '<div class="cov" id="wzCov"></div><div class="covl"><span>-50&deg; left</span><span>0</span><span>+50&deg; right</span></div>'
+      + '<div class="ctr" id="wzSt" style="color:#94a3b8"></div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn green bb" id="wzStart" onclick="wcCmd(\'start=' + (R ? 'R' : 'L') + '\')">Start</button>'
+      + '<button class="btn bb" onclick="wcCmd(\'stop=1\')">Stop</button></div>'
+      + (R ? '' : '<div class="ins" style="font-size:14px;color:#94a3b8;margin-top:8px">Skip = one wheel only (uses L and T from Parameters).</div>')
+      + wzNav('wzWheelDone(' + (R ? 0 : 1) + ')', !R);
+  } else if (wzStep == 4) {
+    h = '<h3>Result</h3><div class="grade" id="wzGr">&hellip;</div><div class="ctr" id="wzGt"></div>'
+      + '<button class="btn green bb" id="wzApply" onclick="wzApply()">Apply &amp; use table</button>'
+      + '<div class="ins" id="wzChk" style="display:none">Now turn the steering wheel to the <b>RIGHT</b>: the wheels in the sketch above must turn right and the angle must be <b>+</b>. Other way round? '
+      + '<button class="btn" onclick="if (confirm(\'Flip the table left / right?\')) wcCmd(\'flip=1\')">Flip table</button></div>'
+      + '<details style="margin-top:10px"><summary style="cursor:pointer;color:#94a3b8">Details</summary>'
+      + '<div class="row"><span class="lbl">Message</span><span class="val" id="wcResMsg" style="font-size:12px">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">RMS | hysteresis mean / max</span><span class="val" id="wcResQ">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Wheels | offset between measurements</span><span class="val" id="wcResW">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Saturated bins | skipped points</span><span class="val" id="wcResS">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Keya ticks/&deg; L | R &middot; lock L | R</span><span class="val" id="wcResK">&mdash;</span></div>'
+      + '<canvas id="wcCurveCv" width="720" height="300" style="width:100%;margin-top:8px;background:#050d1a;border:1px solid #1e3a5f;border-radius:3px"></canvas>'
+      + '<p style="color:#94a3b8;font-size:12px;margin-top:4px">Dots = measured (raw, bicycle angle), blue = new table, grey = table in use.</p></details>'
+      + wzNav();
+    wcCurve = null;
+    if (!d.res) wcCmd('compute=1');
+  } else if (wzStep == 5) {
+    h = '<h3>Zero</h3><div class="ins">Wheels straight. Press <b>Set centre now</b>.</div>'
+      + '<div class="big" id="wzZa">&mdash;</div>'
+      + '<button class="btn green bb" onclick="wcCentre()">&#8982; Set centre now</button>'
+      + '<details style="margin-top:10px"><summary style="cursor:pointer;color:#94a3b8">More exact: drive straight both ways</summary>'
+      + '<p style="color:#94a3b8;font-size:12px;line-height:1.4">Above the min speed, a pass counts while the heading moves less than the limit over the window. Drive the line both ways, then Apply mean.</p>'
+      + '<div class="row"><span class="lbl">Speed | heading rate</span><span class="val" id="wcZLive">&mdash;</span></div>'
+      + '<div style="height:10px;background:#0a1626;border:1px solid #1e3a5f;border-radius:3px;margin:6px 0"><div id="wcZBar" style="height:100%;width:0;background:#38bdf8"></div></div>'
+      + '<div class="row"><span class="lbl">State</span><span class="val" id="wcZMsg">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Passes (angle, sd)</span><span class="val" id="wcZPass">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Zero in use</span><span class="val" id="wcZCur">&mdash;</span></div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn green" onclick="wcCmd(\'zstart=1\')">Start pass</button><button class="btn" onclick="wcCmd(\'zstop=1\')">Stop</button>'
+      + '<button class="btn green" onclick="wcCmd(\'zapply=1\')">Apply mean</button><button class="btn" onclick="wcCmd(\'zclear=1\')">Clear</button></div>'
+      + '<div class="section-row" style="gap:8px;margin-top:8px">'
+      + '<div style="flex:1"><span class="lbl">Heading limit &deg;/s</span><input type="number" id="wcZYaw" min="0.02" max="2" step="0.01" class="ninput" style="width:100%"></div>'
+      + '<div style="flex:1"><span class="lbl">Min speed km/h</span><input type="number" id="wcZSpd" min="1" max="25" step="0.5" class="ninput" style="width:100%"></div>'
+      + '<div style="flex:1"><span class="lbl">Window s</span><input type="number" id="wcZTime" min="2" max="60" step="1" class="ninput" style="width:100%"></div></div>'
+      + '<button class="btn green" onclick="wcSaveParams()">Save zero settings</button></details>'
+      + wzNav();
+  } else if (wzStep == 6) {
+    h = '<h3>Limits</h3><div class="ins">Max steering angle each side. Set 2&ndash;3&deg; below the lock. 0 = no limit.</div>'
+      + '<div class="section-row" style="gap:10px"><div style="flex:1"><span class="lbl">Max left &deg;</span><input type="number" id="wzMaxL" min="0" max="80" step="0.1" class="ninput wzin"></div>'
+      + '<div style="flex:1"><span class="lbl">Max right &deg;</span><input type="number" id="wzMaxR" min="0" max="80" step="0.1" class="ninput wzin"></div></div>'
+      + '<div class="ctr" id="wzLock" style="color:#94a3b8;margin-top:8px"></div>'
+      + '<button class="btn green bb" onclick="wcSaveLim(\'wzMaxL\', \'wzMaxR\')">Save limits</button>' + wzNav();
+  } else if (wzStep == 7) {
+    var kOk = d.kTpdL && d.kTpdR;
+    h = '<h3>Keya takes over</h3><div class="ins">Optional. Skip if you do not use the Keya for large angles (U / K turns).</div>'
+      + (kOk ? '<label class="chk-row" style="font-size:17px"><input type="checkbox" id="wzKx" onchange="wcCmd(\'kx=\' + (this.checked ? 1 : 0))"> Keya extends the range</label>'
+        + '<div class="section-row" style="gap:10px"><div style="flex:1"><span class="lbl">Handover angle &deg; (0 = table ends)</span><input type="number" id="wzHand" min="0" max="60" step="0.5" class="ninput wzin"></div>'
+        + '<div style="flex:1"><span class="lbl">Blend zone &deg;</span><input type="number" id="wzBlend" min="1" max="15" step="0.5" class="ninput wzin"></div></div>'
+        + '<button class="btn green bb" onclick="wcCmd(\'params=1\' + wcQ({ hand: \'wzHand\', blend: \'wzBlend\' })).then(function() { wcClrEd([\'wzHand\', \'wzBlend\']); })">Save</button>'
+        : '<div class="ins" style="color:#f59e0b">No Keya data in this table (the Keya was not connected while turning).</div>')
+      + wzNav(null, true);
+  } else {
+    h = '<h3>Calibration finished</h3>'
+      + '<div class="row"><span class="lbl">Table</span><span id="wzF1" class="badge fail">--</span></div>'
+      + '<div class="row"><span class="lbl">Limits L | R</span><span class="val" id="wzF2">&mdash;</span></div>'
+      + '<div class="row"><span class="lbl">Keya extends</span><span id="wzF3" class="badge fail">--</span></div>'
+      + '<div class="ins" style="font-size:14px;color:#94a3b8;margin-top:8px">Every value stays editable in Parameters below.</div>'
+      + '<button class="btn bb" onclick="wzStep=1;wzApplied=false;wzGo(0)">Start again</button>';
+  }
+  wcEl('wzView').innerHTML = h;
+  // fields: fill once from the Teensy
+  if (wzStep == 5) { wcSetIn('wcZYaw', d.zyaw); wcSetIn('wcZSpd', d.zspd); wcSetIn('wcZTime', d.ztime); }
+  if (wzStep == 6) { wcSetIn('wzMaxL', d.maxL); wcSetIn('wzMaxR', d.maxR); }
+  if (wzStep == 7) { wcSetIn('wzHand', d.hand); wcSetIn('wzBlend', d.blend); }
+  var b = '';
+  for (var i = 1; i <= wzN; i++) b += '<span class="' + (i < wzStep ? 'd' : i == wzStep ? 'c' : '') + '" title="' + wzNames[i - 1] + '"></span>';
+  wcEl('wzBar').innerHTML = b;
+  wcTxt('wzNo', wzStep <= wzN ? 'Step ' + wzStep + ' of ' + wzN + ' · ' + wzNames[wzStep - 1] : 'Done');
+  wzShown = wzStep;
+}
+function wzUpd(d) {
+  if (wzShown != wzStep) wzBuild(d);
+  var nx = wcEl('wzNext');
+  if (wzStep == 1) {
+    var ok = [d.ads == 1, d.refOk == 1, d.steerOn != 1, d.speed <= 0.5];
+    wzBadge('wz1a', ok[0], ok[0] ? 'OK' : 'NOT FOUND'); wzBadge('wz1b', ok[1], ok[1] ? 'OK' : 'NO SIGNAL');
+    wzBadge('wz1c', ok[2], ok[2] ? 'OK' : 'ENGAGED'); wzBadge('wz1d', ok[3], ok[3] ? 'OK' : 'MOVING');
+    if (nx) nx.disabled = !(ok[0] && ok[1] && ok[2] && ok[3]);
+  } else if (wzStep == 2 || wzStep == 3) {
+    var si = wzStep - 2, s = d.ses[si], rec = s.st == 1;
+    wcTxt('wzAng', rec ? wcSg(s.w) : '—');
+    var dir = wcEl('wzDir');
+    if (dir) {
+      if (rec && !s.sign) { dir.textContent = 'Turn RIGHT first'; dir.style.color = '#f59e0b'; }
+      else if (rec && s.rate > 10) { dir.textContent = 'Too fast - slower'; dir.style.color = '#f87171'; }
+      else if (s.sign) { dir.textContent = 'Direction set (right = +)'; dir.style.color = '#4ade80'; }
+      else { dir.textContent = 'Press Start'; dir.style.color = '#94a3b8'; }
+    }
+    var c = '';
+    for (var g = 0; g < 21; g++) c += '<i class="' + (s.cov[g] == 3 ? 'f' : s.cov[g] ? 'h' : '') + '"></i>';
+    var cv = wcEl('wzCov'); if (cv) cv.innerHTML = c;
+    wcTxt('wzSt', ['not started', 'RECORDING', 'done'][s.st] + (s.st ? ' · ' + s.n + ' samples' : '') + (s.fast ? ' · too fast ' + s.fast : '') + (s.stale ? ' · no IMU ' + s.stale : ''));
+    var st = wcEl('wzStart'); if (st) st.textContent = s.st ? 'Start again' : 'Start';
+    if (nx) { nx.disabled = !(s.st >= 1 && s.n > 20 && s.sign); nx.textContent = 'Done'; }
+  } else if (wzStep == 4) {
+    var ap = wcEl('wzApply'), ck = wcEl('wzChk');
+    if (d.res) {
+      var gq = d.res.rms < 0.6 && d.res.hyst < 1.5 ? ['GOOD', '#4ade80'] : d.res.rms < 1.2 ? ['OK', '#fbbf24'] : ['POOR', '#f87171'];
+      wcTxt('wzGr', gq[0], gq[1]);
+      wcTxt('wzGt', 'accuracy ' + wcFix(d.res.rms, 2) + '° · ' + wcFix(d.res.ang[0], 1) + ' … ' + wcFix(d.res.ang[d.res.nPts - 1], 1) + '° · ' + d.res.nPts + ' points');
+      if (ap) ap.style.display = '';
+      if (ck) ck.style.display = 'none';
+      if (d.res.cRaw) wcCurve = { raw: d.res.cRaw, bike: d.res.cBike };
+      wcTxt('wcResMsg', d.msg);
+      wcTxt('wcResQ', wcFix(d.res.rms, 2) + '° | ' + wcFix(d.res.hyst, 2) + ' / ' + wcFix(d.res.hystMax, 2) + '°');
+      wcTxt('wcResW', (d.res.two ? 'both' : 'one (L/T used)') + ' | ' + wcFix(d.res.rel, 2) + '°');
+      wcTxt('wcResS', d.res.sat + ' | ' + d.res.inv);
+      wcTxt('wcResK', d.res.kOk ? (wcFix(d.res.kTpdL, 1) + ' | ' + wcFix(d.res.kTpdR, 1) + ' · ' + wcFix(d.res.kMaxL, 1) + ' | ' + wcFix(d.res.kMaxR, 1) + '°') : 'no Keya data');
+      if (wcEl('wcCurveCv')) wcDrawCurve(d);
+    } else if (wzApplied && d.use == 1 && d.nPts >= 2) {
+      wcTxt('wzGr', 'APPLIED', '#4ade80'); wcTxt('wzGt', 'table in use · ' + d.nPts + ' points');
+      if (ap) ap.style.display = 'none';
+      if (ck) ck.style.display = '';
+    } else {
+      wcTxt('wzGr', 'NO RESULT', '#f87171'); wcTxt('wzGt', d.msg);
+      if (ap) ap.style.display = 'none';
+      if (ck) ck.style.display = 'none';
+    }
+  } else if (wzStep == 5) {
+    wcTxt('wzZa', wcSg(d.aOut));
+    var z = d.z;
+    wcTxt('wcZLive', wcFix(d.speed, 1) + ' km/h | ' + wcFix(d.hdgRate, 2) + ' °/s' + (d.vtg ? ' (VTG)' : ''));
+    var zb = wcEl('wcZBar'); if (zb) zb.style.width = Math.round(z.prog * 100) + '%';
+    wcTxt('wcZMsg', (z.run ? 'running: ' : '') + z.msg);
+    var pp = [];
+    for (var k = 0; k < z.n; k++) pp.push(wcFix(z.ang[k], 2) + '° (' + wcFix(z.sd[k], 2) + ')');
+    wcTxt('wcZPass', z.n ? pp.join(', ') + ' → mean ' + wcFix(z.mean, 2) + '° [' + (z.tbl ? 'table' : 'AOG') + ']' : '—');
+    var tb = d.use == 1 && d.nPts >= 2;
+    wcTxt('wcZCur', tb ? ('table: zero ' + wcFix(d.zShift, 1) + ' + auto ' + wcFix(d.azShift, 1) + ' counts')
+                       : ('AOG: auto offset ' + wcFix(d.adsAzOff, 3) + '°' + (d.adsAz ? '' : ' (auto-zero off)')));
+  } else if (wzStep == 6) {
+    wcTxt('wzLock', 'Measured lock L | R: ' + wcLockTxt(d));
+  } else if (wzStep == 7) {
+    var kx = wcEl('wzKx'); if (kx) kx.checked = d.kx == 1;
+  } else if (wzStep == wzN + 1) {
+    var t = d.use == 1 && d.nPts >= 2;
+    wzBadge('wzF1', t, t ? 'IN USE' : 'OFF');
+    wcTxt('wzF2', (d.maxL > 0 ? d.maxL : 'off') + ' | ' + (d.maxR > 0 ? d.maxR : 'off'));
+    wzBadge('wzF3', d.kx == 1, d.kx == 1 ? 'ON' : 'OFF');
+  }
+}
+function wcLockTxt(d) {
+  return d.kTpdL && d.kTpdR ? wcFix(-d.kMaxL, 1) + ' | ' + wcFix(d.kMaxR, 1) + '° (Keya)'
+       : d.nPts >= 2 ? wcFix(-d.tAng[0], 1) + ' | ' + wcFix(d.tAng[d.nPts - 1], 1) + '° (table ends)' : '—';
+}
+
+// ── Poll result ──────────────────────────────────────────────────────────────
+function wcUpd(d) {
+  wcLast = d;
+  var tbl = d.use == 1 && d.nPts >= 2;
+  wcSketch(d); wcGraph(d); wcValsBox(d);
+  wcTxt('wcMsg', d.msg);
+  var fa = wcEl('wcAxF'), ra = wcEl('wcAxR');
+  if (fa) fa.style.outline = d.rear == 1 ? '' : '2px solid #38bdf8';
+  if (ra) ra.style.outline = d.rear == 1 ? '2px solid #38bdf8' : '';
+  wcTxt('wcLimLock', d.src == 1 ? 'see Keya auto-calibration result' : wcLockTxt(d));
+  wcFuzeUpd(d);
+  if (d.src != 0 && d.src != 4) return;        // the rest is the ADS part
+
+  wzUpd(d);
+  // parameters
+  var mb = wcEl('wcMode');
+  mb.className = 'badge ' + (tbl ? 'ok' : 'fail'); mb.textContent = tbl ? 'WAS: TABLE' : 'WAS: AOG SETTINGS';
+  var u = wcEl('wcUse'); u.checked = d.use == 1; u.disabled = d.nPts < 2;
+  var kinds = ['IMU', 'manual', 'counts per °'];
+  wcTxt('wcTInfo', d.nPts >= 2 ? (kinds[d.kind] || '?') + (d.kind == 0 ? (d.two ? ', 2 wheels' : ', 1 wheel') : '') + ' · ' + d.nPts + ' pts · '
+        + wcFix(d.tAng[0], 1) + ' … ' + wcFix(d.tAng[d.nPts - 1], 1) + '°' + (d.kind == 0 ? ' · RMS ' + wcFix(d.rms, 2) + '°' : '') : 'none');
+  wcSetIn('pMaxL', d.maxL); wcSetIn('pMaxR', d.maxR);
+  wcTxt('pLock', wcLockTxt(d));
+  wcSetIn('pCen', d.nPts >= 2 ? Math.round(d.raw0) : Math.round(d.rawAvg));
+  if (d.nPts >= 2) {
+    var aR = Math.min(10, d.tAng[d.nPts - 1] - 0.1), aL = Math.max(-10, d.tAng[0] + 0.1);
+    var cR = (wcA2R(d, aR) - wcA2R(d, 0)) / aR, cL = (wcA2R(d, 0) - wcA2R(d, aL)) / -aL;
+    wcSetIn('pCL', Math.abs(cL).toFixed(1)); wcSetIn('pCR', Math.abs(cR).toFixed(1));
+    wcTxt('pDir', (cR > 0 ? 'raw rises' : 'raw falls') + ' turning right · wrong way: Flip table');
+  } else wcTxt('pDir', 'no table · AOG Invert WAS ' + (d.aogInv ? 'ON' : 'off') + ' (set in AOG)');
+  wcSetIn('wcL', d.L); wcSetIn('wcT', d.T); wcSetIn('mL', d.L); wcSetIn('mT', d.T);
+  var kx = wcEl('wcKx');
+  kx.checked = d.kx == 1; kx.disabled = !(d.kTpdL && d.kTpdR);
+  wcTxt('wcKTpd', d.kTpdL ? '(ticks/° L ' + wcFix(d.kTpdL, 1) + ' | R ' + wcFix(d.kTpdR, 1) + ')' : '(no Keya data in the table)');
+  wcTxt('wcKW', d.kx == 1 ? 'ADS weight ' + wcFix(d.wAds, 2) + (d.keya ? '' : ' (Keya not detected)') : 'off');
+  wcSetIn('wcHand', d.hand); wcSetIn('wcBlend', d.blend);
+  var key = d.nPts + ':' + d.tRaw.join(',') + ':' + d.zShift + ':' + d.azShift;
+  if (key !== wcPtsKey) {
+    wcPtsKey = key;
+    var sh = d.zShift + d.azShift, wm = d.tWR.length == d.nPts;
+    var t = '<table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="color:#64748b"><td>raw</td><td>angle</td>' + (wm ? '<td>wheel L</td><td>wheel R</td>' : '') + '</tr>';
+    for (var i = 0; i < d.nPts; i++) t += '<tr><td>' + Math.round(d.tRaw[i] + sh) + '</td><td>' + wcSg(d.tAng[i]) + '</td>' + (wm ? '<td>' + wcSg(d.tWL[i]) + '</td><td>' + wcSg(d.tWR[i]) + '</td>' : '') + '</tr>';
+    wcEl('wcPts').innerHTML = d.nPts >= 2 ? t + '</table>' : '<span style="color:#64748b">no table</span>';
+  }
+  // manual calibration
+  var side = d.sensL ? 'L' : 'R';
+  wcEl('mSR').style.outline = side === 'R' ? '2px solid #38bdf8' : '';
+  wcEl('mSL').style.outline = side === 'L' ? '2px solid #38bdf8' : '';
+  wcTxt('mHL', (side === 'R' ? '(right wheel = outer)' : '(left wheel = inner)') + (d.man.have & 1 ? ' ✓ raw ' + d.man.raw[0] : ''));
+  wcTxt('mHC', d.man.have & 2 ? '✓ raw ' + d.man.raw[1] : '');
+  wcTxt('mHR', (side === 'R' ? '(right wheel = inner)' : '(left wheel = outer)') + (d.man.have & 4 ? ' ✓ raw ' + d.man.raw[2] : ''));
+  if (d.man.have & 1) wcSetIn('mAL', d.man.ang[0]);
+  if (d.man.have & 4) wcSetIn('mAR', d.man.ang[2]);
+  var L = parseFloat(wcVal('mL')) || d.L, T = parseFloat(wcVal('mT')) || d.T;
+  var vl = parseFloat(wcVal('mAL')), vr = parseFloat(wcVal('mAR'));
+  wcTxt('mBL', vl > 0 ? '= bicycle angle ' + wcSg(wcW2B(-vl, side, L, T)) : '');
+  wcTxt('mBR', vr > 0 ? '= bicycle angle ' + wcSg(wcW2B(vr, side, L, T)) : '');
+}
+function wcDrawCurve(d) {
+  var cv = wcEl('wcCurveCv'), x = cv.getContext('2d'), W = cv.width, H = cv.height;
+  x.clearRect(0, 0, W, H);
+  var r = d.res, xs = [].concat(r.raw), ys = [].concat(r.ang);
+  if (wcCurve) { xs = xs.concat(wcCurve.raw); ys = ys.concat(wcCurve.bike); }
+  if (d.nPts >= 2) { xs = xs.concat(d.tRaw); ys = ys.concat(d.tAng); }
+  var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+  if (x1 - x0 < 1) x1 = x0 + 1; if (y1 - y0 < 1) y1 = y0 + 1;
+  var px = function(v) { return 40 + (v - x0) / (x1 - x0) * (W - 55); }, py = function(v) { return H - 25 - (v - y0) / (y1 - y0) * (H - 40); };
+  x.strokeStyle = '#1e3a5f'; x.lineWidth = 1; x.fillStyle = '#64748b'; x.font = '11px monospace';
+  for (var a = Math.ceil(y0 / 10) * 10; a <= y1; a += 10) { x.beginPath(); x.moveTo(40, py(a)); x.lineTo(W - 10, py(a)); x.stroke(); x.fillText(a + '°', 4, py(a) + 4); }
+  x.fillText('raw ' + Math.round(x0), 40, H - 8); x.fillText(Math.round(x1), W - 50, H - 8);
+  function line(rx, ry, col) { x.strokeStyle = col; x.lineWidth = 2; x.beginPath(); for (var i = 0; i < rx.length; i++) { if (i) x.lineTo(px(rx[i]), py(ry[i])); else x.moveTo(px(rx[i]), py(ry[i])); } x.stroke(); }
+  if (d.nPts >= 2) line(d.tRaw, d.tAng, '#64748b');
+  if (wcCurve) { x.fillStyle = '#e2e8f0'; for (var i = 0; i < wcCurve.raw.length; i++) x.fillRect(px(wcCurve.raw[i]) - 1.5, py(wcCurve.bike[i]) - 1.5, 3, 3); }
+  line(r.raw, r.ang, '#38bdf8');
+  x.fillStyle = '#38bdf8'; for (var j = 0; j < r.raw.length; j++) { x.beginPath(); x.arc(px(r.raw[j]), py(r.ang[j]), 3, 0, 7); x.fill(); }
+}
+// WCJS}
+
 function clearLog() {
   fetch('/api/log?clear=1').then(function() {
     document.getElementById('log').textContent = '(cleared)';
@@ -1581,6 +2114,7 @@ function clearLog() {
 }
 
 function tick() {
+  if (gpsBusy) return;                    // UM98x upload running: leave the Teensy web server to it
   if (!configLoaded) {
     fetch('/api/status', { cache: 'no-store' })
       .then(function(r) { return r.json(); })
@@ -1597,15 +2131,12 @@ function tick() {
         .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
     } else if (lvMode === 'graph') {
       gPoll();
-    } else if (lvMode === 'keya') {
-      // Keya WAS Geometry scatter needs the full live payload (refAngle, steerAngle, geometry)
-      fetch('/api/live', { cache: 'no-store' })
-        .then(function(r) { return r.json(); })
-        .then(function(d) { updLive(d); })
-        .catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; });
     }
     return;
   }
+  // WAS cal tab with the ADS source: its own status (table, recording, zero)
+  if (activeTab === 'tm171') { tmPoll(); return; }
+  if (activeTab === 'wascal') { wcPoll(); if (wcSrcCur == 0 && !kgOpen()) return; }
   // Other tabs: lightweight full live update
   fetch('/api/live', { cache: 'no-store' })
     .then(function(r) { return r.json(); })
@@ -1628,16 +2159,9 @@ function updLive(d) {
   if (ra) ra.textContent = d.refFresh ? (d.refAngle.toFixed(2) + ' °') : '—';
   var va = document.getElementById('calVirt');
   if (va && d.calBI !== undefined) va.textContent = d.refFresh ? (d.calBI.toFixed(1) + ' | ' + d.calBO.toFixed(1) + ' °') : '—';
-  // Keya WAS Geometry scatter: keep geometry fresh, capture (ref, steer) points while running
+  // WAS cal live check (Ackermann scatter): keep geometry fresh, capture (ref, steer) points while running
   if (d.wheelBase !== undefined) { kgWB = d.wheelBase; kgT = d.trackT; }
   if (kgCapture && d.refFresh && d.steerAngle !== undefined) kgPush(d.refAngle, d.steerAngle);
-  // Geometry view below the scatter: same payload, drawn live from the encoder
-  if (d.relTicks !== undefined) {
-    gvS.tick = d.relTicks; gvS.ref = d.refAngle; gvS.fresh = !!d.refFresh;
-    gvS.steer = d.steerAngle; gvS.L = d.wheelBase; gvS.T = d.trackT;
-    if (d.tpdL !== undefined) { gvS.tpdL = d.tpdL; gvS.tpdR = d.tpdR; gvS.ack = d.ackFix; }
-    gvDraw();
-  }
   // Live input readout above the scatter — shows every value feeding the Ackermann calc
   var kgf = document.getElementById('kgvFresh');
   if (kgf) {
@@ -1813,6 +2337,12 @@ function applyAdsEma() {
   fetch('/api/save?adsEmaFilter=' + document.getElementById('adsEmaFilter').value).then(function(r) {
     document.getElementById('sb').textContent = r.ok ? 'ADS1115 WAS filter applied (live).' : 'Error.';
   });
+}
+
+function tmWarnUpd() {
+  var t = document.getElementById('tm171Serial').value, g = document.getElementById('gpsSerial').value, w = document.getElementById('tmWarn');
+  var m = (t != '0' && t == g) ? 'TM171 and GPS are on the same port (Serial' + t + ')!' : '';
+  w.textContent = m; w.style.display = m ? 'block' : 'none';
 }
 
 function saveSerial() {
@@ -2144,25 +2674,287 @@ function pvedCmd(cmd) {
   });
 }
 
-function uploadLines() {
-  var raw = document.getElementById('gpsLines').value;
-  var lines = raw.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
-  if (!lines.length) { document.getElementById('gpsStatus').textContent = 'No lines to send.'; return; }
-  var i = 0;
+// ── UM98x presets + verified upload ──────────────────────────────────────────
+// Teensy only buffers the receiver's reply lines ($command, $CONFIG, #VERSION) at /api/gpsrsp;
+// all checking happens here.
+var GPS_COMMON = ['CONFIG ANTENNA POWERON', 'CONFIG NMEAVERSION V410', 'CONFIG RTK TIMEOUT 400',
+  'CONFIG RTK RELIABILITY 3 2', 'CONFIG PPP DISABLE'];
+var GPS_COMMON2 = ['CONFIG DGPS TIMEOUT 600', 'CONFIG RTCMB1CB2A ENABLE', 'CONFIG SMOOTH HEADING 0',
+  'CONFIG SMOOTH RTKHEIGHT 0', 'CONFIG SMOOTH PSRVEL DISABLE', 'CONFIG SBAS DISABLE', 'CONFIG PPS DISABLE',
+  'CONFIG MMP ENABLE', 'CONFIG ANTIJAM AUTO', 'CONFIG AGNSS DISABLE', 'CONFIG PSRPOSBIAS ENABLE', 'SAVECONFIG'];
+var GPS_PRESETS = {
+  // the baud change goes first: if it does not work the upload stops on line 1, not at the end
+  single: ['CONFIG COM1 460800', 'SAVECONFIG'].concat(GPS_COMMON, GPS_COMMON2, ['MODE ROVER AUTOMOTIVE', 'SAVECONFIG',
+    'CONFIG SIGNALGROUP 3 6', 'GPGGA COM1 0.1', 'GPVTG COM1 0.1', 'SAVECONFIG']),
+  dual: ['CONFIG COM1 460800', 'SAVECONFIG'].concat(GPS_COMMON, ['CONFIG HEADING OFFSET 90.0 0.0', 'CONFIG HEADING TRACTOR',
+    'CONFIG HEADING RELIABILITY 3'], GPS_COMMON2, ['MODE HEADING2 TRACTOR', 'SAVECONFIG', 'CONFIG SIGNALGROUP 3 6',
+    'GPHPR COM1 0.1', 'GPGGA COM1 0.1', 'GPVTG COM1 0.1', 'SAVECONFIG'])
+};
+var gpsBaudCur = 115200, gpsAbort = false, gpsModelName = '', gpsBusy = false, gpsNetErr = false;
+
+function gpsPreset(k) {
+  document.getElementById('gpsLines').value = GPS_PRESETS[k].join('\n');
   var st = document.getElementById('gpsStatus');
-  function sendNext() {
-    if (i >= lines.length) {
-      st.textContent = 'Done — ' + lines.length + ' line(s) sent.';
-      setTimeout(pollGpsRaw, 300);
-      return;
+  st.textContent = (k === 'dual' ? 'Dual (UM982)' : 'Single (UM980)') + ' preset loaded — edit if needed, then Upload.';
+  if (k === 'dual' && /UM980/.test(gpsModelName)) st.textContent += ' Warning: detected ' + gpsModelName + ' (no heading).';
+}
+function gpsSleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+// fetch with a timeout: a stalled request must not freeze the upload
+function gpsFetch(u) {
+  var ctl = new AbortController(), t = setTimeout(function() { ctl.abort(); }, 3000);
+  return fetch(u, { cache: 'no-store', signal: ctl.signal }).then(function(r) { clearTimeout(t); return r; },
+    function(e) { clearTimeout(t); throw e; });
+}
+function gpsRsp(clear) { return gpsFetch('/api/gpsrsp' + (clear ? '?clear=1' : '')).then(function(r) { return r.text(); }); }
+async function gpsBaudSet(n) { try { await gpsFetch('/api/gpsbaud?baud=' + n); return true; } catch (e) { gpsNetErr = true; return false; } }
+
+// Reply of one command: {ok:true|false, text} or null when nothing came back in time.
+function gpsFindReply(buf, cmd) {
+  var pre = '$command,' + cmd + ',response: ', ls = buf.split('\n');
+  for (var i = 0; i < ls.length; i++) {
+    if (ls[i].indexOf(pre) === 0) {
+      var t = ls[i].substring(pre.length).replace(/\*[0-9A-Fa-f]{2}\s*$/, '').trim();
+      return { ok: t === 'OK', text: t };
     }
+  }
+  return null;
+}
+async function gpsSend(cmd, waitMs) {     // null = no reply (or no connection to the Teensy: gpsNetErr)
+  try {
+    await gpsRsp(true);
+    await gpsFetch('/api/gpscmd?line=' + encodeURIComponent(cmd));
+    var t0 = Date.now();
+    while (Date.now() - t0 < waitMs) {
+      await gpsSleep(250);
+      var r = gpsFindReply(await gpsRsp(false), cmd);
+      if (r) return r;
+    }
+  } catch (e) { gpsNetErr = true; await gpsSleep(500); }
+  return null;
+}
+async function gpsSendRetry(cmd) {
+  gpsNetErr = false;
+  for (var n = 0; n < 3; n++) {
+    var r = await gpsSend(cmd, 3000);
+    if (r) return r;                      // an error reply is final, no retry
+  }
+  return null;
+}
+async function gpsAlive(maxMs) {          // after MODE: the receiver restarts, poll VERSION until it answers
+  var t0 = Date.now();
+  while (Date.now() - t0 < maxMs) {
+    if (await gpsSend('VERSION', 1500)) return true;
+    await gpsSleep(500);
+  }
+  return false;
+}
+function gpsDetect() {
+  var st = document.getElementById('gpsStatus'), m = document.getElementById('gpsModel');
+  st.textContent = 'Reading VERSION...';
+  gpsSend('VERSION', 3000).then(function(r) {
+    if (!r) { st.textContent = 'No reply from the receiver (check GPS serial / baud).'; return; }
+    return gpsSleep(400).then(function() { return gpsRsp(false); }).then(function(b) {
+      var mm = /#VERSION,[^;]*;(UM9[0-9A-Z]+),([^,]*)/.exec(b);
+      gpsModelName = mm ? mm[1] : '';
+      m.textContent = mm ? mm[1] + ' ' + mm[2] : '?';
+      st.textContent = mm ? ('Detected ' + mm[1] + (mm[1] === 'UM982' ? ' — use the Dual preset.' : ' — use the Single preset.')) : 'VERSION reply not recognised.';
+    });
+  });
+}
+function gpsRow(i, cls, txt) {
+  var e = document.getElementById('gpl' + i);
+  if (!e) return;
+  var col = { wait: '#64748b', send: '#e2b23e', ok: '#4ade80', err: '#f87171' }[cls] || '#94a3b8';
+  e.style.color = col;
+  e.querySelector('.gpr').textContent = txt || '';
+}
+function gpsRender(lines) {
+  var h = '';
+  for (var i = 0; i < lines.length; i++)
+    h += '<div id="gpl' + i + '" style="color:#64748b;padding:1px 0"><span class="gpt"></span>' +
+         lines[i].replace(/</g, '&lt;') + ' <span class="gpr" style="opacity:.85"></span></div>';
+  document.getElementById('gpsList').innerHTML = h;
+}
+// CONFIG read-back: "$CONFIG,KEY,CONFIG KEY ... *xx" -> the text after the second comma.
+function gpsCfgLines(buf) {
+  var out = [], ls = buf.split('\n');
+  for (var i = 0; i < ls.length; i++) {
+    var m = /^\$CONFIG,[^,]*,(.*?)(\*[0-9A-Fa-f]{2})?\s*$/.exec(ls[i]);
+    if (m) out.push(m[1].trim().replace(/\s+/g, ' '));
+  }
+  return out;
+}
+// 'ok' identical, 'diff' same key but another value (got = receiver's line), 'na' CONFIG does not list it.
+function gpsCompare(sent, cfg) {
+  var tk = sent.trim().toUpperCase().replace(/\s+/g, ' ').split(' ');
+  var cand = cfg.filter(function(c) { return c.toUpperCase().split(' ')[1] === tk[1]; });
+  // keys with a sub-command (RTK TIMEOUT, HEADING TRACTOR ...): compare only the line of the same sub-command
+  if (/^(RTK|PPP|HEADING|SMOOTH|DGPS)$/.test(tk[1]) || cand.length > 1)
+    cand = cand.filter(function(c) { return c.toUpperCase().split(' ')[2] === tk[2]; });
+  if (!cand.length) return { r: 'na' };
+  return cand[0].toUpperCase() === tk.join(' ') ? { r: 'ok' } : { r: 'diff', got: cand[0] };
+}
+async function gpsReadConfig() {
+  var buf = '';
+  try {
+    await gpsRsp(true);
+    await gpsFetch('/api/gpscmd?line=CONFIG');
+    var t0 = Date.now(), last = -1, lastT = Date.now();
+    while (Date.now() - t0 < 6000) {
+      await gpsSleep(250);
+      buf = await gpsRsp(false);
+      if (buf.length !== last) { last = buf.length; lastT = Date.now(); }
+      else if (buf.indexOf('$command,CONFIG,response: OK') >= 0 && Date.now() - lastT > 700) break;
+    }
+  } catch (e) { return null; }
+  return buf.indexOf('$command,CONFIG,response: OK') >= 0 ? gpsCfgLines(buf) : null;
+}
+async function gpsUploadMain() {
+  var raw = document.getElementById('gpsLines').value;
+  var lines = raw.split('\n').map(function(l) { return l.trim(); })
+    .filter(function(l) { return l.length > 0 && l.charAt(0) !== '#'; });
+  var st = document.getElementById('gpsStatus');
+  if (!lines.length) { st.textContent = 'No lines to send.'; return; }
+  gpsAbort = false;
+  gpsRender(lines);
+  st.textContent = 'Waiting for the receiver to answer...';
+  if (!(await gpsAlive(15000))) {
+    st.textContent = gpsNetErr ? 'No connection to the Teensy.' : 'The receiver does not answer (check GPS serial / baud on Main config).';
+    return;
+  }
+  var failed = false, i;
+  for (i = 0; i < lines.length && !gpsAbort; i++) {
     var line = lines[i];
     st.textContent = 'Sending ' + (i + 1) + '/' + lines.length + ': ' + line;
-    fetch('/api/gpscmd?line=' + encodeURIComponent(line))
-      .then(function() { i++; setTimeout(sendNext, 1000); })
-      .catch(function() { st.textContent = 'Error on line ' + (i + 1); });
+    gpsRow(i, 'send', 'sending...');
+    var bm = /^CONFIG\s+COM\d+\s+(\d+)\s*$/i.exec(line);
+    if (bm) {                                        // baud change: the reply comes at the OLD baud, so prove the new one
+      var nb = parseInt(bm[1], 10), old = gpsBaudCur;
+      if (nb !== old) {
+        var r0 = await gpsSend(line, 3000);
+        if (r0 && !r0.ok) { gpsRow(i, 'err', r0.text); failed = true; break; }
+        if (!(await gpsBaudSet(nb))) { gpsRow(i, 'err', 'no connection to the Teensy'); failed = true; break; }
+        await gpsSleep(400);
+        if (await gpsSend('VERSION', 3000)) { gpsBaudCur = nb; gpsRow(i, 'ok', 'OK — Teensy now at ' + nb); continue; }
+        await gpsBaudSet(old);                       // roll back
+        await gpsSleep(400);
+        var back = await gpsSend('VERSION', 3000);
+        gpsRow(i, 'err', 'no reply at ' + nb + ' — Teensy back at ' + old + (back ? '' : ' (receiver silent: set baud on Main config)') +
+               '. Is the Teensy on that receiver COM port?');
+        failed = true; break;
+      }
+    }
+    var r = await gpsSendRetry(line);
+    if (!r) { gpsRow(i, 'err', gpsNetErr ? 'no connection to the Teensy' : 'no reply'); failed = true; break; }
+    if (!r.ok) { gpsRow(i, 'err', r.text); failed = true; break; }
+    gpsRow(i, 'ok', 'OK');
+    if (/^(MODE|FRESET)\b/i.test(line)) {            // restarts the receiver
+      st.textContent = 'Waiting for the receiver to restart...';
+      await gpsSleep(2500);
+      if (!(await gpsAlive(15000))) { gpsRow(i, 'err', 'OK, but the receiver did not come back'); failed = true; break; }
+    }
   }
-  sendNext();
+  if (!failed && !gpsAbort) {
+    st.textContent = 'Reading CONFIG back...';
+    var cfg = await gpsReadConfig(), ok = 0, diff = 0, na = 0;
+    if (!cfg) { st.textContent = 'All ' + lines.length + ' lines OK. CONFIG read-back: no reply.'; }
+    else {
+      for (i = 0; i < lines.length; i++) {
+        if (!/^CONFIG\s/i.test(lines[i])) continue;
+        var c = gpsCompare(lines[i], cfg);
+        if (c.r === 'ok') { ok++; gpsRow(i, 'ok', 'OK — confirmed by CONFIG'); }
+        else if (c.r === 'diff') { diff++; gpsRow(i, 'err', 'OK, but CONFIG shows: ' + c.got); }
+        else na++;
+      }
+      st.textContent = 'Done — ' + lines.length + ' lines OK. CONFIG check: ' + ok + ' match, ' + diff + ' differ, ' + na + ' not listed by CONFIG (checked by reply only).';
+    }
+  } else st.textContent = gpsAbort ? 'Stopped.' : 'Stopped at line ' + (i + 1) + ' — fix it or remove the line, then Upload again.';
+}
+async function uploadLines() {
+  if (gpsBusy) return;
+  var up = document.getElementById('gpsUpBtn'), sp = document.getElementById('gpsStopBtn');
+  gpsBusy = true;                         // the page's own polling is paused meanwhile (tick)
+  up.disabled = true; sp.style.display = '';
+  try { await gpsUploadMain(); }
+  catch (e) { document.getElementById('gpsStatus').textContent = 'Upload error: ' + (e && e.message ? e.message : e); }
+  finally {
+    gpsBusy = false; up.disabled = false; sp.style.display = 'none';
+    setTimeout(pollGpsRaw, 300);
+  }
+}
+
+// ── TM171 tab ────────────────────────────────────────────────────────────────
+var tmEd = {};                                   // fields the user has touched: not overwritten by the poll
+function tmQ(u) { return fetch('/api/tm171' + (u ? '?' + u : ''), { cache: 'no-store' }).then(function(r) { return r.json(); }); }
+function tmPoll() { tmQ('').then(tmUpd).catch(function() { document.getElementById('sb').textContent = 'No connection to Teensy...'; }); }
+function tmId(i) { return document.getElementById(i); }
+function tmCal(c) {
+  if (c === 'i' && !confirm('Start the new install calibration? Do NOT cut the power for the next 20 s.')) return;
+  if (c === 'u' && !confirm('Undo the gyro calibration?')) return;
+  tmQ('cal=' + c).then(tmUpd);
+}
+function tmRead() { tmEd = {}; tmQ('read=1').then(tmUpd); }
+function tmWrite(save) {
+  var acc = Math.round(parseFloat(tmId('tmAcc').value) * 100), mg = Math.round(parseFloat(tmId('tmMg').value) * 100);
+  if (!(acc >= 1 && acc <= 2000 && mg >= 1 && mg <= 2000)) { alert('Gain must be 0.01 - 20.00'); return; }
+  if (save && !confirm('Save these settings to the TM171 flash? Keep the power on while it saves.')) return;
+  var q = 'write=1&m=' + (tmId('tmM').checked ? 1 : 0) + '&ge=' + (tmId('tmGe').checked ? 1 : 0) + '&sa=' + (tmId('tmSa').checked ? 1 : 0)
+        + '&st=' + (tmId('tmSt').checked ? 1 : 0) + '&rw=' + (tmId('tmRw').checked ? 1 : 0) + '&bo=' + tmId('tmBo').value + '&acc=' + acc + '&mg=' + mg
+        + '&odr=' + tmId('tmOdr').value + '&sv=' + (save ? 1 : 0);
+  tmQ(q).then(function(d) { if (!d.err) tmEd = {}; tmUpd(d); });
+}
+var tmDef = { tmM: 0, tmGe: 1, tmSa: 1, tmSt: 1, tmRw: 0, tmAcc: 3.5, tmMg: 1.0, tmOdr: 25, tmBo: 0 };
+// a field that differs from the default is shown in orange (label and value), so a difference is seen at once
+function tmMark() {
+  for (var id in tmDef) {
+    var el = tmId(id), cur;
+    if (!el) continue;
+    if (el.type === 'checkbox') cur = el.checked ? 1 : 0; else cur = parseFloat(el.value);
+    var diff = !isNaN(cur) && Math.abs(cur - tmDef[id]) > 0.004;
+    var lab = el.type === 'checkbox' ? el.closest('label') : el.closest('.row').querySelector('.lbl');
+    el.classList.toggle('tmdiff', diff);
+    if (lab) lab.classList.toggle('tmdiff', diff);
+  }
+}
+var tmMarkBound = false;
+function tmUpd(d) {
+  if (!tmMarkBound) { tmMarkBound = true; var pn = tmId('tm171'); pn.addEventListener('input', tmMark); pn.addEventListener('change', tmMark); }
+  var on = !!d.on;
+  var b = tmId('tmBadge'); b.className = 'badge ' + (on && d.rpy > 0 ? 'ok' : 'fail'); b.textContent = on && d.rpy > 0 ? 'OK' : '--';
+  tmId('tmAng').textContent = d.hdg + ' | ' + d.roll + ' | ' + d.pitch + ' °';
+  var hasSt = d.stAge >= 0 && d.stAge < 5;
+  tmId('tmTemp').textContent = hasSt ? d.temp.toFixed(1) + ' °C' : '— (status output off?)';
+  tmId('tmQos').textContent = hasSt ? d.qos + ' — ' + d.qosTxt : '—';
+  tmId('tmRate').textContent = d.rpy + ' Hz | ' + (hasSt ? d.intRate + ' Hz' : '—');
+  tmId('tmId').textContent = d.id + ' | ' + d.baud;
+  tmId('tmBlock').textContent = d.block ? 'Calibration and Write are blocked: ' + d.block + '.' : '';
+  tmId('tmMsg').textContent = d.err ? ('ERROR: ' + d.err) : (d.msg || '—');
+  tmId('tmMsg').style.color = d.err ? '#f87171' : '#e2e8f0';
+  var s = d.set || {}, sb = tmId('tmSetBadge');
+  sb.className = 'badge ' + (s.ok ? 'ok' : 'fail');
+  sb.textContent = s.ok ? 'read' : (s.odd ? 'layout?' : (s.noAnswer > 1 ? 'no reply' : (s.age < 0 ? '...' : '--')));
+  if (s.age >= 0) {
+    var set = function(id, key, v, chk) { if (!tmEd[key]) { if (chk) tmId(id).checked = !!v; else tmId(id).value = v; } };
+    set('tmM', 'm', s.m, 1); set('tmGe', 'ge', s.ge, 1); set('tmSa', 'sa', s.sa, 1); set('tmSt', 'st', s.st, 1); set('tmRw', 'rw', s.rw, 1);
+    set('tmAcc', 'acc', (s.acc / 100).toFixed(2)); set('tmMg', 'mg', (s.mg / 100).toFixed(2));
+    set('tmOdr', 'odr', s.odr); set('tmBo', 'bo', s.bo);
+    tmId('tmRaw').textContent = s.raw;
+  } else tmId('tmRaw').textContent = s.noAnswer > 1 ? 'no reply from the TM171: is the Teensy TX wired to the TM171 RX?' : '—';
+  if (s.odd) tmId('tmMsg').textContent = 'Settings layout not recognised: writing is disabled (raw bytes below).';
+  var c = d.cal || {}, left = c.left;
+  var txt = { starting: 'starting...', running: 'collecting' + (left >= 0 ? ' — ' + left + ' s left' : '...'), finishing: 'finishing...',
+              ok: 'done', failed: 'FAILED', noanswer: 'no reply (TX wire?)', aborted: 'stopped (tractor moving)', revoked: 'undone', idle: '' };
+  tmId('tmCalSt').textContent = (txt[c.state] || '') + (c.done >= 0 && !c.busy ? ' (' + c.done + ' s ago)' : '');
+  tmId('tmCalSt').style.color = c.state === 'failed' || c.state === 'noanswer' ? '#f87171' : (c.state === 'ok' ? '#4ade80' : '#94a3b8');
+  var blocked = !!d.block || !!c.busy || !on;
+  tmId('tmBtnCal').disabled = blocked; tmId('tmBtnUndo').disabled = blocked; tmId('tmBtnInst').disabled = blocked;
+  tmId('tmBtnStop').disabled = !c.busy;
+  tmMark();
+  var dg = d.dg || {};
+  tmId('tmDgTx').textContent = dg.tx || '\u2014';
+  tmId('tmDgCr').textContent = dg.crN ? (dg.cr + '   (#' + dg.crN + ', ' + dg.crAge + ' s ago)') : 'none received yet';
+  var wb = (d.block === 'autosteer engaged') || !s.ok;
+  tmId('tmBtnW').disabled = wb; tmId('tmBtnWS').disabled = wb;
 }
 
 // ── Graph (Live tab → Graph) ─────────────────────────────────────────────────
@@ -2176,9 +2968,11 @@ var gSignals = [
  // ── Gr2 IMU ──
  {id:10,n:'Gr2 BNO heading'},{id:11,n:'Gr2 BNO roll'},{id:12,n:'Gr2 BNO pitch'},{id:13,n:'Gr2 BNO yawRate'},
  {id:14,n:'Gr2 TM171 heading'},{id:15,n:'Gr2 TM171 roll'},{id:16,n:'Gr2 TM171 pitch'},
+ {id:47,n:'Gr2 TM171 temperature (°C)'},{id:48,n:'Gr2 TM171 QoS (0-5)'},
  // ── Gr3 WAS ──
  {id:17,n:'Gr3 WAS ADS raw'},{id:18,n:'Gr3 WAS IMU raw'},{id:19,n:'Gr3 WAS IMU scaled'},
  {id:20,n:'Gr3 WAS chassis yawRate'},{id:21,n:'Gr3 WAS wheelAngleGPS'},{id:22,n:'Gr3 WAS actual'},
+ {id:49,n:'Gr3 WAS delta (deg per ADS sample)'},
  // ── Gr4 Keya ──
  {id:23,n:'Gr4 Keya encoder'},{id:24,n:'Gr4 Keya gpsOffset'},{id:25,n:'Gr4 Keya actSpeed'},{id:26,n:'Gr4 Keya setSpeed'},
  {id:44,n:'Gr4 Keya wheel pos (deg)'},{id:45,n:'Gr4 Keya steering-wheel pos (deg)'},
@@ -2466,6 +3260,7 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/gpsraw")      != NULL) handleApiGpsRaw(client, reqLine);
     else if (strstr(reqLine, "/api/gpscmd")      != NULL) handleApiGpsCmd(client, reqLine);
     else if (strstr(reqLine, "/api/gpsbaud")     != NULL) handleApiGpsBaud(client, reqLine);
+    else if (strstr(reqLine, "/api/gpsrsp")      != NULL) handleApiGpsRsp(client, reqLine);
     else if (strstr(reqLine, "/api/keyaforceinit") != NULL) {
       // Manual force: set zero at current position and unlock (for testing, no GPS drive needed)
       moduleConfig.keyaZeroTicks = keyaEncoderRaw - (int32_t)(wheelAngleGPS * moduleConfig.keyaTicksPerDeg);
@@ -2480,6 +3275,9 @@ void handleWebClient()
     else if (strstr(reqLine, "/api/canscan")     != NULL) handleApiCanScan(client, reqLine);
     else if (strstr(reqLine, "/api/pved")        != NULL) handleApiPved(client, reqLine);
     else if (strstr(reqLine, "/api/calib")       != NULL) handleApiCalib(client, reqLine);
+    else if (strstr(reqLine, "/api/wascal")      != NULL) handleApiWasCal(client, reqLine);
+    else if (strstr(reqLine, "/api/wcstat")      != NULL) handleApiWasCalStatus(client, reqLine);
+    else if (strstr(reqLine, "/api/tm171")       != NULL) handleApiTm171(client, reqLine);
     else if (strstr(reqLine, "/api/keyacfg")     != NULL) handleApiKeyaCfg(client, reqLine);
     else if (strstr(reqLine, "/api/note")        != NULL) handleApiNote(client, reqLine, contentLen);
     else if (Autosteer_running && watchdogTimer < WATCHDOG_THRESHOLD) {
@@ -2659,6 +3457,7 @@ void handleApiStatus(EthernetClient& client)
     client.print(F(",\"gpsSerial\":")); client.print(moduleConfig.gpsSerial);
     client.print(F(",\"tm171Serial\":")); client.print(moduleConfig.tm171Serial);
     client.print(F(",\"tm171Baud\":")); client.print(moduleConfig.tm171Baud);
+    client.print(F(",\"tm171On\":")); client.print(useTMxx_IMU ? 1 : 0);
     client.print(F(",\"steerBrand\":")); client.print(moduleConfig.steerBrand);
     client.print(F(",\"disengageType\":")); client.print(moduleConfig.disengageType);
     client.print(F(",\"debugFlags\":")); client.print(moduleConfig.debugFlags);
@@ -2748,6 +3547,11 @@ float getSignalValue(uint8_t id)
     case 45: return (float)(keyaEncoderRaw - keyaPosRef) * 360.0f / 65536.0f;
     // Reference IMU wheel angle from the calibration bridge (PGN 0xD6)
     case 46: return refWheelAngle;
+    // TM171 status object
+    case 47: return useTMxx_IMU ? TM171_IMU.temp : 0;
+    case 48: return useTMxx_IMU ? (float)TM171_IMU.qos : 0;
+    // ADS angle change between two ADS samples
+    case 49: return wasDeltaDeg;
     default: return 0;
     }
 }
@@ -2838,6 +3642,7 @@ void handleApiGrp(EthernetClient& client, const char* req)
     case 2: { // IMU
         client.print(F("{\"bno\":"));  client.print((useBNO08xI2C || useBNO08xRVC) ? F("true") : F("false"));
         client.print(F(",\"tm\":"));   client.print(useTMxx_IMU ? F("true") : F("false"));
+        client.print(F(",\"imuSt\":")); client.print(imuWatchState());
         client.print(F(",\"bnoHdg\":"));   client.print(yaw / 10.0, 1);
         client.print(F(",\"bnoRoll\":"));  client.print(roll / 10.0, 1);
         client.print(F(",\"bnoPitch\":")); client.print(pitch / 10.0, 1);
@@ -2846,6 +3651,11 @@ void handleApiGrp(EthernetClient& client, const char* req)
         client.print(F(",\"tmRoll\":\""));   client.print(useTMxx_IMU ? TM171_IMU.getRollStr()  : "0"); client.print('"');
         client.print(F(",\"tmPitch\":\""));  client.print(useTMxx_IMU ? TM171_IMU.getPitchStr() : "0"); client.print('"');
         client.print(F(",\"tmYaw\":\""));    client.print(useTMxx_IMU ? imuYawRate : "0"); client.print('"');
+        if (useTMxx_IMU && TM171_IMU.statusMs) {
+            client.print(F(",\"tmTemp\":")); client.print(TM171_IMU.temp, 1);
+            client.print(F(",\"tmQos\":")); client.print(TM171_IMU.qos);
+            client.print(F(",\"tmQosTxt\":\"")); client.print(tm171QosText(TM171_IMU.qos)); client.print('"');
+        }
         client.print(F("}"));
         break;
     }
@@ -2962,16 +3772,10 @@ void handleApiLive(EthernetClient& client)
     calLiveVirtual();   // refresh live bike-angle candidates from the current reference reading
     client.print(F(",\"calBI\":")); client.print(calBikeInner, 1);
     client.print(F(",\"calBO\":")); client.print(calBikeOuter, 1);
-    // F07-style geometry check: AOG steer angle + geometry, for the Keya WAS Geometry scatter
+    // F07-style geometry check: AOG steer angle + geometry, for the WAS cal live check scatter
     client.print(F(",\"steerAngle\":")); client.print(steerAngleActual, 2);
     client.print(F(",\"wheelBase\":")); client.print(moduleConfig.wheelBase, 2);
     client.print(F(",\"trackT\":")); client.print(moduleConfig.keyaTrackT, 2);
-    // Geometry view: encoder ticks from the centre press, plus the two knobs that bend the
-    // tick->angle chain after the pure geometry (so the three angles can be told apart).
-    client.print(F(",\"relTicks\":")); client.print(keyaEncoderRaw - keyaPosRef);
-    client.print(F(",\"tpdL\":")); client.print(moduleConfig.keyaTicksLeft, 1);
-    client.print(F(",\"tpdR\":")); client.print(moduleConfig.keyaTicksRight, 1);
-    client.print(F(",\"ackFix\":")); client.print(steerSettings.AckermanFix, 3);  // fraction, 1.0 = 100 %
     client.print(F(",\"calState\":")); client.print(calState);
     client.print(F(",\"calMsg\":\"")); client.print(calMsg); client.print('"');
     client.print(F(",\"calSpeed\":")); client.print(calSpeed);
@@ -3119,6 +3923,13 @@ static void urlDecode(char* dst, const char* src, size_t maxLen)
         i++;
     }
     *dst = '\0';
+}
+
+void handleApiGpsRsp(EthernetClient& client, const char* req)
+{
+    if (strstr(req, "clear=1") != NULL) gpsRspLen = 0;
+    sendHeaders(client, "text/plain; charset=utf-8");
+    if (gpsRspLen > 0) sendBuf(client, (const uint8_t*)gpsRspBuf, gpsRspLen);
 }
 
 void handleApiGpsBaud(EthernetClient& client, const char* req)

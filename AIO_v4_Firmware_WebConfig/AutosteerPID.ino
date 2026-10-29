@@ -5,7 +5,7 @@ void calcSteeringPID(void)
     pValue_previous = pValue;
     pwmDrive = (int16_t)pValue;
 
-    errorAbs = abs(steerAngleError);
+    errorAbs = fabsf(steerAngleError);   // fabsf: abs() may truncate to int on some cores (no ramp below 1 deg)
     int16_t newMax = 0;
 
     if (errorAbs < LOW_HIGH_DEGREES)

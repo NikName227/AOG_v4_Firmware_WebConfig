@@ -41,6 +41,11 @@ char setupNote[EEP_NOTE_MAX + 1] = "";   // free-text setup note (EEPROM-persist
 bool useTMxx_IMU   = false;
 bool useBNO08xI2C  = false;
 bool useBNO08xRVC  = false;
+bool tm171Missing  = false;   // TM171 port set but not detected at boot (BNO not used)
+bool imuFrozen     = false;   // roll + heading unchanged >3 s while driving >2 km/h
+
+// TM171 port set (Serial1-8) → TM171 only, BNO085 ignored; 0 = Off → BNO085
+inline bool tm171Enabled() { return moduleConfig.tm171Serial >= 1 && moduleConfig.tm171Serial <= 8; }
 
 elapsedMillis TMxx_IMU_Timer = 0;
 
@@ -179,6 +184,12 @@ uint8_t  customEngLastBuf[8] = {0};  // last frame seen on configured ID (for Le
 bool     customEngSeen   = false;    // a frame with the configured ID has arrived
 bool     customEngMatch  = false;    // mask+match currently satisfied
 bool     adcConnected    = false;  // true if ADS1115 responded at boot
+
+// WAS source Keya + ADS (zWasFuse.h)
+WasFuse  wasFuse;
+char     wasFuseErr[40] = "";      // empty = fine; set while the steering is stopped
+float    wasDeltaDeg    = 0;       // ADS angle change between two ADS samples (live graph, WAS delta)
+uint32_t adsSampleSeq   = 0;       // counts ADS samples (readAdsRaw)
 bool logActive       = true;   // enabled on boot to capture setup messages
 
 // ── Graph sampling (Live tab → Graph) ────────────────────────────────────────
@@ -310,6 +321,9 @@ void  handleApiLog(EthernetClient& client, const char* req);
 void  handleApiGpsRaw(EthernetClient& client, const char* req);
 void  handleApiGpsCmd(EthernetClient& client, const char* req);
 void  handleApiGpsBaud(EthernetClient& client, const char* req);
+void  handleApiGpsRsp(EthernetClient& client, const char* req);
+void  handleApiTm171(EthernetClient& client, const char* req);
+void  tm171Loop();
 void  handleApiKeyaZero(EthernetClient& client);
 void  handleApiImuWasZero(EthernetClient& client);
 void  handleApiCanRaw(EthernetClient& client, const char* req);
@@ -340,6 +354,7 @@ void setup()
 
     // ── Load module config from EEPROM ──────────────────────────────────────
     moduleConfigLoad();
+    wasCalLoad();                       // F11 WAS calibration table (own EEPROM block)
 
     // ── Apply configurable serial port assignment ───────────────────────────
     SerialGPS = serialByNum(moduleConfig.gpsSerial);
@@ -385,10 +400,31 @@ void setup()
     SLOG("Setup complete, waiting for GPS...");
 }
 
-// ── IMU initialisation (respects moduleConfig.imuType) ────────────────────────
+// ── IMU initialisation ────────────────────────────────────────────────────────
+// TM171 port set (Serial1-8) → TM171 only, BNO085 not started even if connected.
+// TM171 Off → BNO085 per moduleConfig.imuType (Auto/I2C → I2C, RVC → Serial5).
 void setupIMU()
 {
     bool imuFound = false;
+
+    // ── TM171 (has priority when its port is set) ───────────────────────────
+    if (tm171Enabled())
+    {
+        webLogf("Checking TM171 on Serial%u (BNO085 not used)...", moduleConfig.tm171Serial);
+        Serial.print("Checking TM171 on Serial"); Serial.println(moduleConfig.tm171Serial);
+        TM171_IMU.setSerial(serialByNum(moduleConfig.tm171Serial));
+        TM171_IMU.begin(moduleConfig.tm171Baud);
+        delay(10);
+        if (TM171_IMU.detect(1000)) {
+            useTMxx_IMU = true;
+            SLOG("  TM171 detected!");
+        } else {
+            tm171Missing = true;
+            SLOG("  TM171 not found - no IMU (set TM171 to Off to use BNO085).");
+        }
+        return;
+    }
+    SLOG("TM171 Off - using BNO085.");
 
     // ── BNO085 RVC (UART Serial5) ───────────────────────────────────────────
     if (moduleConfig.imuType == IMU_BNO_RVC)
@@ -431,25 +467,8 @@ void setupIMU()
         }
     }
 
-    // ── TM171 ───────────────────────────────────────────────────────────────
-    if (!imuFound && (moduleConfig.imuType == IMU_AUTO ||
-                      moduleConfig.imuType == IMU_TM171))
-    {
-        SLOG("Checking TM171...");
-        TM171_IMU.setSerial(serialByNum(moduleConfig.tm171Serial));
-        TM171_IMU.begin(moduleConfig.tm171Baud);
-        delay(10);
-        if (TM171_IMU.detect(1000)) {
-            useTMxx_IMU = true;
-            imuFound = true;
-            SLOG("  TM171 detected!");
-        } else {
-            SLOG("  TM171 not found.");
-        }
-    }
-
-    if (!imuFound)
-        SLOG("No IMU found (or IMU_NONE selected).");
+    if (!imuFound && moduleConfig.imuType != IMU_BNO_RVC)
+        SLOG("No BNO085 found.");
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -520,9 +539,13 @@ void loop()
         TMxx_IMU_Timer = 0;
         readTM171();
     }
+    if (useTMxx_IMU) tm171Loop();
 
     // ── BNO085 RVC ──────────────────────────────────────────────────────────
-    if (moduleConfig.imuType == IMU_BNO_RVC) readBNO_RVC();
+    if (moduleConfig.imuType == IMU_BNO_RVC && !tm171Enabled()) readBNO_RVC();
+
+    // ── IMU freeze watchdog (message to AOG) ─────────────────────────────────
+    imuFreezeCheck();
 
     // ── IMU as WAS via CAN ──────────────────────────────────────────────────
     if (moduleConfig.wasSource == WAS_SOURCE_IMU_CAN) CAN1_Receive();
