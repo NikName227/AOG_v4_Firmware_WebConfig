@@ -8,6 +8,14 @@ auto-calibration rig.
 
 Everything is configured from a browser over Ethernet — settings persist in EEPROM.
 
+**OTA firmware update (from v1.0.24):** new firmware is uploaded from the same web page (Config tab → *Firmware update*), no USB cable needed. Conditions:
+- the first flash of v1.0.24 goes over USB once; after that every update can go over the web page;
+- the PIN must be entered (default `1234`, changeable on the card; 3 wrong PINs lock it for 60 s);
+- the vehicle stands still and autosteer is off (checked when the upload starts);
+- only a `.hex` of this firmware for the Teensy 4.1 is accepted (image header, CRC32 and firmware marker are checked before anything is overwritten);
+- during the upload GPS, IMU, CAN and steering pause and AgIO sees the module offline; the copy and restart take about 30 s — do not switch the power off;
+- if an update ever fails, the Teensy is recovered with its program button and USB; settings are kept.
+
 **[Open the web GUI demo](https://nikname227.github.io/AOG_v4_Firmware_WebConfig/demo/)** — the real page with empty data, to browse the tabs and options without a device (rebuilt with `python3 tools/make_demo.py`).
 
 ---
