@@ -333,6 +333,7 @@ void  handleApiGpsRsp(EthernetClient& client, const char* req);
 void  handleApiTm171(EthernetClient& client, const char* req);
 void  tm171Loop();
 void  otaPinLoad();
+void  otaBootDiag();
 void  otaLoop();
 void  otaModeLoop();
 void  handleApiOta(EthernetClient& client, const char* req, int contentLen);
@@ -368,6 +369,7 @@ void setup()
     moduleConfigLoad();
     wasCalLoad();                       // F11 WAS calibration table (own EEPROM block)
     otaPinLoad();                       // OTA update PIN (own EEPROM block)
+    otaBootDiag();                      // OTA: reset reason, crash report, did the last copy replace the firmware
 
     // ── Apply configurable serial port assignment ───────────────────────────
     SerialGPS = serialByNum(moduleConfig.gpsSerial);

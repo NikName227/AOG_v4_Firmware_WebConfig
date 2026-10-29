@@ -21,6 +21,47 @@ struct OtaPinStore { uint16_t magic; char pin[OTA_PIN_MAX + 1]; };
 static_assert(EEP_WASCAL_ADDR + sizeof(WasCalStore) <= EEP_OTA_ADDR, "WasCalStore overlaps the OTA PIN block");
 
 static uint8_t otaChunkBuf[OTA_CHUNK_MAX];
+static uint32_t otaSecBuf[OTA_SECTOR / 4];   // one sector in RAM: the flash cannot be read while it is being programmed
+
+// Diagnostics (v1.0.23d): record of the last apply in EEPROM, checked at the next boot; reset reason and CrashReport.
+#define EEP_OTA_DIAG_ADDR (EEP_OTA_ADDR + 16)
+#define OTA_DIAG_MAGIC    0x07D1
+struct OtaDiag { uint16_t magic; uint8_t state; uint8_t pad; uint32_t len, crc; };   // state 1 = apply started
+static char otaLastTxt[96] = "none";
+static char otaBootTxt[640] = "";
+class OtaStrPrint : public Print {
+public:
+    char* b; size_t n, cap;
+    OtaStrPrint(char* buf, size_t c) : b(buf), n(0), cap(c) { b[0] = 0; }
+    size_t write(uint8_t c) override
+    {
+        if (n + 1 >= cap) return 1;
+        if (c == '\r') return 1;
+        b[n++] = (c == '\n' || c == '\t') ? ' ' : (c == '"' ? '\'' : (c == '\\' ? '/' : (char)c));
+        b[n] = 0;
+        return 1;
+    }
+};
+
+// At boot: reset reason / crash report / breadcrumbs, and whether the last OTA copy really replaced the firmware.
+void otaBootDiag()
+{
+    OtaStrPrint sp(otaBootTxt, sizeof(otaBootTxt));
+    CrashReport.printTo(sp);                     // reset reason, a fault if there was one, OTA breadcrumbs
+    if (!otaBootTxt[0]) strcpy(otaBootTxt, "no report");
+    OtaDiag d;
+    EEPROM.get(EEP_OTA_DIAG_ADDR, d);
+    if (d.magic != OTA_DIAG_MAGIC || d.state != 1 || d.len < 2 * OTA_SECTOR || d.len > OTA_MAX_LEN || (d.len % OTA_SECTOR)) {
+        strcpy(otaLastTxt, "none"); return;
+    }
+    uint32_t n = d.len / OTA_SECTOR, diff = 0;
+    for (uint32_t sct = 0; sct < n; sct++)
+        if (memcmp((const void*)(OTA_FLASH_BASE + sct * OTA_SECTOR), (const void*)(OTA_BUF_ADDR + sct * OTA_SECTOR), OTA_SECTOR) != 0) diff++;
+    bool bufOk = otaCrc32(0, (const uint8_t*)OTA_BUF_ADDR, d.len) == d.crc;
+    if (diff == 0) snprintf(otaLastTxt, sizeof(otaLastTxt), "copy complete (%lu sectors)", (unsigned long)n);
+    else           snprintf(otaLastTxt, sizeof(otaLastTxt), "copy NOT done: %lu of %lu sectors differ%s", (unsigned long)diff, (unsigned long)n, bufOk ? "" : ", spare image damaged");
+    webLog(otaLastTxt);
+}
 
 void otaPinLoad()
 {
@@ -118,7 +159,10 @@ void handleApiOta(EthernetClient& client, const char* req, int contentLen)
         client.print(F(",\"mode\":")); client.print(otaMode.on ? 1 : 0);
         client.print(F(",\"pinDef\":")); client.print(strcmp(otaPin, OTA_PIN_DEFAULT) == 0 ? 1 : 0);
         client.print(F(",\"max\":")); client.print((unsigned long)OTA_MAX_LEN);
-        client.print(F(",\"ver\":\"" FW_VERSION "\"}"));
+        client.print(F(",\"up\":")); client.print((unsigned long)(millis() / 1000));
+        client.print(F(",\"last\":\"")); client.print(otaLastTxt);
+        client.print(F("\",\"boot\":\"")); client.print(otaBootTxt);
+        client.print(F("\",\"ver\":\"" FW_VERSION "\"}"));
         return;
     }
 
@@ -209,22 +253,31 @@ void handleApiOta(EthernetClient& client, const char* req, int contentLen)
 }
 
 // Copy the image over the running firmware. Runs from ITCM with every interrupt disabled; ends with a restart.
+// Breadcrumbs (CrashReport, RAM that survives a restart): #1 stage (1 entered, 2 copying, 3 restart reached),
+// #2 sectors done, #3 sectors erased and written, #4 sectors in the image.
 FASTRUN static void otaApplyNow(uint32_t nSectors)
 {
+    CrashReport.breadcrumb(1, 1); CrashReport.breadcrumb(2, 0); CrashReport.breadcrumb(3, 0); CrashReport.breadcrumb(4, nSectors);
     for (int i = 0; i < 160; i++) NVIC_DISABLE_IRQ(i);
     __disable_irq();
+    CrashReport.breadcrumb(1, 2);
+    uint32_t written = 0;
     for (uint32_t s = 0; s < nSectors; s++) {
         uint8_t* dst = (uint8_t*)(OTA_FLASH_BASE + s * OTA_SECTOR);
-        const uint8_t* src = (const uint8_t*)(OTA_BUF_ADDR + s * OTA_SECTOR);
+        const uint32_t* src = (const uint32_t*)(OTA_BUF_ADDR + s * OTA_SECTOR);
+        for (uint32_t i = 0; i < OTA_SECTOR / 4; i++) otaSecBuf[i] = src[i];       // read the spare image before programming
         for (int tries = 0; tries < 3; tries++) {
             bool same = true;
-            for (uint32_t i = 0; i < OTA_SECTOR; i += 4)
-                if (*(const uint32_t*)(dst + i) != *(const uint32_t*)(src + i)) { same = false; break; }
+            for (uint32_t i = 0; i < OTA_SECTOR / 4; i++)
+                if (((const uint32_t*)dst)[i] != otaSecBuf[i]) { same = false; break; }
             if (same) break;
             eepromemu_flash_erase_sector(dst);
-            for (uint32_t p = 0; p < OTA_SECTOR; p += OTA_PAGE) eepromemu_flash_write(dst + p, src + p, OTA_PAGE);
+            for (uint32_t p = 0; p < OTA_SECTOR; p += OTA_PAGE) eepromemu_flash_write(dst + p, (const uint8_t*)otaSecBuf + p, OTA_PAGE);
+            written++;
         }
+        CrashReport.breadcrumb(2, s + 1); CrashReport.breadcrumb(3, written);
     }
+    CrashReport.breadcrumb(1, 3);
     SCB_AIRCR = 0x05FA0004;                        // restart into the new firmware
     while (true) {}
 }
@@ -239,6 +292,8 @@ void otaLoop()
         otaApplyPending = false;
         const char* blk = otaBlock();
         if (blk) { otaSess.fail(blk); otaLeave("OTA: not applied (vehicle moving / autosteer on), running again"); return; }
+        OtaDiag d = { OTA_DIAG_MAGIC, 1, 0, otaSess.total, otaSess.crc };
+        EEPROM.put(EEP_OTA_DIAG_ADDR, d);           // checked at the next boot (otaBootDiag)
         Serial.println("OTA: applying"); Serial.flush();
         otaApplyNow(otaSess.total / OTA_SECTOR);
     }

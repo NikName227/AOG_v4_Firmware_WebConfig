@@ -334,6 +334,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <div class="row"><span class="lbl">Firmware file (.hex)</span><input type="file" id="fwFile" accept=".hex" onchange="fwPick()"></div>
 <div class="row"><span class="lbl">Booted</span><span class="val" id="fwBoot">&mdash;</span></div>
 <div class="row"><span class="lbl">Build</span><span class="val" id="fwBuild">&mdash;</span></div>
+<div class="row"><span class="lbl">Last OTA</span><span class="val" id="fwLast" style="font-size:12px">&mdash;</span></div>
+<div class="row"><span class="lbl">Last restart</span><span class="val" id="fwRst" style="font-size:11px;white-space:normal;text-align:right">&mdash;</span></div>
 <div class="row"><span class="lbl">Image</span><span class="val" id="fwInfo">no file chosen</span></div>
 <div class="row"><span class="lbl">PIN <small style="color:#64748b">(def: 1234)</small></span>
 <input type="password" id="fwPin" maxlength="8" inputmode="numeric" autocomplete="off" class="ninput"></div>
@@ -1642,7 +1644,7 @@ function saveNote() {
 }
 
 // ── Firmware update (OTA): the hex is parsed here, the Teensy gets a binary image in 1 KB chunks ──────────────
-var fwImg = null, fwCrc = 0, fwCrcTab = null;
+var fwImg = null, fwCrc = 0, fwCrcTab = null, fwImgVer = '';
 function fwCrc32(u8, a, b) {
   if (!fwCrcTab) { fwCrcTab = new Uint32Array(256); for (var i = 0; i < 256; i++) { var c = i; for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); fwCrcTab[i] = c >>> 0; } }
   var crc = 0xFFFFFFFF;
@@ -1685,12 +1687,30 @@ function fwBootTxt() {
 function fwBootInit(d) {
   if (d.up !== undefined) { fwBootAt = Date.now() - d.up * 1000; document.getElementById('fwBoot').textContent = fwBootTxt(); }
   if (d.build) document.getElementById('fwBuild').textContent = d.build;
+  fwDiag();
   if (!window.fwBootTimer) window.fwBootTimer = setInterval(function() { if (fwBootAt) document.getElementById('fwBoot').textContent = fwBootTxt(); }, 1000);
   var test = !!d.fwVer && d.fwVer.indexOf('otatest') >= 0, b = document.getElementById('otaBanner');
   b.style.display = test ? '' : 'none';
   b.textContent = test ? 'OTA TEST BUILD ' + d.fwVer + (d.build ? '  |  ' + d.build : '') : '';
   document.title = test ? 'OTA TEST ' + d.fwVer : 'AIO v4 Config';
   ['tabKeya', 'tabCan', 'tabDebug'].forEach(function(id) { var e = document.getElementById(id); if (e) e.style.display = test ? 'none' : ''; });
+}
+function fwDiag() {                      // last OTA result and restart report from the Teensy
+  return fetch('/api/ota?cmd=status', { cache: 'no-store' }).then(function(r) { return r.json(); }).then(function(st) {
+    if (st.last !== undefined) document.getElementById('fwLast').textContent = st.last;
+    if (st.boot !== undefined) document.getElementById('fwRst').textContent = st.boot;
+    return st;
+  }).catch(function() {});
+}
+function fwImgVersion(img) {              // the "fwVer" text in the image (the JSON of /api/status)
+  var key = '{"fw' + 'Ver":"', k = key.length;   // split, so this page (also in the image) does not match itself
+  outer: for (var i = 0; i + k < img.length; i++) {
+    if (img[i] !== 123) continue;
+    for (var j = 1; j < k; j++) if (img[i + j] !== key.charCodeAt(j)) continue outer;
+    var v = ''; for (var q = i + k; q < img.length && img[q] !== 34 && v.length < 40; q++) v += String.fromCharCode(img[q]);
+    if (/^v\d/.test(v)) return v;
+  }
+  return '';
 }
 function fwSay(t, bad) { var e = document.getElementById('fwMsg'); e.textContent = t; e.style.color = bad ? '#f87171' : ''; }
 function fwPick() {
@@ -1704,8 +1724,8 @@ function fwPick() {
       var u32 = function(o) { return (img[o] | (img[o + 1] << 8) | (img[o + 2] << 16) | (img[o + 3] << 24)) >>> 0; };
       if (u32(0) !== 0x42464346 || u32(0x50) !== 0x00800000 || u32(0x1000) !== 0x432000D1) throw new Error('not a Teensy 4.1 image');
       if (!fwImgHas(img, 'AIO4-OTA-FW-T41')) throw new Error('not an AIO v4 WebConfig image with update support (flash this one over USB)');
-      fwImg = img; fwCrc = fwCrc32(img, 0, img.length);
-      document.getElementById('fwInfo').textContent = Math.round(img.length / 1024) + ' KB, CRC ' + fwCrc.toString(16).padStart(8, '0') + ' \u2014 checked';
+      fwImg = img; fwCrc = fwCrc32(img, 0, img.length); fwImgVer = fwImgVersion(img);
+      document.getElementById('fwInfo').textContent = (fwImgVer || '?') + ', ' + Math.round(img.length / 1024) + ' KB, CRC ' + fwCrc.toString(16).padStart(8, '0') + ' \u2014 checked';
       document.getElementById('fwBtn').disabled = false; fwSay('Ready. Enter the PIN and press Upload.');
     } catch (e) { document.getElementById('fwInfo').textContent = 'refused'; fwSay(e.message, true); }
   };
@@ -1736,12 +1756,22 @@ async function fwUpload() {
     j = await fwApi('cmd=end&tok=' + tok, '');
     if (!j.ok) throw new Error(j.err || 'image refused');
     bar.value = 100; fwSay('Updating - the Teensy restarts, do not switch the power off (about 30 s)...');
+    // success only when the new version runs and the Teensy really restarted after the upload
     var t0 = Date.now(), up = false;
     while (Date.now() - t0 < 120000 && !up) {
       await new Promise(function(res) { setTimeout(res, 3000); });
       if (Date.now() - t0 < 9000) continue;
-      try { var st = await (await fetch('/api/ota?cmd=status', { cache: 'no-store' })).json(); if (st.ver) { up = true; fwSay('Done. Firmware ' + st.ver + ' is running. Reloading...'); setTimeout(function() { location.reload(); }, 1500); } }
-      catch (e) {}
+      try {
+        var st = await (await fetch('/api/ota?cmd=status', { cache: 'no-store' })).json();
+        if (!st.ver) continue;
+        up = true;
+        var since = (Date.now() - t0) / 1000, restarted = st.up !== undefined && st.up <= since + 3;
+        document.getElementById('fwLast').textContent = st.last || '\u2014';
+        document.getElementById('fwRst').textContent = st.boot || '\u2014';
+        if (restarted && (!fwImgVer || st.ver === fwImgVer)) { fwSay('Done. Firmware ' + st.ver + ' is running. Reloading...'); setTimeout(function() { location.reload(); }, 2500); }
+        else if (!restarted) fwSay('Firmware NOT replaced: the Teensy did not restart (up ' + st.up + ' s, still ' + st.ver + ').', true);
+        else fwSay('Firmware NOT replaced: the Teensy restarted with ' + st.ver + ' instead of ' + fwImgVer + '. Last OTA: ' + (st.last || '?'), true);
+      } catch (e) {}
     }
     if (!up) fwSay('The Teensy does not answer yet. Wait a minute and reload the page.', true);
   } catch (e) { fwSay('Update failed: ' + e.message, true); btn.disabled = false; }
