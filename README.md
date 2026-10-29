@@ -213,6 +213,7 @@ then run the motorized calibration from the web GUI. See
 
 ## Build & flash
 
+- **Ready-made hex:** `firmware/AIO_v4_v1.0.20.hex` can be uploaded directly with Teensy Loader, no build needed (see `firmware/README.md`).
 - **Arduino IDE** with Teensyduino. Open `AIO_v4_Firmware_WebConfig/` and select
   Teensy 4.1, USB Serial, 450 MHz.
 - Libraries: NativeEthernet, FlexCAN_T4, Wire, EEPROM (Teensy core).

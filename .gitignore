@@ -30,3 +30,6 @@ desktop.ini
 # Local-only, ne dijeli se u repo (Claude dir, moj lokalni setup/compile naputak)
 .claude/
 Teensy_arduinosetup.png
+
+# ready-to-flash release builds
+!firmware/*.hex
