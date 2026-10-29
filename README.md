@@ -215,6 +215,7 @@ then run the motorized calibration from the web GUI. See
 
 ## Build & flash
 
+- **Over the air (from v1.0.21):** Config tab → *Firmware update*. Choose a `.hex`, enter the PIN (default `1234`, changeable on the same card), press *Upload and update*. The page converts the hex, the Teensy checks every chunk and the whole image (CRC32, Teensy 4.1 image header, firmware marker), copies it over itself and restarts. Only with the vehicle stopped and autosteer off. Do not switch the power off during the update; if it ever fails, press the program button and flash over USB. The first flash of v1.0.21 itself must go over USB.
 - **Ready-made hex:** `firmware/AIO_v4_v1.0.20.hex` can be uploaded directly with Teensy Loader, no build needed (see `firmware/README.md`).
 - **Arduino IDE** with Teensyduino. Open `AIO_v4_Firmware_WebConfig/` and select
   Teensy 4.1, USB Serial, 450 MHz.

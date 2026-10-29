@@ -185,6 +185,13 @@ bool     customEngSeen   = false;    // a frame with the configured ID has arriv
 bool     customEngMatch  = false;    // mask+match currently satisfied
 bool     adcConnected    = false;  // true if ADS1115 responded at boot
 
+// OTA firmware update (zOta.h / zOta.ino)
+OtaSession otaSess;
+OtaGuard   otaGuard;
+char       otaPin[OTA_PIN_MAX + 1] = OTA_PIN_DEFAULT;
+bool       otaApplyPending = false;
+uint32_t   otaApplyAt = 0;
+
 // WAS source Keya + ADS (zWasFuse.h)
 WasFuse  wasFuse;
 char     wasFuseErr[40] = "";      // empty = fine; set while the steering is stopped
@@ -324,6 +331,9 @@ void  handleApiGpsBaud(EthernetClient& client, const char* req);
 void  handleApiGpsRsp(EthernetClient& client, const char* req);
 void  handleApiTm171(EthernetClient& client, const char* req);
 void  tm171Loop();
+void  otaPinLoad();
+void  otaLoop();
+void  handleApiOta(EthernetClient& client, const char* req, int contentLen);
 void  handleApiKeyaZero(EthernetClient& client);
 void  handleApiImuWasZero(EthernetClient& client);
 void  handleApiCanRaw(EthernetClient& client, const char* req);
@@ -355,6 +365,7 @@ void setup()
     // ── Load module config from EEPROM ──────────────────────────────────────
     moduleConfigLoad();
     wasCalLoad();                       // F11 WAS calibration table (own EEPROM block)
+    otaPinLoad();                       // OTA update PIN (own EEPROM block)
 
     // ── Apply configurable serial port assignment ───────────────────────────
     SerialGPS = serialByNum(moduleConfig.gpsSerial);
@@ -540,6 +551,7 @@ void loop()
         readTM171();
     }
     if (useTMxx_IMU) tm171Loop();
+    otaLoop();
 
     // ── BNO085 RVC ──────────────────────────────────────────────────────────
     if (moduleConfig.imuType == IMU_BNO_RVC && !tm171Enabled()) readBNO_RVC();
