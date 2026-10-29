@@ -43,12 +43,33 @@ public:
     }
 };
 
+// Hardware watchdog (WDOG3 / RTWDOG, 32 kHz LPO clock, /256) only while the copy runs: a stall anywhere restarts the
+// Teensy after about 3 s, and the breadcrumbs (RAM) survive that restart.
+#define OTA_WDOG_TOVAL   384u                 // 3 s at 32768 Hz / 256
+#define OTA_WDOG_UNLOCK  0xD928C520u
+#define OTA_WDOG_REFRESH 0xB480A602u
+// First thing in setup(): a watchdog still running from an OTA copy is stopped before it can restart the new firmware.
+void otaWdogOff()
+{
+    CCM_CCGR5 |= CCM_CCGR5_WDOG3(3);
+    if (!(WDOG3_CS & WDOG_CS_EN)) return;
+    __disable_irq();
+    WDOG3_CNT = OTA_WDOG_UNLOCK;
+    for (uint32_t i = 0; i < 100000 && !(WDOG3_CS & WDOG_CS_ULK); i++) {}
+    WDOG3_TOVAL = 0xFFFF;
+    WDOG3_WIN = 0;
+    WDOG3_CS = WDOG_CS_CMD32EN | WDOG_CS_CLK(1) | WDOG_CS_UPDATE;          // EN = 0
+    __enable_irq();
+    Serial.println("OTA: watchdog from the update stopped");
+}
+
 // At boot: reset reason / crash report / breadcrumbs, and whether the last OTA copy really replaced the firmware.
 void otaBootDiag()
 {
     OtaStrPrint sp(otaBootTxt, sizeof(otaBootTxt));
     CrashReport.printTo(sp);                     // reset reason, a fault if there was one, OTA breadcrumbs
     if (!otaBootTxt[0]) strcpy(otaBootTxt, "no report");
+    if (strcmp(otaLastTxt, "none") == 0) { Serial.print("OTA restart report: "); Serial.println(otaBootTxt); }
     OtaDiag d;
     EEPROM.get(EEP_OTA_DIAG_ADDR, d);
     if (d.magic != OTA_DIAG_MAGIC || d.state != 1 || d.len < 2 * OTA_SECTOR || d.len > OTA_MAX_LEN || (d.len % OTA_SECTOR)) {
@@ -61,6 +82,8 @@ void otaBootDiag()
     if (diff == 0) snprintf(otaLastTxt, sizeof(otaLastTxt), "copy complete (%lu sectors)", (unsigned long)n);
     else           snprintf(otaLastTxt, sizeof(otaLastTxt), "copy NOT done: %lu of %lu sectors differ%s", (unsigned long)diff, (unsigned long)n, bufOk ? "" : ", spare image damaged");
     webLog(otaLastTxt);
+    Serial.print("OTA last: "); Serial.println(otaLastTxt);
+    Serial.print("OTA restart report: "); Serial.println(otaBootTxt);
 }
 
 void otaPinLoad()
@@ -254,12 +277,22 @@ void handleApiOta(EthernetClient& client, const char* req, int contentLen)
 
 // Copy the image over the running firmware. Runs from ITCM with every interrupt disabled; ends with a restart.
 // Breadcrumbs (CrashReport, RAM that survives a restart): #1 stage (1 entered, 2 copying, 3 restart reached),
-// #2 sectors done, #3 sectors erased and written, #4 sectors in the image.
+// #2 sectors done, #3 sectors erased and written, #4 sectors in the image, #5 watchdog armed (1).
 FASTRUN static void otaApplyNow(uint32_t nSectors)
 {
     CrashReport.breadcrumb(1, 1); CrashReport.breadcrumb(2, 0); CrashReport.breadcrumb(3, 0); CrashReport.breadcrumb(4, nSectors);
+    CrashReport.breadcrumb(5, 0);
     for (int i = 0; i < 160; i++) NVIC_DISABLE_IRQ(i);
     __disable_irq();
+    // arm the watchdog: 3 s, refreshed after every sector
+    CCM_CCGR5 |= CCM_CCGR5_WDOG3(3);
+    WDOG3_CNT = OTA_WDOG_UNLOCK;
+    for (uint32_t i = 0; i < 100000 && !(WDOG3_CS & WDOG_CS_ULK); i++) {}
+    WDOG3_WIN = 0;
+    WDOG3_TOVAL = OTA_WDOG_TOVAL;
+    WDOG3_CS = WDOG_CS_CMD32EN | WDOG_CS_PRES | WDOG_CS_CLK(1) | WDOG_CS_UPDATE | WDOG_CS_FLG | WDOG_CS_EN;
+    for (uint32_t i = 0; i < 100000 && !(WDOG3_CS & WDOG_CS_RCS); i++) {}
+    CrashReport.breadcrumb(5, (WDOG3_CS & WDOG_CS_EN) ? 1 : 0);
     CrashReport.breadcrumb(1, 2);
     uint32_t written = 0;
     for (uint32_t s = 0; s < nSectors; s++) {
@@ -276,10 +309,12 @@ FASTRUN static void otaApplyNow(uint32_t nSectors)
             written++;
         }
         CrashReport.breadcrumb(2, s + 1); CrashReport.breadcrumb(3, written);
+        WDOG3_CNT = OTA_WDOG_REFRESH;
     }
     CrashReport.breadcrumb(1, 3);
+    WDOG3_CNT = OTA_WDOG_REFRESH;
     SCB_AIRCR = 0x05FA0004;                        // restart into the new firmware
-    while (true) {}
+    while (true) {}                                // if that restart does not come, the watchdog restarts in 3 s
 }
 
 void otaLoop()

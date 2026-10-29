@@ -334,6 +334,7 @@ void  handleApiTm171(EthernetClient& client, const char* req);
 void  tm171Loop();
 void  otaPinLoad();
 void  otaBootDiag();
+void  otaWdogOff();
 void  otaLoop();
 void  otaModeLoop();
 void  handleApiOta(EthernetClient& client, const char* req, int contentLen);
@@ -350,6 +351,7 @@ void  handleApiSave(EthernetClient& client, const char* req);
 // ══════════════════════════════════════════════════════════════════════════════
 void setup()
 {
+    otaWdogOff();                       // OTA: stop a watchdog left running by an update copy (before the 3 s run out)
     delay(500);
     set_arm_clock(450000000);
     Serial.println("\r\n** AIO v4 WebConfig - " __DATE__ " **\r\n");
