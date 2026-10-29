@@ -144,16 +144,17 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 </style>
 </head>
 <body>
+<div id="otaBanner" style="display:none;background:#c2410c;color:#fff7ed;text-align:center;padding:8px 10px;font:bold 15px sans-serif;letter-spacing:1px"></div>
 <h1>&#9881; AIO v4 | Web Config <span id="fwVer" style="font-size:12px;color:#64748b;font-weight:normal"></span></h1>
 <div id="sb">Connecting to Teensy...</div>
 <div class="tabs">
 <button class="tab active" onclick="showTab('config',this)">Config</button>
 <button class="tab" onclick="showTab('live',this)">Live</button>
 <button class="tab" id="tabTm171" onclick="showTab('tm171',this)" style="display:none">TM171</button>
-<button class="tab" onclick="showTab('keya',this)">Keya</button>
+<button class="tab" id="tabKeya" onclick="showTab('keya',this)">Keya</button>
 <button class="tab" onclick="showTab('wascal',this)">WAS cal</button>
-<button class="tab" onclick="showTab('cansteer',this)">CAN Steer</button>
-<button class="tab" onclick="showTab('debug',this)">Debug</button>
+<button class="tab" id="tabCan" onclick="showTab('cansteer',this)">CAN Steer</button>
+<button class="tab" id="tabDebug" onclick="showTab('debug',this)">Debug</button>
 <button class="tab" onclick="showTab('um98x',this)">UM98x Config</button>
 </div>
 
@@ -331,6 +332,8 @@ textarea.gps-ta{width:100%;height:110px;background:#050d1a;border:1px solid #334
 <h2>Firmware update <span id="fwCardVer" class="badge ok" style="margin-left:auto">&mdash;</span></h2>
 <p style="color:#94a3b8;font-size:12px;line-height:1.4">Upload a <b>.hex</b> built for this firmware (Teensy 4.1). The vehicle must stand still and autosteer must be off. During the upload the Teensy pauses GPS, IMU, CAN and steering; AgIO sees it offline until the update ends. Do not switch the power off during the update (about 30 s). If it fails, press the program button on the Teensy and flash over USB.</p>
 <div class="row"><span class="lbl">Firmware file (.hex)</span><input type="file" id="fwFile" accept=".hex" onchange="fwPick()"></div>
+<div class="row"><span class="lbl">Booted</span><span class="val" id="fwBoot">&mdash;</span></div>
+<div class="row"><span class="lbl">Build</span><span class="val" id="fwBuild">&mdash;</span></div>
 <div class="row"><span class="lbl">Image</span><span class="val" id="fwInfo">no file chosen</span></div>
 <div class="row"><span class="lbl">PIN <small style="color:#64748b">(def: 1234)</small></span>
 <input type="password" id="fwPin" maxlength="8" inputmode="numeric" autocomplete="off" class="ninput"></div>
@@ -1384,6 +1387,7 @@ function yn(v) { return v ? 'YES' : 'NO'; }
 
 function upd(d) {
   if (d.fwVer) { document.getElementById('fwVer').textContent = d.fwVer; document.getElementById('fwCardVer').textContent = d.fwVer; }
+  fwBootInit(d);
   badge('k_det', d.detected.keya);
   badge('k_zero', d.keya_was.initialZeroDone);
   document.getElementById('k_enc').textContent = d.keya_was.encoderRaw + ' ticks';
@@ -1671,6 +1675,22 @@ function fwParseHex(txt) {
 function fwImgHas(img, s) {
   outer: for (var i = 0; i + s.length <= img.length; i++) { if (img[i] !== s.charCodeAt(0)) continue; for (var k = 1; k < s.length; k++) if (img[i + k] !== s.charCodeAt(k)) continue outer; return true; }
   return false;
+}
+// Uptime and build time prove that a flash really restarted the Teensy; an "otatest" build looks different on purpose.
+var fwBootAt = 0;
+function fwBootTxt() {
+  var s = Math.max(0, Math.round((Date.now() - fwBootAt) / 1000)), m = Math.floor(s / 60);
+  return (m ? m + ' min ' : '') + (s % 60) + ' s ago';
+}
+function fwBootInit(d) {
+  if (d.up !== undefined) { fwBootAt = Date.now() - d.up * 1000; document.getElementById('fwBoot').textContent = fwBootTxt(); }
+  if (d.build) document.getElementById('fwBuild').textContent = d.build;
+  if (!window.fwBootTimer) window.fwBootTimer = setInterval(function() { if (fwBootAt) document.getElementById('fwBoot').textContent = fwBootTxt(); }, 1000);
+  var test = !!d.fwVer && d.fwVer.indexOf('otatest') >= 0, b = document.getElementById('otaBanner');
+  b.style.display = test ? '' : 'none';
+  b.textContent = test ? 'OTA TEST BUILD ' + d.fwVer + (d.build ? '  |  ' + d.build : '') : '';
+  document.title = test ? 'OTA TEST ' + d.fwVer : 'AIO v4 Config';
+  ['tabKeya', 'tabCan', 'tabDebug'].forEach(function(id) { var e = document.getElementById(id); if (e) e.style.display = test ? 'none' : ''; });
 }
 function fwSay(t, bad) { var e = document.getElementById('fwMsg'); e.textContent = t; e.style.color = bad ? '#f87171' : ''; }
 function fwPick() {
@@ -3088,6 +3108,8 @@ var gSignals = [
  {id:17,n:'Gr3 WAS ADS raw'},{id:18,n:'Gr3 WAS IMU raw'},{id:19,n:'Gr3 WAS IMU scaled'},
  {id:20,n:'Gr3 WAS chassis yawRate'},{id:21,n:'Gr3 WAS wheelAngleGPS'},{id:22,n:'Gr3 WAS actual'},
  {id:49,n:'Gr3 WAS delta (deg per ADS sample)'},
+ // ── Test signals (synthetic, to check the graph) ──
+ {id:60,n:'Test sine (+-10, 10 s)'},{id:61,n:'Test step (0-10 in 2 steps of 2, 2 s each)'},{id:62,n:'Test triangle (0-10, 8 s)'},{id:63,n:'Test noise (+-1)'},
  // ── Gr4 Keya ──
  {id:23,n:'Gr4 Keya encoder'},{id:24,n:'Gr4 Keya gpsOffset'},{id:25,n:'Gr4 Keya actSpeed'},{id:26,n:'Gr4 Keya setSpeed'},
  {id:44,n:'Gr4 Keya wheel pos (deg)'},{id:45,n:'Gr4 Keya steering-wheel pos (deg)'},
@@ -3441,7 +3463,8 @@ void handleApiStatus(EthernetClient& client)
 {
     sendHeaders(client, "application/json");
 
-    client.print(F("{\"fwVer\":\"" FW_VERSION "\""));
+    client.print(F("{\"fwVer\":\"" FW_VERSION "\",\"up\":")); client.print((unsigned long)(millis() / 1000));
+    client.print(F(",\"build\":\"" __DATE__ " " __TIME__ "\""));
     client.print(F(",\"detected\":{"));
     client.print(F("\"bno_rvc\":")); client.print(useBNO08xRVC  ? F("true") : F("false"));
     client.print(F(",\"bno_i2c\":")); client.print(useBNO08xI2C ? F("true") : F("false"));
@@ -3668,6 +3691,11 @@ float getSignalValue(uint8_t id)
     case 48: return useTMxx_IMU ? (float)TM171_IMU.qos : 0;
     // ADS angle change between two ADS samples
     case 49: return wasDeltaDeg;
+    // synthetic test signals
+    case 60: return 10.0f * sinf(6.2831853f * (millis() % 10000UL) / 10000.0f);
+    case 61: return 2.0f * (float)((millis() / 2000UL) % 6);
+    case 62: { float ph = (millis() % 8000UL) / 8000.0f; return 10.0f * (ph < 0.5f ? 2.0f * ph : 2.0f - 2.0f * ph); }
+    case 63: return random(-100, 101) / 100.0f;
     default: return 0;
     }
 }
