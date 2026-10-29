@@ -10,13 +10,46 @@ Everything is configured from a browser over Ethernet — settings persist in EE
 
 ---
 
+## What is included (firmware v1.0.20)
+
+**GPS module (UM980 / UM982 / u-blox F9P)**
+- Input: `$GGA` (position, fix, sats, HDOP), `$VTG` (speed, course), `$HPR` (UM98x dual-antenna heading, roll, quality) and UBX `RELPOS` (F9P dual heading).
+- Output to AgIO: `$PANDA` or `$PAOGI`, plus PGN 221 messages (RTK lost, heading antenna lost, WAS / TM171 faults).
+- Optional J1939 / NMEA 2000 GPS broadcast (PGN 65267, 65256, 129029).
+
+**IMU options** (Data Source card; auto-detect or forced)
+- BNO085 over UART (RVC) or over I2C.
+- TM171 (SYD Dynamics) over UART, roll / pitch / heading, temperature and QoS.
+- No IMU; heading and roll can also come from the GPS (`$HPR` / `RELPOS`).
+- Wheel-mounted IMU over CAN as a WAS (IMU-as-WAS, with GPS auto-zero).
+
+**WAS (wheel angle sensor) sources**
+- ADS1115 analog sensor (AOG counts, or a calibrated table).
+- Keya motor encoder.
+- Keya + ADS1115: the Keya encoder gives the angle, the ADS1115 pulls its offset slowly; ADS jumps are cut, any fault stops the steering (no fallback).
+- IMU over CAN.
+- CAN valve feedback of a steer-ready tractor.
+
+**Steer motor / valve**
+- Keya brushless CAN motor.
+- PWM motor driver (speed-direction disengage).
+- Steer-ready CAN valves: Claas, Valtra / Massey / McCormick, CaseIH / New Holland, Fendt, FendtOne, JCB, Lindner, Cat / Challenger, AgOpenGPS (V_Bus / ISO_Bus / K_Bus engage, J1939 address claim, PVED-CL tool).
+
+**Configuration tools in the web GUI**
+- **TM171 tab** (visible only with an active TM171): parametrisation (magnetometer, filters, gains, output rate, boot mode, flash save; values that differ from the default are orange), gyro calibration (start, finish now, undo), new-install calibration, temperature, QoS and an AgIO message when QoS stays below 4.
+- **Keya tab**: motor parametrisation over CAN (max current, speed Kp / Ki, CAN bitrate), wheel test, steering geometry, dead zone, ticks per degree, motorised auto-calibration with a reference IMU.
+- **WAS cal tab**: calibration wizard with a reference IMU, manual table (wheel angle typed at both locks and centre), table from counts per degree, Flip, Set centre now (ADS and Keya together), straight-driving zero, steering limits, Keya extension past the table ends, Keya + ADS fusion parameters, live view with a WAS delta graph signal.
+- **UM98x tab**: UM980 (single) and UM982 (dual) presets; every line is sent and the receiver's `response: OK` is awaited (green = OK, red = error and stop), baud change with rollback, final `CONFIG` read-back compared with the sent lines, model detection with `VERSION`.
+
+---
+
 ## Hardware / platform
 
 - **MCU:** Teensy 4.1 (IMXRT1062, 600 MHz, clocked to 450 MHz)
 - **Net:** NativeEthernet (wired) — AgIO + web GUI on the same link
 - **CAN:** 3× FlexCAN_T4 ports (CAN1/CAN2/CAN3), each freely assignable
 - **IMU:** BNO085 (I2C or RVC/UART), TM171 (UART)
-- **WAS:** ADS1115 analog, Keya encoder, IMU-via-CAN, or CAN valve feedback
+- **WAS:** ADS1115 analog, Keya encoder, Keya + ADS1115, IMU-via-CAN, or CAN valve feedback
 - **GPS:** single or dual (UM98x `$HPR`, or u-blox F9P `RELPOS`)
 
 Resource use (typical build): FLASH ~6 %, RAM1 ~69 % (≈164 KB stack free),
@@ -93,7 +126,7 @@ source) trigger a deferred reboot from the web server.
 
 ### GPS / heading / roll — selectable data sources
 - **Data Source** card lets you pick, per channel:
-  - **WAS:** ADS1115 / Keya encoder / IMU-via-CAN / CAN valve
+  - **WAS:** ADS1115 / Keya encoder / IMU-via-CAN / CAN valve / Keya + ADS1115
   - **Roll:** IMU (BNO085/TM171) or HPR (dual GPS)
   - **Heading:** IMU / HPR (UM980/UM982) / RELPOS (dual u-blox F9P)
   - **NMEA type to AgIO:** `$PANDA` or `$PAOGI`
@@ -147,10 +180,12 @@ CaseIH/NH, Fendt, JCB, FendtOne, Lindner, AgOpenGPS, Cat/Challenger (Late/Early)
 |---|---|
 | **Config** | Detected devices · Data Source · Serial port assignment · CAN port assignment · AgIO settings (read-only) · motor/IMU-WAS disengage params |
 | **Live** | *Values* (7 groups: GPS / IMU / WAS / Keya / Steer / CAN Steer) + *Graph* (4 signals, dual axis, freq 1–10 Hz, pause/zoom/pan, CSV export) |
+| **WAS cal** | wizard · manual / counts-per-degree table · Flip · Set centre · fusion parameters (Keya + ADS) · scatter check |
+| **TM171** | settings · gyro calibration · new install · diagnostics (only with an active TM171) |
 | **Keya** | *Tuning* (status, steering geometry, WAS params, auto-calibration) + *Motor Config* (CAN parameters + wheel test) |
 | **CAN Steer** | Brand · Custom CAN engage · live valve status · CAN scan · CAN plot · PVED tool · J1939 broadcast |
 | **Debug** | Debug flags (GPS, CAN, disengage trigger) · serial log (toggleable capture) |
-| **UM98x** | GPS command console · raw GPS serial log |
+| **UM98x** | UM980 / UM982 presets with verified upload · GPS command console · raw GPS serial log |
 
 ### Key `/api/*` endpoints
 `status` (full config), `live` (compact live), `grp?g=N` (one Live group),
