@@ -8,6 +8,8 @@ auto-calibration rig.
 
 Everything is configured from a browser over Ethernet — settings persist in EEPROM.
 
+**[Open the web GUI demo](https://nikname227.github.io/AOG_v4_Firmware_WebConfig/demo/)** — the real page with empty data, to browse the tabs and options without a device (rebuilt with `python3 tools/make_demo.py`).
+
 ---
 
 ## What is included (firmware v1.0.20)
