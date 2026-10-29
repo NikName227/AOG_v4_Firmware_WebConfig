@@ -3348,11 +3348,12 @@ restartTick();
 // ── Helper: send buffer in 512-byte chunks ────────────────────────────────────
 void sendBuf(EthernetClient& client, const uint8_t* p, size_t len)
 {
+    uint8_t fails = 0;                       // a browser that went away: give up instead of retrying for seconds
     while (len > 0 && client.connected()) {
         size_t chunk = (len > 512) ? 512 : len;
         size_t sent  = client.write(p, chunk);
-        if (sent == 0) delay(5);
-        else { p += sent; len -= sent; }
+        if (sent == 0 || sent > chunk) { if (++fails >= 10) break; delay(5); }
+        else { fails = 0; p += sent; len -= sent; }
     }
 }
 

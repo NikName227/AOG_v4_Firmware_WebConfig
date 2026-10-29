@@ -12,7 +12,7 @@ Everything is configured from a browser over Ethernet — settings persist in EE
 
 ---
 
-## What is included (firmware v1.0.20)
+## What is included (firmware v1.0.24)
 
 **GPS module (UM980 / UM982 / u-blox F9P)**
 - Input: `$GGA` (position, fix, sats, HDOP), `$VTG` (speed, course), `$HPR` (UM98x dual-antenna heading, roll, quality) and UBX `RELPOS` (F9P dual heading).
@@ -36,6 +36,8 @@ Everything is configured from a browser over Ethernet — settings persist in EE
 - Keya brushless CAN motor.
 - PWM motor driver (speed-direction disengage).
 - Steer-ready CAN valves: Claas, Valtra / Massey / McCormick, CaseIH / New Holland, Fendt, FendtOne, JCB, Lindner, Cat / Challenger, AgOpenGPS (V_Bus / ISO_Bus / K_Bus engage, J1939 address claim, PVED-CL tool).
+
+**Firmware update over the web page** (OTA, PIN protected; only with the vehicle stopped and autosteer off).
 
 **Configuration tools in the web GUI**
 - **TM171 tab** (visible only with an active TM171): parametrisation (magnetometer, filters, gains, output rate, boot mode, flash save; values that differ from the default are orange), gyro calibration (start, finish now, undo), new-install calibration, temperature, QoS and an AgIO message when QoS stays below 4.
@@ -215,8 +217,8 @@ then run the motorized calibration from the web GUI. See
 
 ## Build & flash
 
-- **Over the air (from v1.0.21):** Config tab → *Firmware update*. Choose a `.hex`, enter the PIN (default `1234`, changeable on the same card), press *Upload and update*. The page converts the hex, the Teensy checks every chunk and the whole image (CRC32, Teensy 4.1 image header, firmware marker), copies it over itself and restarts. Only with the vehicle stopped and autosteer off. Do not switch the power off during the update; if it ever fails, press the program button and flash over USB. The first flash of v1.0.21 itself must go over USB.
-- **Ready-made hex:** `firmware/AIO_v4_v1.0.20.hex` can be uploaded directly with Teensy Loader, no build needed (see `firmware/README.md`).
+- **Over the air (from v1.0.24):** Config tab → *Firmware update*. Choose a `.hex`, enter the PIN (default `1234`, changeable on the same card), press *Upload and update*. The page converts the hex, the Teensy checks every chunk and the whole image (CRC32, Teensy 4.1 image header, firmware marker), copies it over itself and restarts. Only with the vehicle stopped and autosteer off. Do not switch the power off during the update; if it ever fails, press the program button and flash over USB. The first flash of v1.0.24 itself must go over USB.
+- **Ready-made hex:** `firmware/AIO_v4_v1.0.24.hex` can be uploaded directly with Teensy Loader, no build needed (see `firmware/README.md`).
 - **Arduino IDE** with Teensyduino. Open `AIO_v4_Firmware_WebConfig/` and select
   Teensy 4.1, USB Serial, 450 MHz.
 - Libraries: NativeEthernet, FlexCAN_T4, Wire, EEPROM (Teensy core).

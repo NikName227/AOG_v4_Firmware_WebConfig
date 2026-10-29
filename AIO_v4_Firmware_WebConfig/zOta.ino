@@ -69,11 +69,12 @@ void otaBootDiag()
     OtaStrPrint sp(otaBootTxt, sizeof(otaBootTxt));
     CrashReport.printTo(sp);                     // reset reason, a fault if there was one, OTA breadcrumbs
     if (!otaBootTxt[0]) strcpy(otaBootTxt, "no report");
-    if (strcmp(otaLastTxt, "none") == 0) { Serial.print("OTA restart report: "); Serial.println(otaBootTxt); }
     OtaDiag d;
     EEPROM.get(EEP_OTA_DIAG_ADDR, d);
     if (d.magic != OTA_DIAG_MAGIC || d.state != 1 || d.len < 2 * OTA_SECTOR || d.len > OTA_MAX_LEN || (d.len % OTA_SECTOR)) {
-        strcpy(otaLastTxt, "none"); return;
+        strcpy(otaLastTxt, "none");
+        Serial.print("OTA restart report: "); Serial.println(otaBootTxt);
+        return;
     }
     uint32_t n = d.len / OTA_SECTOR, diff = 0;
     for (uint32_t sct = 0; sct < n; sct++)
